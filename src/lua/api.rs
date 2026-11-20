@@ -75,7 +75,7 @@ const TYPES: &str = "\
 ---@field done boolean Enter was pressed.
 ---@field cancel boolean Escape was pressed.
 
----@alias Color integer[] { r, g, b } or { r, g, b, a }, each an integer from 0 to 255; the alpha is 255 (opaque) where left out. What frame:light, frame:daylight and frame:fog take is { r, g, b } alone. (c.light and c.effects take numbers from 0 to 1 or \"#rrggbb\" instead.)
+---@alias Color string|number[] A color: \"#rrggbb\", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, \"#rrggbbaa\" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. (Until the upgrade of Voxcade 0.7, c.light's and c.effects' colors are three numbers from 0 to 1, or \"#rrggbb\".)
 
 ---@class Place A named place of a level (level.places.NAME, level.arrived): where a player arrives, or a thing is put with thing:place.
 ---@field x number Across, east, in voxels.
@@ -89,17 +89,17 @@ const TYPES: &str = "\
 ---@field model? string Its model, to draw it (frame:model).
 ---@field stack integer How many one inventory holds at most.
 
----@class Daylight A picture's daylight (frame:daylight); what it leaves out is what c.light says. Its colors are integers from 0 to 255, c.light's numbers from 0 to 1.
+---@class Daylight A picture's daylight (frame:daylight); what it leaves out is what c.light says. Its colors are Colors.
 ---@field sun? number[] The way the sunlight travels, { x, y, z } with z below 0 (towards the ground).
----@field sun_color? Color The sunlight's color and strength, { r, g, b } from 0 to 255: white at noon, warm at dusk, a pale blue moon.
+---@field sun_color? Color The sunlight's color (a darker one shines weaker): white at noon, warm at dusk, a pale blue moon.
 ---@field ambient? number Light every face gets, 0 to 1.
 ---@field shadow? number How much a shadow darkens, 0 to 1.
----@field sky? Color The background's color, { r, g, b } from 0 to 255.
+---@field sky? Color The background's color.
 
 ---@class Light A light as frame:light{ ... } writes it, the words a level's light takes too; at and radius are needed.
 ---@field at Thing|Point|number[] Where it shines from: a thing (its middle) or a point { x, y, z } in voxels.
 ---@field radius number How far it reaches, voxels.
----@field color? Color Its color and strength, { r, g, b } with each an integer from 0 to 255 (not 0 to 1, as c.light's are), white unless set.
+---@field color? Color Its color (a darker one shines weaker), white unless set.
 ---@field falloff? number How it fades to its radius: (1 - distance / radius) to this power, 0 to 16 (2 unless set; lower reaches further bright).
 ---@field cone? number A spot: its cone's whole opening angle, 1 to 360 degrees; left out, it shines every way.
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
@@ -108,9 +108,9 @@ const TYPES: &str = "\
 ---@field shadows? string What stops it: \"static\" (the level's voxels and its pieces), \"all\" (moving things too: figures, things, models drawn) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
 ---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
 
----@class Fog A picture's fog (frame:fog); what it leaves out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow). Its color is integers from 0 to 255, c.light.fog_color's numbers from 0 to 1.
+---@class Fog A picture's fog (frame:fog); what it leaves out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow). Its color is a Color.
 ---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
----@field color? Color The fog's own color where no lamp lights it, { r, g, b } from 0 to 255.
+---@field color? Color The fog's own color where no lamp lights it.
 ---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
 ---@field glow? number How brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1: as the air would; 4 a stage's haze).
 
@@ -406,11 +406,11 @@ pub const API: &[Item] = &[
     Item { of: "level", name: "voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "integer" },
         doc: "The voxel at a cell: its palette index, 0 empty (a solid piece's cells too: its model draws them, level:solid says they \
             block)." },
-    Item { of: "level", name: "set_voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer"), ("voxel", "integer|string|nil")], returns: "" },
-        doc: "Sets the voxel at a cell: a color as a string \"#rrggbb\" (taken into the level's palette), a palette index (an integer), or nil or 0 for empty. A cell \
+    Item { of: "level", name: "set_voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer"), ("voxel", "integer|Color|nil")], returns: "" },
+        doc: "Sets the voxel at a cell: a Color (taken into the level's palette), a palette index (an integer), or nil or 0 for empty. A cell \
             outside the level (level.size) is a mistake: the game halts." },
-    Item { of: "level", name: "fill", what: Method { params: &[("x0", "integer"), ("y0", "integer"), ("z0", "integer"), ("x1", "integer"), ("y1", "integer"), ("z1", "integer"), ("voxel", "integer|string|nil")], returns: "" },
-        doc: "Fills the box from one corner cell to the other, both included, like set_voxel: a color string \"#rrggbb\", a palette index or nil/0 (only what of the box lies inside the level); nil or \
+    Item { of: "level", name: "fill", what: Method { params: &[("x0", "integer"), ("y0", "integer"), ("z0", "integer"), ("x1", "integer"), ("y1", "integer"), ("z1", "integer"), ("voxel", "integer|Color|nil")], returns: "" },
+        doc: "Fills the box from one corner cell to the other, both included, like set_voxel: a Color, a palette index or nil/0 (only what of the box lies inside the level); nil or \
             0 empties it. A level made in code (c.world.size) is built this way." },
     Item { of: "level", name: "solid", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "boolean" },
         doc: "Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the \
@@ -679,13 +679,13 @@ pub const API: &[Item] = &[
             nearest quarter turn. A model's pivot is the middle cell of its size across and deep: of an even size one voxel off the middle, \
             so facing -y or sideways it fills cells a voxel further on the flipped axis (use odd sizes where that matters)." },
     Item { of: "frame", name: "cube", what: Method { params: &[("x", "number"), ("y", "number"), ("z", "number"), ("color?", "Color"), ("glow?", "number")], returns: "" },
-        doc: "Draws one voxel in the level, at x, y, z in the level's voxels. Its color is { r, g, b } or { r, g, b, a }, each an integer from 0 to 255 (white unless given); the alpha is 255, opaque, where left out, and below it the voxel is see-through. glow is 0 (none) to 1." },
+        doc: "Draws one voxel in the level, at x, y, z in the level's voxels. Its color is a Color (white unless given), with a fourth value below 255 see-through. glow is 0 (none) to 1." },
     Item { of: "frame", name: "light", what: Method { params: &[("at", "Thing|Point|Light"), ("radius?", "number"), ("color?", "Color")], returns: "" },
         doc: "Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } \
             with the words a level's light takes too. These two forms only: more words go in the table.\n\
             - at: where it shines from, in voxels: a thing (its middle, half its height over its feet) or a point, { x, y, z } or { x =, y =, z = }.\n\
             - radius: how far it reaches, voxels, above 0.\n\
-            - color: its color and strength, { r, g, b } with each an integer from 0 to 255 (not 0 to 1, as c.light's are), white unless set.\n\
+            - color: its color, a Color (a darker one shines weaker), white unless set.\n\
             - falloff: how it fades to its radius, (1 - distance / radius) to this power, 0 to 16, 2 unless set. Lower reaches further bright.\n\
             - cone: a spot, its whole opening angle in degrees, 1 to 360; left out (or 360), it shines every way.\n\
             - blend: how much of the cone's edge is soft, 0 to 1, 0.15 unless set.\n\
@@ -698,15 +698,15 @@ pub const API: &[Item] = &[
             stops no light and tints none.\n\
             - fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },
-        doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is what c.light says (its sun, sun_color, ambient, shadow, sky).\nColors here are { r, g, b } with each an integer from 0 to 255, while c.light's colors are numbers from 0 to 1 (or \"#rrggbb\").\n- sun: the way its light \
-            travels, { x, y, z } with z below 0.\n- sun_color: its color and strength, { r, g, b } from 0 to 255, white unless set.\n- ambient: the light every face \
-            gets, 0 to 1. shadow: how dark shadows are, 0 to 1.\n- sky: the sky's color, { r, g, b } from 0 to 255.\nWork it out from your game's clock every picture: \
+        doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is what c.light says (its sun, sun_color, ambient, shadow, sky).\n- sun: the way its light \
+            travels, { x, y, z } with z below 0.\n- sun_color: its color, a Color (a darker one shines weaker), white unless set.\n- ambient: the light every face \
+            gets, 0 to 1. shadow: how dark shadows are, 0 to 1.\n- sky: the sky's color, a Color.\nWork it out from your game's clock every picture: \
             the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the \
             game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level." },
     Item { of: "frame", name: "fog", what: Method { params: &[("fog", "Fog")], returns: "" },
         doc: "Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further \
-            fades to the fog's color. What you leave out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow).\nThe color here is { r, g, b } with each an integer from 0 to 255, while c.light.fog_color is three numbers from 0 to 1 (or \"#rrggbb\").\n- density: how thick, 0 to 1 (0.004 a light haze in a big hall, \
-            0.03 thick; 0 none).\n- color: the fog's own color where no lamp lights it, { r, g, b } from 0 to 255 (dark at night).\n- anisotropy: above 0 a beam \
+            fades to the fog's color. What you leave out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow).\n- density: how thick, 0 to 1 (0.004 a light haze in a big hall, \
+            0.03 thick; 0 none).\n- color: the fog's own color where no lamp lights it, a Color (dark at night).\n- anisotropy: above 0 a beam \
             is brighter looking towards its lamp, below 0 looking away (0: alike).\n- glow: how brightly it shows the lamps' light, 0 to 20; the \
             dimming is the density's alone (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). Higher \
             is never fainter, and a beam never gets brighter than its lamp's light (times the light's fog).\nWalls stop a lamp's beam where they stop its light (shadows); a light's fog \
@@ -744,7 +744,7 @@ pub const API: &[Item] = &[
             pointer says (input.pointer.hud), index the slot." },
     Item { of: "frame", name: "text", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width \
-            across, frame.height down).\n- color: { r, g, b } or { r, g, b, a }, each an integer from 0 to 255; the alpha is 255 where left out.\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \
+            across, frame.height down).\n- color: a Color, a fourth value see-through.\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \
             in braces is its key as the player sees it: \"PRESS {jump}\" writes PRESS X, or the pad's button (controls:key). {{ writes a \
             brace.\nWritten as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ \
             ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals." },
@@ -764,13 +764,13 @@ pub const API: &[Item] = &[
     Item { of: "frame", name: "text_width", what: Method { params: &[("text", "string"), ("size?", "integer")], returns: "number" },
         doc: "How many UI voxels wide the text is at that size (for centring and putting it at the right edge)." },
     Item { of: "frame", name: "box", what: Method { params: &[("x", "number"), ("y", "number"), ("width", "number"), ("height", "number"), ("color?", "Color")], returns: "" },
-        doc: "Draws a filled box on the screen, its top left at x, y, in UI voxels. color: { r, g, b } or { r, g, b, a }, each an integer from 0 to 255; the alpha is 255 where left out." },
+        doc: "Draws a filled box on the screen, its top left at x, y, in UI voxels. color: a Color, a fourth value see-through." },
     Item { of: "frame", name: "bar", what: Method { params: &[("x", "number"), ("y", "number"), ("width", "number"), ("height", "number"), ("fraction", "number"), ("color?", "Color"), ("back?", "Color")], returns: "" },
         doc: "Draws a bar on the screen filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red \
-            unless given), back the rest, each { r, g, b } or { r, g, b, a } with integers from 0 to 255 (alpha 255 where left out)." },
+            unless given), back the rest, each a Color, a fourth value see-through." },
     Item { of: "frame", name: "icon", what: Method { params: &[("name", "string"), ("x", "number"), ("y", "number")], returns: "" },
         doc: "Draws a small picture of c.icons on the screen, its top left at x, y: c.icons.heart = { rows = { \".RR.RR.\", ... }, colors = \
-            { R = { 214, 36, 44 } } }: a letter's color is { r, g, b } or { r, g, b, a } with integers from 0 to 255." },
+            { R = { 214, 36, 44 } } }: a letter's color is a Color, a fourth value see-through." },
     Item { of: "frame", name: "drop_in", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("ticks", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME \
             OVER, a stage's name. Before 0 nothing shows. color and size as frame:text's." },
@@ -935,7 +935,7 @@ Space: x east, y north, z up, in voxels. A voxel at cell x, y, z fills from x to
 Angles are degrees. rotation turns clockwise seen from above, north (+y) 0, east 90; the camera's yaw is a rotation (0 looks north). pitch tips a model's nose or a light's spot up above 0; the camera's pitch (c.camera.pitch, frame:camera) is degrees below the horizon, so 90 looks straight down.
 Time: a tick is 1/60 of a second (world.tick counts them). Speeds are voxels a second, accelerations voxels a second per second; fades, a round's life and the like are seconds, and whatever is counted in ticks says so.
 The HUD (frame:text, frame:box ...) is measured in UI voxels from the top left of the screen; c.ui.height of them make the screen's height.
-Colors: c.light.* and c.effects.* take three numbers from 0 to 1 or \"#rrggbb\"; frame:light, frame:daylight and frame:fog take { r, g, b } with integers from 0 to 255; frame:cube, text, box, bar, drop_in and c.icons take { r, g, b } or { r, g, b, a } with integers from 0 to 255 (alpha 255 where left out); level:set_voxel, level:fill, c.transition.color and c.title_screen.logo_colors take \"#rrggbb\".
+Colors: one rule everywhere (the type Color): \"#rrggbb\", or { r, g, b } with numbers from 0 to 255; a fourth value (\"#rrggbbaa\", { r, g, b, a }) only where a color can be see-through: frame:cube, text, box, bar, drop_in and an icon's letters. Until the upgrade of Voxcade 0.7, c.light's and c.effects' colors are three numbers from 0 to 1 (or \"#rrggbb\").
 Levels, places, items, kinds and families are named by strings (world:go_to(\"hall\", \"door\"), thing:take(\"key\"), level:spawn(\"bat\", x, y)). A name that does not exist is a mistake, found as the game loads where its files allow it (a level's prop that names a place), else at the call. level:thing(name) is the one that answers nil for a name that is not there.";
 
 /// The order of a tick, as the engine runs it (`LuaGame::step`).
@@ -1628,6 +1628,7 @@ fn lua_of(rust: &str) -> String {
         "bool" => "boolean".into(),
         "String" => "string".into(),
         "SeatKinds" | "Songs" => "string|string[]".into(),
+        r if r.starts_with("crate::color::") => "Color".into(),
         r if r.starts_with('(') => "any[]".into(),
         r if r.contains("Table") || r.contains("Bindings") => "table".into(),
         r if !conf_keys(r).is_empty() => "table".into(),

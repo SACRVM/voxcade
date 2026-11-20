@@ -848,12 +848,12 @@ fn frame_fog_takes_its_words() {
 #[test]
 fn the_lights_mistakes_say_what_is_wanted() {
     for (call, says) in [
-        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, color = { 1, 0.5, 0.2 } }", "frame:light: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 1, 0.5, 0.2 }"),
-        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, color = { 600, 0, 0 } }", "frame:light: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 600, 0, 0 }"),
-        ("frame:light({ x = 1, y = 2, z = 3 }, 20, { 0.5, 0.5, 0.5 })", "frame:light: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 0.5, 0.5, 0.5 }"),
-        ("frame:fog{ density = 0.01, color = { 0.1, 0.1, 0.2 } }", "frame:fog: color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 0.1, 0.1, 0.2 }"),
-        ("frame:daylight{ sky = { 0.1, 0.2, 0.9 } }", "frame:daylight: sky is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 0.1, 0.2, 0.9 }"),
-        ("frame:daylight{ sun_color = { 300, 0, 0 } }", "frame:daylight: sun_color is a color, { r, g, b } with each a whole number from 0 to 255 (not from 0 to 1), not { 300, 0, 0 }"),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, color = { 1, 0.5, 0.2 } }", "frame:light: color: { 1, 0.5, 0.2 } reads as numbers from 0 to 1, but a color's are from 0 to 255: write { 255, 127.5, 51 } or \"#ff8033\""),
+        ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, color = { 600, 0, 0 } }", "frame:light: color: { 600, 0, 0 }: each number is from 0 to 255, not 600"),
+        ("frame:light({ x = 1, y = 2, z = 3 }, 20, { 0.5, 0.5, 0.5 })", "frame:light: color: { 0.5, 0.5, 0.5 } reads as numbers from 0 to 1"),
+        ("frame:fog{ density = 0.01, color = { 0.1, 0.1, 0.2 } }", "frame:fog: color: { 0.1, 0.1, 0.2 } reads as numbers from 0 to 1"),
+        ("frame:daylight{ sky = { 0.1, 0.2, 0.9 } }", "frame:daylight: sky: { 0.1, 0.2, 0.9 } reads as numbers from 0 to 1"),
+        ("frame:daylight{ sun_color = { 300, 0, 0 } }", "frame:daylight: sun_color: { 300, 0, 0 }: each number is from 0 to 255, not 300"),
         ("frame:light(player, 30, { 255, 200, 100 }, { cone = 30 })", "frame:light: a fourth argument is not taken; the rest of a light's words go in a table: frame:light{ at = player, radius = 30, color = { 255, 200, 120 }, cone = 30 }"),
         ("frame:light{ at = { x = 1, y = 2, z = 3 }, radius = 20, shadows = \"dynamic\" }", "frame:light: shadows: \"dynamic\" is none of \"none\", \"static\", \"all\" (\"none\": it shines through walls, \"static\": the level's voxels and pieces stop it, \"all\": moving things too)"),
         // A radius the short form gave unchecked, and one past a float.

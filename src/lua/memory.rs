@@ -162,9 +162,8 @@ impl Record {
                     Value::Str(s) => String::from_utf8_lossy(s).to_string(),
                     _ => anyhow::bail!("{what}.palette[{i}]: a colour, \"#rrggbbaa\""),
                 };
-                let hex = text.strip_prefix('#').filter(|h| h.len() == 8 && h.chars().all(|c| c.is_ascii_hexdigit()));
-                let Some(hex) = hex else { anyhow::bail!("{what}.palette[{i}] = \"{text}\": a colour is \"#rrggbbaa\"") };
-                palette.push((i, [0, 2, 4, 6].map(|k| u8::from_str_radix(&hex[k..k + 2], 16).expect("hex digits"))));
+                let Some(color) = crate::color::hex(&text) else { anyhow::bail!("{what}.palette[{i}] = \"{text}\": a colour is \"#rrggbbaa\" (or \"#rrggbb\")") };
+                palette.push((i, color));
             }
         }
         Ok(Record { left, things, voxels, palette, size, hash: 0 })

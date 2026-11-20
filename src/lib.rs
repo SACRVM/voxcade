@@ -8,6 +8,7 @@ pub mod audio;
 pub mod blocks;
 pub mod camera;
 pub mod cli;
+pub mod color;
 pub mod config;
 pub mod editor;
 pub mod files;

@@ -2,6 +2,7 @@
 //! with a world made in code.
 
 mod camera;
+mod colors;
 mod course;
 mod events;
 mod given;

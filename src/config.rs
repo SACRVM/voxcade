@@ -275,8 +275,8 @@ impl StateConfig {
 pub struct IconConfig {
     /// Its rows from the top, a letter a colour of `colors`, `.` empty.
     pub rows: Vec<String>,
-    /// A letter's color: { red, green, blue } or { red, green, blue, alpha }, each an integer from 0 to 255 (alpha 255 where left out).
-    pub colors: BTreeMap<String, Vec<u8>>,
+    /// A letter's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255, a fourth value see-through.
+    pub colors: BTreeMap<String, crate::color::setting::SeeThrough>,
 }
 
 impl IconConfig {
@@ -285,8 +285,8 @@ impl IconConfig {
         let mut out = Vec::new();
         for (r, row) in self.rows.iter().enumerate() {
             for (c, ch) in row.chars().enumerate() {
-                if let Some(rgb) = self.colors.get(ch.to_string().as_str()) {
-                    out.push((c, r, [rgb[0], rgb[1], rgb[2], rgb.get(3).copied().unwrap_or(255)]));
+                if let Some(color) = self.colors.get(ch.to_string().as_str()) {
+                    out.push((c, r, color.0.bytes()));
                 }
             }
         }
@@ -298,12 +298,9 @@ impl IconConfig {
         if self.rows.is_empty() {
             return Err(format!("{what}.rows: the picture's rows from the top, one string each"));
         }
-        for (letter, rgb) in &self.colors {
+        for letter in self.colors.keys() {
             if letter.chars().count() != 1 || letter == "." {
                 return Err(format!("{what}.colors.{letter}: one letter names a color (\".\" is empty)"));
-            }
-            if !(3..=4).contains(&rgb.len()) {
-                return Err(format!("{what}.colors.{letter}: red, green, blue (and alpha), 0 to 255"));
             }
         }
         for (r, row) in self.rows.iter().enumerate() {
@@ -498,11 +495,11 @@ pub struct TitleScreenConfig {
     pub at: Option<[f32; 2]>,
     /// Voxels across the screen there (default: `c.camera.view_width`).
     pub view_width: Option<f32>,
-    /// The logo, a line each (default: the game's title), and their
-    /// colours as "#rrggbb".
+    /// The logo, a line each (default: the game's title); `logo_colors`
+    /// colors them.
     pub logo: Vec<String>,
-    /// Each logo line's colour, "#rrggbb".
-    pub logo_colors: Vec<String>,
+    /// Each logo line's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    pub logo_colors: Vec<crate::color::setting::Opaque>,
     /// How high each logo line's capitals are, in UI voxels.
     pub logo_heights: Vec<u32>,
     /// Which logo line drips (blood).
@@ -724,7 +721,7 @@ pub const RANGES: &[Bound] = &[
 /// The numbers of `conf.lua` that may be any number of their type: a
 /// place on the ground (`player.spawn`: below 0 the world's middle), an
 /// order, a version, points, a quarter turn checked as it is read.
-pub const FREE: &[&str] = &["player.spawn[]", "title_screen.at[]", "title_screen.props[].at[]", "title_screen.props[].rotation", "items.*.order", "saves.version", "high_scores[][]", "icons.*.colors.*[]"];
+pub const FREE: &[&str] = &["player.spawn[]", "title_screen.at[]", "title_screen.props[].at[]", "title_screen.props[].rotation", "items.*.order", "saves.version", "high_scores[][]"];
 
 /// The range of the number at `path` (as `RANGES` writes it, `light.sun[3]`
 /// before `light.sun[]`), if it has one.
@@ -813,7 +810,7 @@ fn color<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
     let wrong = || serde::de::Error::custom(COLOR_IS);
     match Written::deserialize(d).map_err(|_: D::Error| wrong())? {
         Written::Numbers(c) => Ok(c),
-        Written::Text(t) => crate::grid::hex(&t).map(|c| c.map(|v| f32::from(v) / 255.0)).ok_or_else(wrong),
+        Written::Text(t) => crate::color::hex(&t).filter(|_| t.len() == 7).map(|[r, g, b, _]| [r, g, b].map(|v| f32::from(v) / 255.0)).ok_or_else(wrong),
     }
 }
 
@@ -966,10 +963,9 @@ pub struct FollowHeight {
 pub struct LightConfig {
     /// Direction the sunlight travels (towards the ground).
     pub sun: [f32; 3],
-    /// The sunlight's color and strength, three numbers from 0 to 1 or
-    /// "#rrggbb": white unless set (warm at dusk, a pale blue for the
-    /// moon). `frame:daylight` sets it for one picture, with numbers from
-    /// 0 to 255.
+    /// The sunlight's color, three numbers from 0 to 1 or "#rrggbb" (a
+    /// darker one shines weaker): white unless set (warm at dusk, a pale
+    /// blue for the moon). `frame:daylight` sets it for one picture.
     #[serde(deserialize_with = "color")]
     pub sun_color: [f32; 3],
     /// Light that reaches every face, 0..1.
@@ -1022,7 +1018,7 @@ pub struct LightConfig {
     /// or what lies further fades to a dark veil. A game's `frame:fog` sets
     /// it for one picture.
     pub fog_density: f32,
-    /// The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". `frame:fog` sets it for one picture, with numbers from 0 to 255.
+    /// The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". `frame:fog` sets it for one picture.
     #[serde(deserialize_with = "color")]
     pub fog_color: [f32; 3],
     /// How much the fog sends a lamp's light on ahead rather than back,
@@ -1109,8 +1105,8 @@ impl Default for DebrisConfig {
 pub struct TransitionConfig {
     /// Seconds out and seconds in; 0: a cut.
     pub fade: f32,
-    /// The color faded through, a string "#rrggbb" (not numbers).
-    pub color: String,
+    /// The color faded through, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    pub color: crate::color::setting::Opaque,
     /// A length of its own for a reason the level is left (a puzzle
     /// game's quick restart: `restart = 0`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1128,7 +1124,7 @@ pub struct TransitionConfig {
 
 impl Default for TransitionConfig {
     fn default() -> Self {
-        Self { fade: 0.3, color: "#000000".into(), go_to: None, restart: None, won: None, lost: None }
+        Self { fade: 0.3, color: crate::color::setting::Opaque(crate::color::Color { rgba: [0.0, 0.0, 0.0, 255.0] }), go_to: None, restart: None, won: None, lost: None }
     }
 }
 
@@ -1145,11 +1141,9 @@ impl TransitionConfig {
         own.unwrap_or(self.fade).max(0.0)
     }
 
-    /// The colour as 0..1 (black when it is no "#rrggbb").
+    /// The color as 0 to 1, as the picture takes it.
     pub fn rgb(&self) -> [f32; 3] {
-        let hex = self.color.trim_start_matches('#');
-        let c = |i: usize| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(0) as f32 / 255.0;
-        if hex.len() == 6 { [c(0), c(2), c(4)] } else { [0.0; 3] }
+        self.color.0.unit()
     }
 }
 

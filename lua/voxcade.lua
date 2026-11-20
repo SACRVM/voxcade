@@ -41,7 +41,7 @@
 ---@field done boolean Enter was pressed.
 ---@field cancel boolean Escape was pressed.
 
----@alias Color integer[] { r, g, b } or { r, g, b, a }, each an integer from 0 to 255; the alpha is 255 (opaque) where left out. What frame:light, frame:daylight and frame:fog take is { r, g, b } alone. (c.light and c.effects take numbers from 0 to 1 or "#rrggbb" instead.)
+---@alias Color string|number[] A color: "#rrggbb", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, "#rrggbbaa" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. (Until the upgrade of Voxcade 0.7, c.light's and c.effects' colors are three numbers from 0 to 1, or "#rrggbb".)
 
 ---@class Place A named place of a level (level.places.NAME, level.arrived): where a player arrives, or a thing is put with thing:place.
 ---@field x number Across, east, in voxels.
@@ -55,17 +55,17 @@
 ---@field model? string Its model, to draw it (frame:model).
 ---@field stack integer How many one inventory holds at most.
 
----@class Daylight A picture's daylight (frame:daylight); what it leaves out is what c.light says. Its colors are integers from 0 to 255, c.light's numbers from 0 to 1.
+---@class Daylight A picture's daylight (frame:daylight); what it leaves out is what c.light says. Its colors are Colors.
 ---@field sun? number[] The way the sunlight travels, { x, y, z } with z below 0 (towards the ground).
----@field sun_color? Color The sunlight's color and strength, { r, g, b } from 0 to 255: white at noon, warm at dusk, a pale blue moon.
+---@field sun_color? Color The sunlight's color (a darker one shines weaker): white at noon, warm at dusk, a pale blue moon.
 ---@field ambient? number Light every face gets, 0 to 1.
 ---@field shadow? number How much a shadow darkens, 0 to 1.
----@field sky? Color The background's color, { r, g, b } from 0 to 255.
+---@field sky? Color The background's color.
 
 ---@class Light A light as frame:light{ ... } writes it, the words a level's light takes too; at and radius are needed.
 ---@field at Thing|Point|number[] Where it shines from: a thing (its middle) or a point { x, y, z } in voxels.
 ---@field radius number How far it reaches, voxels.
----@field color? Color Its color and strength, { r, g, b } with each an integer from 0 to 255 (not 0 to 1, as c.light's are), white unless set.
+---@field color? Color Its color (a darker one shines weaker), white unless set.
 ---@field falloff? number How it fades to its radius: (1 - distance / radius) to this power, 0 to 16 (2 unless set; lower reaches further bright).
 ---@field cone? number A spot: its cone's whole opening angle, 1 to 360 degrees; left out, it shines every way.
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
@@ -74,9 +74,9 @@
 ---@field shadows? string What stops it: "static" (the level's voxels and its pieces), "all" (moving things too: figures, things, models drawn) or "none" (it shines through). Left out, c.light.lamp_shadows says ("static" unless set); a light's own word beats it.
 ---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
 
----@class Fog A picture's fog (frame:fog); what it leaves out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow). Its color is integers from 0 to 255, c.light.fog_color's numbers from 0 to 1.
+---@class Fog A picture's fog (frame:fog); what it leaves out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow). Its color is a Color.
 ---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
----@field color? Color The fog's own color where no lamp lights it, { r, g, b } from 0 to 255.
+---@field color? Color The fog's own color where no lamp lights it.
 ---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
 ---@field glow? number How brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1: as the air would; 4 a stage's haze).
 
@@ -259,21 +259,21 @@ local Level = {}
 ---@return integer
 function Level:voxel(x, y, z) end
 
----Sets the voxel at a cell: a color as a string "#rrggbb" (taken into the level's palette), a palette index (an integer), or nil or 0 for empty. A cell outside the level (level.size) is a mistake: the game halts.
+---Sets the voxel at a cell: a Color (taken into the level's palette), a palette index (an integer), or nil or 0 for empty. A cell outside the level (level.size) is a mistake: the game halts.
 ---@param x integer
 ---@param y integer
 ---@param z integer
----@param voxel integer|string|nil
+---@param voxel integer|Color|nil
 function Level:set_voxel(x, y, z, voxel) end
 
----Fills the box from one corner cell to the other, both included, like set_voxel: a color string "#rrggbb", a palette index or nil/0 (only what of the box lies inside the level); nil or 0 empties it. A level made in code (c.world.size) is built this way.
+---Fills the box from one corner cell to the other, both included, like set_voxel: a Color, a palette index or nil/0 (only what of the box lies inside the level); nil or 0 empties it. A level made in code (c.world.size) is built this way.
 ---@param x0 integer
 ---@param y0 integer
 ---@param z0 integer
 ---@param x1 integer
 ---@param y1 integer
 ---@param z1 integer
----@param voxel integer|string|nil
+---@param voxel integer|Color|nil
 function Level:fill(x0, y0, z0, x1, y1, z1, voxel) end
 
 ---Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file), or a solid thing's (c.things.NAME.solid).
@@ -594,7 +594,7 @@ local Frame = {}
 ---@param pose? table<string, Rotation>
 function Frame:model(file, thing, index, rotation, pose) end
 
----Draws one voxel in the level, at x, y, z in the level's voxels. Its color is { r, g, b } or { r, g, b, a }, each an integer from 0 to 255 (white unless given); the alpha is 255, opaque, where left out, and below it the voxel is see-through. glow is 0 (none) to 1.
+---Draws one voxel in the level, at x, y, z in the level's voxels. Its color is a Color (white unless given), with a fourth value below 255 see-through. glow is 0 (none) to 1.
 ---@param x number
 ---@param y number
 ---@param z number
@@ -605,7 +605,7 @@ function Frame:cube(x, y, z, color, glow) end
 ---Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } with the words a level's light takes too. These two forms only: more words go in the table.
 ---- at: where it shines from, in voxels: a thing (its middle, half its height over its feet) or a point, { x, y, z } or { x =, y =, z = }.
 ---- radius: how far it reaches, voxels, above 0.
----- color: its color and strength, { r, g, b } with each an integer from 0 to 255 (not 0 to 1, as c.light's are), white unless set.
+---- color: its color, a Color (a darker one shines weaker), white unless set.
 ---- falloff: how it fades to its radius, (1 - distance / radius) to this power, 0 to 16, 2 unless set. Lower reaches further bright.
 ---- cone: a spot, its whole opening angle in degrees, 1 to 360; left out (or 360), it shines every way.
 ---- blend: how much of the cone's edge is soft, 0 to 1, 0.15 unless set.
@@ -620,19 +620,17 @@ function Frame:cube(x, y, z, color, glow) end
 function Frame:light(at, radius, color) end
 
 ---Sets the sun and the sky for this picture: a day and a night. What you leave out is what c.light says (its sun, sun_color, ambient, shadow, sky).
----Colors here are { r, g, b } with each an integer from 0 to 255, while c.light's colors are numbers from 0 to 1 (or "#rrggbb").
 ---- sun: the way its light travels, { x, y, z } with z below 0.
----- sun_color: its color and strength, { r, g, b } from 0 to 255, white unless set.
+---- sun_color: its color, a Color (a darker one shines weaker), white unless set.
 ---- ambient: the light every face gets, 0 to 1. shadow: how dark shadows are, 0 to 1.
----- sky: the sky's color, { r, g, b } from 0 to 255.
+---- sky: the sky's color, a Color.
 ---Work it out from your game's clock every picture: the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level.
 ---@param light Daylight
 function Frame:daylight(light) end
 
 ---Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color. What you leave out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow).
----The color here is { r, g, b } with each an integer from 0 to 255, while c.light.fog_color is three numbers from 0 to 1 (or "#rrggbb").
 ---- density: how thick, 0 to 1 (0.004 a light haze in a big hall, 0.03 thick; 0 none).
----- color: the fog's own color where no lamp lights it, { r, g, b } from 0 to 255 (dark at night).
+---- color: the fog's own color where no lamp lights it, a Color (dark at night).
 ---- anisotropy: above 0 a beam is brighter looking towards its lamp, below 0 looking away (0: alike).
 ---- glow: how brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). Higher is never fainter, and a beam never gets brighter than its lamp's light (times the light's fog).
 ---Walls stop a lamp's beam where they stop its light (shadows); a light's fog says how strongly it shows. The fog fills the level's box, not the air between the camera and the level. Only the picture: the game's rules do not see it.
@@ -670,7 +668,7 @@ function Frame:menu(menu) end
 function Frame:grid(grid) end
 
 ---Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width across, frame.height down).
----- color: { r, g, b } or { r, g, b, a }, each an integer from 0 to 255; the alpha is 255 where left out.
+---- color: a Color, a fourth value see-through.
 ---- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).
 ---- An action in braces is its key as the player sees it: "PRESS {jump}" writes PRESS X, or the pad's button (controls:key). {{ writes a brace.
 ---Written as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals.
@@ -693,7 +691,7 @@ function Frame:to_screen(at, up) end
 ---@return number
 function Frame:text_width(text, size) end
 
----Draws a filled box on the screen, its top left at x, y, in UI voxels. color: { r, g, b } or { r, g, b, a }, each an integer from 0 to 255; the alpha is 255 where left out.
+---Draws a filled box on the screen, its top left at x, y, in UI voxels. color: a Color, a fourth value see-through.
 ---@param x number
 ---@param y number
 ---@param width number
@@ -701,7 +699,7 @@ function Frame:text_width(text, size) end
 ---@param color? Color
 function Frame:box(x, y, width, height, color) end
 
----Draws a bar on the screen filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red unless given), back the rest, each { r, g, b } or { r, g, b, a } with integers from 0 to 255 (alpha 255 where left out).
+---Draws a bar on the screen filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red unless given), back the rest, each a Color, a fourth value see-through.
 ---@param x number
 ---@param y number
 ---@param width number
@@ -711,7 +709,7 @@ function Frame:box(x, y, width, height, color) end
 ---@param back? Color
 function Frame:bar(x, y, width, height, fraction, color, back) end
 
----Draws a small picture of c.icons on the screen, its top left at x, y: c.icons.heart = { rows = { ".RR.RR.", ... }, colors = { R = { 214, 36, 44 } } }: a letter's color is { r, g, b } or { r, g, b, a } with integers from 0 to 255.
+---Draws a small picture of c.icons on the screen, its top left at x, y: c.icons.heart = { rows = { ".RR.RR.", ... }, colors = { R = { 214, 36, 44 } } }: a letter's color is a Color, a fourth value see-through.
 ---@param name string
 ---@param x number
 ---@param y number
@@ -968,8 +966,8 @@ function on_pickup(thing, item) end
 ---@field music_at integer The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro. It goes round as the song says (#loop). The engine's title only: a title level of the game's own picks with music:play's at. (from 1 to 9999)
 ---@field at number[] The ground point the camera looks at (default: where the player starts).
 ---@field view_width number Voxels across the screen there (default: c.camera.view_width). (above 0, up to 65536)
----@field logo string[] The logo, a line each (default: the game's title), and their colours as "#rrggbb".
----@field logo_colors string[] Each logo line's colour, "#rrggbb".
+---@field logo string[] The logo, a line each (default: the game's title); logo_colors colors them.
+---@field logo_colors Color[] Each logo line's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
 ---@field logo_heights integer[] How high each logo line's capitals are, in UI voxels. (each from 1 to 1000)
 ---@field drip integer Which logo line drips (blood). (from 0 to 99)
 ---@field logo_cracks number[] Cracks per letter in each logo line, on average. (each from 0 to 100)
@@ -1004,7 +1002,7 @@ function on_pickup(thing, item) end
 
 ---@class Conf.light
 ---@field sun number[] Direction the sunlight travels (towards the ground). (each from -1000 to 1000; [3] from -1000 to below 0)
----@field sun_color number[]|string The sunlight's color and strength, three numbers from 0 to 1 or "#rrggbb": white unless set (warm at dusk, a pale blue for the moon). frame:daylight sets it for one picture, with numbers from 0 to 255. (each from 0 to 1)
+---@field sun_color number[]|string The sunlight's color, three numbers from 0 to 1 or "#rrggbb" (a darker one shines weaker): white unless set (warm at dusk, a pale blue for the moon). frame:daylight sets it for one picture. (each from 0 to 1)
 ---@field ambient number Light that reaches every face, 0..1. (from 0 to 1)
 ---@field shadow number How much a shadow darkens sunlit faces, 0..1. (from 0 to 1)
 ---@field sky number[]|string The background's color, three numbers from 0 to 1 or "#rrggbb". (each from 0 to 1)
@@ -1017,7 +1015,7 @@ function on_pickup(thing, item) end
 ---@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge. (from 0 to 16)
 ---@field lamp_shadows string What stops a lamp that states no shadows of its own (a level's lights, frame:light): "static" (the level's voxels and its pieces), "all" (moving things too: figures, things, models drawn; costly, for a few lamps) or "none": it shines through walls, as before 0.7 (older hardware). A light's own shadows beats it, whatever it says.
 ---@field fog_density number Fog in the level's air, how thick: 0 none, else a voxel of air takes this share of the light passing through (0.01: a third is left after 100 voxels). The lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color (0.004 is a light haze in a big hall). By day give fog_color the sky's color, or what lies further fades to a dark veil. A game's frame:fog sets it for one picture. (from 0 to 1)
----@field fog_color number[]|string The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". frame:fog sets it for one picture, with numbers from 0 to 255. (each from 0 to 1)
+---@field fog_color number[]|string The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". frame:fog sets it for one picture. (each from 0 to 1)
 ---@field fog_anisotropy number How much the fog sends a lamp's light on ahead rather than back, -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp (0: every way alike). (from -0.9 to 0.9)
 ---@field fog_glow number How brightly the fog shows the lamps' light, 0..20; the dimming is the density's alone: 1 as the air would (thicker fog, brighter beams), 4 a stage's haze (bright beams while the room stays clear), 0 a fog that only dims. Higher is never fainter, and however high, a lamp's glow in the fog never gets brighter than its own light (times the light's fog). (from 0 to 20)
 
@@ -1040,7 +1038,7 @@ function on_pickup(thing, item) end
 
 ---@class Conf.transition
 ---@field fade number Seconds out and seconds in; 0: a cut. (from 0 to 10)
----@field color string The color faded through, a string "#rrggbb" (not numbers).
+---@field color Color The color faded through, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
 ---@field go_to number A length of its own for a reason the level is left (a puzzle game's quick restart: restart = 0). (from 0 to 10)
 ---@field restart number Seconds of the fade when the level is entered afresh. (from 0 to 10)
 ---@field won number Seconds of the fade when the run is won. (from 0 to 10)

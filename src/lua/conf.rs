@@ -179,14 +179,31 @@ fn actions(c: &toml::Value) -> Result<()> {
     Ok(())
 }
 
-/// A colour that is neither three numbers nor "#rrggbb" is a mistake
-/// naming it.
+/// Every color of `conf.lua` read as the engine reads it, a mistake naming
+/// the setting: `c.light`'s and `c.effects`' (`config::COLORS`),
+/// `c.transition.color`, `c.title_screen.logo_colors` and the icons'
+/// letters (`color::read`).
 fn colors(c: &toml::Value) -> Result<()> {
+    use crate::color::SeeThrough;
     for (section, name) in crate::config::COLORS {
         let Some(v) = c.get(section).and_then(|t| t.get(name)) else { continue };
         let numbers = v.as_array().is_some_and(|a| a.len() == 3 && a.iter().all(|n| n.is_float() || n.is_integer()));
-        if !numbers && !v.as_str().is_some_and(|t| crate::grid::hex(t).is_some()) {
+        if !numbers && !v.as_str().is_some_and(|t| crate::vvx::hex(t).is_some()) {
             bail!("conf.lua: c.{section}.{name}: {}", crate::config::COLOR_IS);
+        }
+    }
+    let read = |v: &toml::Value, name: &str, see: SeeThrough| -> Result<()> {
+        crate::color::read(crate::color::written_toml(v), see).map(|_| ()).map_err(|e| anyhow::anyhow!("conf.lua: {name}: {e}"))
+    };
+    if let Some(v) = c.get("transition").and_then(|t| t.get("color")) {
+        read(v, "c.transition.color", SeeThrough::No("a fade has no transparency"))?;
+    }
+    for (i, v) in c.get("title_screen").and_then(|t| t.get("logo_colors")).and_then(toml::Value::as_array).into_iter().flatten().enumerate() {
+        read(v, &format!("c.title_screen.logo_colors[{}]", i + 1), SeeThrough::No("the logo's letters are opaque"))?;
+    }
+    for (icon, def) in c.get("icons").and_then(toml::Value::as_table).into_iter().flatten() {
+        for (letter, v) in def.get("colors").and_then(toml::Value::as_table).into_iter().flatten() {
+            read(v, &format!("c.icons.{icon}.colors.{letter}"), SeeThrough::Yes)?;
         }
     }
     Ok(())
@@ -328,6 +345,34 @@ mod tests {
         let cfg = conf("function conf(c)\n  c.light.sky = '#20304a'\n  c.light.sun_color = { 1, 0.9, 0.8 }\n  c.effects.outline_color = '#000000'\nend\n").unwrap();
         assert_eq!(cfg.light.sky, [32.0 / 255.0, 48.0 / 255.0, 74.0 / 255.0]);
         assert_eq!((cfg.light.sun_color, cfg.effects.outline_color), ([1.0, 0.9, 0.8], [0.0; 3]));
+    }
+
+    /// The fade's color, the logo's colors and an icon's letters take a
+    /// color either way; a word that is no color is a mistake naming the
+    /// setting (they once took any text, faded through black and drew the
+    /// logo white); a fourth value only for an icon's letter.
+    #[test]
+    fn every_color_of_conf_lua_is_read_one_way() {
+        let cfg = conf("function conf(c)\n  c.transition.color = { 16, 32, 48 }\n  c.title_screen.logo_colors = { '#f0e8d0', { 200, 24, 26 } }\n  c.icons.heart = { rows = { 'RW' }, colors = { R = '#d6242c', W = { 255, 176, 170, 128 } } }\nend\n").unwrap();
+        assert_eq!(cfg.transition.rgb(), [16.0 / 255.0, 32.0 / 255.0, 48.0 / 255.0]);
+        assert_eq!(cfg.title_screen.logo_colors.iter().map(|c| c.0.bytes()).collect::<Vec<_>>(), [[240, 232, 208, 255], [200, 24, 26, 255]]);
+        assert_eq!(cfg.icons["heart"].voxels(), [(0, 0, [214, 36, 44, 255]), (1, 0, [255, 176, 170, 128])]);
+        let hex = conf("function conf(c) c.transition.color = '#102030' end").unwrap();
+        assert_eq!(hex.transition.rgb(), cfg.transition.rgb());
+        let rule = crate::color::RULE;
+        for (line, says) in [
+            ("c.transition.color = 'orange'", format!("conf.lua: c.transition.color: \"orange\" is no color: {rule}")),
+            ("c.transition.color = '000000'", format!("conf.lua: c.transition.color: \"000000\" is no color: {rule}")),
+            ("c.transition.color = '#00000080'", format!("conf.lua: c.transition.color: \"#00000080\": a fade has no transparency, so no \"#rrggbbaa\": {rule}")),
+            ("c.title_screen.logo_colors = { '#f0e8d0', '#12' }", format!("conf.lua: c.title_screen.logo_colors[2]: \"#12\" is no color: {rule}")),
+            ("c.title_screen.logo_colors = { { 255, 0, 0, 9 } }", format!("conf.lua: c.title_screen.logo_colors[1]: {{ 255, 0, 0, 9 }}: the logo's letters are opaque, so no fourth number: {rule}")),
+            ("c.icons.x = { rows = { 'A' }, colors = { A = { 0.5, 1, 1 } } }", "conf.lua: c.icons.x.colors.A: { 0.5, 1, 1 } reads as numbers from 0 to 1, but a color's are from 0 to 255: write { 127.5, 255, 255 } or \"#80ffff\"".into()),
+            ("c.icons.x = { rows = { 'A' }, colors = { A = { 300, 1, 1 } } }", "conf.lua: c.icons.x.colors.A: { 300, 1, 1 }: each number is from 0 to 255, not 300".into()),
+            ("c.icons.x = { rows = { 'A' }, colors = { A = { 30, 1 } } }", format!("conf.lua: c.icons.x.colors.A: {{ 30, 1 }} has 2 numbers: {}", crate::color::RULE_SEE_THROUGH)),
+        ] {
+            let e = conf(&format!("function conf(c) {line} end")).unwrap_err().to_string();
+            assert_eq!(e, says, "{line}");
+        }
     }
 
     /// The settings' names from before Voxcade took other tools' words are
