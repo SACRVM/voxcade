@@ -258,25 +258,25 @@ impl Shooter {
         let half = self.sim.half();
         // Things that only stand where they are: on the marker's cell, or in
         // its middle.
-        let at_cell = Body::new(cell.as_vec3(), 0.0);
+        let at_cell = self.sim.body(cell.as_vec3(), 0.0);
         let rules = Arc::clone(&self.rules);
         let k = &rules.kinds[kind];
         match &k.rules {
             KindRules::Script => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
-                self.things.spawn(kind, Body::new(pos, height), k.hp, Brain::Script(Default::default()))
+                self.things.spawn(kind, self.sim.body(pos, height), k.hp, Brain::Script(Default::default()))
             }
             KindRules::Soldier(_) => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
-                self.things.spawn(kind, Body::new(pos, height), k.hp.max(1), Brain::Soldier(Soldier::new(false)))
+                self.things.spawn(kind, self.sim.body(pos, height), k.hp.max(1), Brain::Soldier(Soldier::new(false)))
             }
             KindRules::Spawner(r) => self.things.spawn(kind, at_cell, 0, Brain::Spawner(Spawner { timer: r.first, spawned: 0 })),
             KindRules::Captive(_) => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
-                self.things.spawn(kind, Body::new(pos, height), k.hp, Brain::Captive(Captive { freed: false, gone: 0 }))
+                self.things.spawn(kind, self.sim.body(pos, height), k.hp, Brain::Captive(Captive { freed: false, gone: 0 }))
             }
             KindRules::Pickup(_) => self.things.spawn(kind, at_cell, 0, Brain::Pickup),
             KindRules::Gunship(r) => {
@@ -1080,7 +1080,7 @@ impl Shooter {
         }
         for (at, height, kind) in arrivals {
             let hp = rules.kinds[kind].hp.max(1);
-            self.things.spawn(kind, Body::new(at, height), hp, Brain::Soldier(Soldier::new(true)));
+            self.things.spawn(kind, self.sim.body(at, height), hp, Brain::Soldier(Soldier::new(true)));
         }
     }
 }

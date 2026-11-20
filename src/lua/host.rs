@@ -54,6 +54,9 @@ pub struct Kind {
     pub spin: f32,
     /// Stays where it is put: no gravity (`fixed`).
     pub fixed: bool,
+    /// Its things stop bodies in their model's cells (`solid`,
+    /// `Stage::settle_solids`).
+    pub solid: bool,
     /// Its things a level's file sets down stay as left for the whole run
     /// (`persistent`, `lua::memory`).
     pub persistent: bool,
@@ -171,6 +174,48 @@ impl Default for SeatState {
 /// A figure of no kind of `c.things` (the shooter's player, `c.player`).
 pub const NO_KIND: usize = usize::MAX;
 
+/// The cells a solid kind's model fills facing each of the four ways
+/// (north, east, south, west), from its pivot's cell.
+pub type SolidCells = [Arc<Vec<glam::IVec3>>; 4];
+
+/// The solid kinds' cells (`Stage::solids`) from their models.
+pub fn solid_cells(kinds: &[Kind], models: &Models) -> std::collections::BTreeMap<usize, SolidCells> {
+    kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, k)| k.solid)
+        .filter_map(|(i, k)| {
+            let m = models.get(k.model.as_deref()?)?;
+            let way = |q: i32| Arc::new(crate::session::piece_cells(m, [q * 90, 0, 0]).expect("quarter turns"));
+            Some((i, [way(0), way(1), way(2), way(3)]))
+        })
+        .collect()
+}
+
+/// The quarter turn of a way a model looks (0 north, clockwise).
+pub fn quarter_of(look: IVec2) -> u8 {
+    match (look.x, look.y) {
+        (1, _) => 1,
+        (_, -1) => 2,
+        (-1, _) => 3,
+        _ => 0,
+    }
+}
+
+/// How far a body is pushed out of a solid thing set onto it at most,
+/// voxels across (`Stage::push_out`).
+pub const MOST_PUSH: i32 = 48;
+
+/// Where a body `half` across and `height` tall at `at` stands free
+/// nearest, sideways only (never lifted onto what it stood in), within
+/// `MOST_PUSH`: the nearest first, at one distance the one further south,
+/// then west (a fixed order, every machine alike).
+pub fn free_beside(world: &World, at: Vec3, half: f32, height: f32) -> Option<Vec3> {
+    let mut ways: Vec<(i32, i32)> = (-MOST_PUSH..=MOST_PUSH).flat_map(|y| (-MOST_PUSH..=MOST_PUSH).map(move |x| (x, y))).filter(|&(x, y)| (x, y) != (0, 0) && x * x + y * y <= MOST_PUSH * MOST_PUSH).collect();
+    ways.sort_by_key(|&(x, y)| (x * x + y * y, y, x));
+    ways.into_iter().map(|(x, y)| at + Vec3::new(x as f32, y as f32, 0.0)).find(|p| !crate::sim::body_hits(world, *p, half, height))
+}
+
 pub trait Host: Any {
     fn sim(&self) -> &Sim;
     fn sim_mut(&mut self) -> &mut Sim;
@@ -178,6 +223,20 @@ pub trait Host: Any {
     fn ids(&self) -> Vec<Id>;
     fn get(&self, id: Id) -> Option<Seen<'_>>;
     fn get_mut(&mut self, id: Id) -> Option<Touched<'_>>;
+    /// Moves a body `by` (sideways: pushed out of a solid thing set onto
+    /// it), whatever moves it; its drawn way with it. Whether it moved.
+    fn shove(&mut self, id: Id, by: Vec3) -> bool {
+        match self.get_mut(id).and_then(|t| t.moved) {
+            Some((b, _)) => {
+                (b.pos, b.prev) = (b.pos + by, b.prev + by);
+                true
+            }
+            None => false,
+        }
+    }
+    /// The player's figure of ready-made rules that is no thing of theirs
+    /// (the shooter's player in a game of one) moved `by`, as `shove`.
+    fn shove_player(&mut self, _by: Vec3) {}
     /// Places a thing of kind `kind` at (x, y): on the ground there unless
     /// `z` is given.
     fn spawn(&mut self, kind: usize, x: f32, y: f32, z: Option<f32>) -> Result<Id, String>;
@@ -453,6 +512,13 @@ pub trait Kit: Game + Host + Clone {
         false
     }
 
+    /// Whether its rules move along the screen's width (a jump & run's):
+    /// a level turns their camera by halves only (`[camera] yaw` 0 or 180,
+    /// never 90 or 270).
+    fn sees_from_the_side(_cfg: &GameConfig) -> bool {
+        false
+    }
+
     /// A tick while the level is held (`level.state.held`): time goes on,
     /// nothing of its rules moves; whether a tick ran (not a hit stop).
     fn held(&mut self) -> bool;
@@ -560,6 +626,10 @@ pub struct Stage {
     /// The voxels each kind that bursts as it goes bursts into (`effect =
     /// "burst"`), by its place among the kinds.
     pub bursts: Arc<std::collections::BTreeMap<usize, crate::sim::Shape>>,
+    /// The cells the model of each solid kind fills (`solid = true`), by
+    /// its place among the kinds: facing north, east, south and west, from
+    /// its pivot's cell (`session::piece_cells`).
+    pub solids: Arc<std::collections::BTreeMap<usize, SolidCells>>,
     /// The parts of its figures of parts (`frame:model`'s pose).
     pub parts: Arc<std::collections::BTreeMap<String, Vec<String>>>,
     /// What the HUD's means need between frames (`frame:icon`,
@@ -1172,6 +1242,70 @@ impl Stage {
         self.here.graveyard.clear();
         let (host, player) = (&self.host, self.host.player_seen().is_some());
         self.here.dead.retain(|&id| if id == PLAYER { player } else { host.get(Id::from_raw(id)).is_some() });
+        self.settle_solids();
+    }
+
+    /// The solid things' cells as they stand (a kind's `solid = true`,
+    /// `world::Solids`): set for those that came in, moved for those placed
+    /// or turned (in quarter turns of the way their model looks), freed for
+    /// those gone; a body they are set onto is pushed out sideways. At the
+    /// tick's end and as a level begins; nothing in a game without them.
+    pub fn settle_solids(&mut self) {
+        if self.solids.is_empty() && self.host.sim().world.pieces.as_ref().is_none_or(|s| s.things().next().is_none()) {
+            return;
+        }
+        let mut set: Vec<glam::IVec3> = Vec::new();
+        let mut standing = std::collections::BTreeSet::new();
+        for id in self.host.ids() {
+            let Some((kind, at, look)) = self.host.get(id).map(|t| (t.kind, t.body.pos.floor().as_ivec3(), t.body.look)) else { continue };
+            let Some(cells) = self.solids.get(&kind) else { continue };
+            standing.insert(id.raw());
+            let quarter = quarter_of(look);
+            if self.host.sim().world.thing_cells(id.raw()).is_some_and(|c| c.at == at && c.quarter == quarter) {
+                continue;
+            }
+            let cells: Vec<glam::IVec3> = cells[quarter as usize].iter().map(|c| at + *c).collect();
+            set.extend(&cells);
+            self.host.sim_mut().world.put_solid_thing(id.raw(), Some(crate::world::ThingCells { at, quarter, cells: Arc::new(cells) }));
+        }
+        for id in self.host.sim().world.solid_things() {
+            if !standing.contains(&id) {
+                self.host.sim_mut().world.put_solid_thing(id, None);
+            }
+        }
+        if !set.is_empty() {
+            self.push_out(&set);
+        }
+    }
+
+    /// The bodies standing in `cells` (a solid thing's, set this moment)
+    /// pushed out sideways to where they stand free nearest (`free_beside`;
+    /// one with no room within reach stays). Things that stay where they
+    /// are put (`fixed`: pieces, solid things) are no bodies here.
+    fn push_out(&mut self, cells: &[glam::IVec3]) {
+        let cells: crate::world::CellSet = cells.iter().copied().collect();
+        let within = |b: &Body, half: f32| {
+            let (lo, hi) = ((b.pos - Vec3::new(half, half, 0.0)).floor().as_ivec3(), (b.pos + Vec3::new(half, half, b.height) - 1e-3).floor().as_ivec3());
+            cells.iter().any(|c| c.cmpge(lo).all() && c.cmple(hi).all())
+        };
+        let stuck: Vec<(Option<Id>, Vec3, f32, f32)> = self
+            .host
+            .ids()
+            .into_iter()
+            .filter_map(|id| self.host.get(id).map(|t| (id, t)))
+            .filter(|(_, t)| !self.kinds.get(t.kind).is_some_and(|k| k.fixed) && within(t.body, t.half))
+            .map(|(id, t)| (Some(id), t.body.pos, t.half, t.body.height))
+            .chain(self.host.player_seen().filter(|t| self.host.player_id().is_none() && within(t.body, t.half)).map(|t| (None, t.body.pos, t.half, t.body.height)))
+            .collect();
+        for (id, at, half, height) in stuck {
+            let Some(to) = free_beside(&self.host.sim().world, at, half, height) else { continue };
+            match id {
+                Some(id) => {
+                    self.host.shove(id, to - at);
+                }
+                None => self.host.shove_player(to - at),
+            }
+        }
     }
 }
 
@@ -1313,7 +1447,7 @@ impl Host for Plain {
             Some(z) => Vec3::new(x, y, z),
             None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), k.height, self.sim.half()),
         };
-        let id = self.things.spawn(kind, Body::new(at, k.height), k.hp, Walk::default());
+        let id = self.things.spawn(kind, self.sim.body(at, k.height), k.hp, Walk::default());
         if !self.looking {
             self.focus.get_or_insert(id);
         }
@@ -1578,6 +1712,14 @@ impl<A: Kit, B: Kit> Host for Either<A, B> {
         each!(self, k => k.get_mut(id))
     }
 
+    fn shove(&mut self, id: Id, by: Vec3) -> bool {
+        each!(self, k => k.shove(id, by))
+    }
+
+    fn shove_player(&mut self, by: Vec3) {
+        each!(self, k => k.shove_player(by))
+    }
+
     fn spawn(&mut self, kind: usize, x: f32, y: f32, z: Option<f32>) -> Result<Id, String> {
         each!(self, k => k.spawn(kind, x, y, z))
     }
@@ -1788,6 +1930,10 @@ impl<A: Kit, B: Kit> Kit for Either<A, B> {
 
     fn plays_several(cfg: &GameConfig) -> bool {
         if Self::first(cfg) { A::plays_several(cfg) } else { B::plays_several(cfg) }
+    }
+
+    fn sees_from_the_side(cfg: &GameConfig) -> bool {
+        if Self::first(cfg) { A::sees_from_the_side(cfg) } else { B::sees_from_the_side(cfg) }
     }
 
     fn held(&mut self) -> bool {

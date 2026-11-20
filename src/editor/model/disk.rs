@@ -667,6 +667,9 @@ fn rebase_level(b: &LevelState, a: &LevelState, d: &LevelState) -> Result<LevelS
     if b.daylight != a.daylight {
         o.daylight = a.daylight.clone();
     }
+    if b.camera != a.camera {
+        o.camera = a.camera;
+    }
     if (&b.location, b.persistent) != (&a.location, a.persistent) {
         (o.location, o.persistent) = (a.location.clone(), a.persistent);
     }

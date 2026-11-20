@@ -113,7 +113,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
                 }
                 continue;
             }
-            figures.cubes(&figures.key_in(t), IVec3::from(t.at), tint, 255, &mut instances);
+            figures.cubes(&figures.key_in(t, &ed.level), IVec3::from(t.at), tint, 255, &mut instances);
         }
         // A piece hanging on the mouse, see-through where it would stand.
         if let (Some(Hanging::Thing(t)), Some(_)) = (&ed.pieces.hanging, ed.pieces.hang_spot)

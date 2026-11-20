@@ -133,7 +133,7 @@ impl<K: Kit> LuaGame<K> {
                     let h = self.plain_mut().expect("a plain host without a kit");
                     let (height, half) = (h.kinds[k].height, h.sim.half());
                     let at = crate::sim::stand_at(&h.sim.world, at, height, half);
-                    let mut body = Body::new(at, height);
+                    let mut body = h.sim.body(at, height);
                     if let Some(way) = facing {
                         body.face(way.as_vec2().extend(0.0));
                     }
@@ -316,7 +316,13 @@ impl<K: Kit> LuaGame<K> {
     /// players further than the hold (and further than it was); a move
     /// that narrows it is never stopped.
     pub(super) fn hold_players(&mut self) {
-        let Some(limit) = self.stage.host.sim().cfg.camera.hold_span() else { return };
+        let sim = self.stage.host.sim();
+        let Some(mut limit) = sim.cfg.camera.hold_span() else { return };
+        // Across and deep on the screen: in a level whose camera looks east
+        // or west (`[camera] yaw` 90, 270) across is the world's y.
+        if sim.world.yaw.is_some_and(|y| y as i32 % 180 != 0) {
+            limit.swap(0, 1);
+        }
         let figures = self.group_figures();
         if figures.len() < 2 {
             return;

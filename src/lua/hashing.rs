@@ -102,6 +102,11 @@ impl<K: Kit> LuaGame<K> {
             for i in solids.lifted() {
                 s.u64(i as u64);
             }
+            // The solid things where their cells were made (a game with
+            // none hashes as before).
+            for (id, t) in solids.things() {
+                s.u64(0x7468_696e).u64(id as u64).i32(t.at.x).i32(t.at.y).i32(t.at.z).u64(t.quarter as u64);
+            }
         }
         mark(PARTS[6], s.finish());
         // The seats: once a second was taken, or a player's own keys set

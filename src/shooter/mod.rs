@@ -340,7 +340,8 @@ impl Bullet {
 /// looks), jumping; how far it had walked before.
 fn walk(b: &mut Body, jump_held: &mut bool, input: &Input, sim: &mut Sim, binds: &kinds::Binds) -> f32 {
     let (moves, physics) = (&sim.cfg.player, &sim.cfg.physics);
-    let (sin, cos) = math::sin_cos(sim.cfg.camera.yaw.to_radians());
+    // The keys turn with the camera: the level's yaw, else the game's.
+    let (sin, cos) = sim.yaw_sin_cos();
     let forward = Vec3::new(sin, cos, 0.0);
     let right = Vec3::new(cos, -sin, 0.0);
     let mut wish = Vec3::ZERO;
@@ -491,12 +492,16 @@ impl Shooter {
             busy: 0,
             jump_held: false,
         };
+        // (Facing the camera in a level that turns it, `Sim::rest_way`.)
+        let sim = Sim::new(world, cfg, spawn + Vec3::Z * height * 0.5);
+        if let Some(way) = sim.rest_way() {
+            player.body.face(way);
+        }
         if let Some([x, y]) = own.player.facing {
             player.body.face(Vec3::new(x, y, 0.0));
         }
-        let cam = spawn + Vec3::Z * height * 0.5;
         let mut shooter = Self {
-            sim: Sim::new(world, cfg, cam),
+            sim,
             rules: Arc::new(rules),
             cfg: Arc::new(own),
             player,

@@ -386,6 +386,47 @@ impl Sim {
         self.cfg = Arc::new(cfg.clone());
     }
 
+    /// The camera's yaw in the level played: the level's own (`[camera]
+    /// yaw`), else the game's (`c.camera.yaw`). Degrees clockwise seen from
+    /// above, 0 looking north.
+    pub fn yaw(&self) -> f32 {
+        self.world.yaw.unwrap_or(self.cfg.camera.yaw)
+    }
+
+    /// The sine and cosine of `yaw`: exact for a level's own (quarter
+    /// turns: 180 is the way back, not a hair beside it), else
+    /// `math::sin_cos`'s of the game's, as always.
+    pub fn yaw_sin_cos(&self) -> (f32, f32) {
+        match self.world.yaw.map(|y| (y.rem_euclid(360.0) / 90.0).round() as u8) {
+            Some(1) => (1.0, 0.0),
+            Some(2) => (0.0, -1.0),
+            Some(3) => (-1.0, 0.0),
+            Some(_) => (0.0, 1.0),
+            None => math::sin_cos(self.cfg.camera.yaw.to_radians()),
+        }
+    }
+
+    /// The way towards the camera on the ground, which a thing whose way
+    /// nothing states rests facing, in a level whose file turns the camera
+    /// (`[camera] yaw`); None elsewhere: such a thing faces south as it
+    /// always did (towards the camera at the yaw 0).
+    pub fn rest_way(&self) -> Option<Vec3> {
+        let yaw = self.world.yaw?;
+        let (sin, cos) = self.yaw_sin_cos();
+        // (Adding 0 makes a -0 a 0: the same way, hashed alike.)
+        (yaw.rem_euclid(360.0) != 0.0).then(|| Vec3::new(-sin, -cos, 0.0) + Vec3::ZERO)
+    }
+
+    /// A body standing at `pos`, `height` tall, facing the camera where the
+    /// level turns it (`rest_way`), else south as `Body::new`.
+    pub fn body(&self, pos: Vec3, height: f32) -> Body {
+        let mut b = Body::new(pos, height);
+        if let Some(way) = self.rest_way() {
+            b.face(way);
+        }
+        b
+    }
+
     /// Swaps in a reloaded level; the debris goes.
     pub fn replace_world(&mut self, world: World) {
         self.world = world;

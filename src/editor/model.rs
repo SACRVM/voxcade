@@ -389,6 +389,7 @@ struct LevelState {
     areas: Vec<Area>,
     /// (Boxed: the steps stay small.)
     daylight: Option<Box<crate::grid::Daylight>>,
+    camera: Option<crate::grid::LevelCamera>,
     terrain: Option<Box<crate::terrain::Terrain>>,
     location: Option<String>,
     persistent: bool,
@@ -405,6 +406,7 @@ impl LevelState {
             places: l.places.clone(),
             areas: l.areas.clone(),
             daylight: l.daylight.clone().map(Box::new),
+            camera: l.camera,
             terrain: l.terrain.clone().map(Box::new),
             location: l.location.clone(),
             persistent: l.persistent,
@@ -420,6 +422,7 @@ impl LevelState {
             && self.places == l.places
             && self.areas == l.areas
             && self.daylight.as_deref() == l.daylight.as_ref()
+            && self.camera == l.camera
             && self.terrain.as_deref() == l.terrain.as_ref()
             && self.location == l.location
             && self.persistent == l.persistent

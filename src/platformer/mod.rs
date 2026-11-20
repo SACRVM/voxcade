@@ -303,7 +303,7 @@ impl Platformer {
             KindRules::Crate(_) => Brain::Crate,
         };
         let figure = matches!(k.rules, KindRules::Hero(_) | KindRules::Walker(_) | KindRules::Hopper(_) | KindRules::Flyer(_));
-        let mut body = Body::new(at, k.height);
+        let mut body = self.sim.body(at, k.height);
         match k.facing {
             // The way its kind says (a bat facing the camera, wings spread).
             Some([x, y]) => body.face(Vec3::new(x, y, 0.0)),
@@ -475,6 +475,9 @@ impl Platformer {
         let cfg = self.sim.cfg.clone();
         let rules = self.rules.clone();
         let mut sounds = Vec::new();
+        // A level seen from behind (`[camera] yaw = 180`): right on the
+        // keys walks right on the screen, towards the world's west.
+        let behind = self.sim.world.yaw.is_some() && self.sim.yaw_sin_cos().1 < 0.0;
         let world = &self.sim.world;
         let Some(t) = self.things.get_mut(id).filter(|t| t.off.is_none()) else { return };
         let k = &rules.kinds[t.kind];
@@ -483,7 +486,7 @@ impl Platformer {
         if let Some(d) = h.riding.and_then(|p| moves.iter().find(|(i, _)| *i == p)).map(|(_, d)| *d) {
             b.pos += d;
         }
-        let keys = h.read_keys(b, input);
+        let keys = h.read_keys(b, input, behind);
         let (half, g) = (k.width * 0.5, cfg.physics.gravity);
         let hung = h.hang(b, r, input, keys.pressed);
         if b.on_ground || h.climbing || hung {
@@ -763,9 +766,10 @@ struct Keys {
 /// A hero's step in its parts (`Platformer::hero_step`, in this order).
 impl Hero {
     /// The keys, and the counts they and the ground keep: the jump buffer,
-    /// coyote time, the hurt's.
-    fn read_keys(&mut self, b: &Body, input: &Input) -> Keys {
-        let dir = input.right as i32 - input.left as i32;
+    /// coyote time, the hurt's; `behind`: the level is seen from behind,
+    /// left and right swapped.
+    fn read_keys(&mut self, b: &Body, input: &Input, behind: bool) -> Keys {
+        let dir = (input.right as i32 - input.left as i32) * if behind { -1 } else { 1 };
         let jump = input.held(JUMP);
         let pressed = jump && !self.held;
         self.held = jump;

@@ -449,6 +449,14 @@ fn start_way(kind: &toml::Table) -> crate::grid::Way {
     }
 }
 
+/// Whether things of a kind rest facing the camera as a run starts: no
+/// `facing` of its own and no figure seen from the side (`start_way`'s
+/// last way).
+fn rests_to_the_camera(kind: &toml::Table) -> bool {
+    let sideways = kind.get("behavior").and_then(|b| b.as_str()).is_some_and(|b| b == "hero" || SIDEWAYS.contains(&b));
+    kind.get("facing").is_none() && !sideways
+}
+
 /// A model's frame seen from `face` as the game shows it, the nearest
 /// voxel of each column: its width, height and pixels (rows from the
 /// top). A figure's front is on the side it looks to.
@@ -612,7 +620,8 @@ impl View {
     /// run begins (`GameStart::target`), stopped at the level's edges as
     /// the game stops it (`c.camera.stop_at_edges`, `session::within`).
     pub fn game_view(&mut self, ed: &Editor) {
-        let g = &self.game;
+        // (Turned as the level turns it, `[camera] yaw`.)
+        let g = &crate::config::CameraConfig { yaw: ed.level.camera.map_or(self.game.yaw, |c| c.yaw as f32), ..self.game.clone() };
         let width = crate::camera::shown_width(g, self.aspect);
         let target = self.start.target(ed, g.snap);
         let stage = (Vec3::ZERO, ed.level.voxels().as_vec3());

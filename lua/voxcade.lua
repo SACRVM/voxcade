@@ -275,7 +275,7 @@ function Level:set_voxel(x, y, z, voxel) end
 ---@param voxel integer|string|nil
 function Level:fill(x0, y0, z0, x1, y1, z1, voxel) end
 
----Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file).
+---Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file), or a solid thing's (c.things.NAME.solid).
 ---@param x integer
 ---@param y integer
 ---@param z integer
@@ -348,6 +348,9 @@ function Level:clear_rounds(team) end
 function Level:sound(name, at, volume) end
 
 ---@class Camera Where the camera looks.
+---The way the camera looks in this level, degrees clockwise seen from above (0 north): the level file's [camera] yaw, else c.camera.yaw. Only to read.
+---The engine turns no keys for a game in Lua alone: input.dir and input.move are the keys as pressed, screen directions. Seen from behind (180), a game whose up walks north turns them: if level.camera.yaw == 180 then x, y = -x, -y end. The ready-made rules turn their own.
+---@field yaw number
 local Camera = {}
 
 ---The camera follows this thing from now on; following the player, ready-made rules lead the view as theirs do (the jump & run's look ahead). Every level starts following the player.
@@ -512,7 +515,7 @@ function Area:holds(at) end
 ---@field right boolean Held this tick (input:pressed("right") whether it went down this tick).
 ---@field up boolean Held this tick (input:pressed("up") whether it went down this tick).
 ---@field down boolean Held this tick (input:pressed("down") whether it went down this tick).
----@field dir Way The directions held as a way: x and y each -1, 0 or 1.
+---@field dir Way The directions held as a way: x and y each -1, 0 or 1. The keys as pressed, whichever way the level's camera looks (level.camera.yaw).
 ---@field move Stick Where the left stick leans, { x, y }: x right, y up, each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering.
 ---@field aim Stick Where the right stick leans, { x, y } as input.move; with a mouse in a game with a pointer (c.pointer) the way on the screen from the player's figure to the pointer, length 1; { x = 0, y = 0 } with keys alone. A twin-stick shooter's aim, the same code for the pad and the mouse.
 ---What the pointer is over this tick, in a game with one (c.pointer): nil without, for a player on a pad, and when the pad was used last.
@@ -1055,6 +1058,8 @@ function on_pickup(thing, item) end
 ---@field model? string Its model, a .vvx of the game.
 ---@field hp? integer The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none.
 ---@field fixed? boolean It stays exactly where it is put, in the air too (a kind without a behavior).
+---@field solid? boolean It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.
+Only for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside.
 ---@field persistent? boolean Its things a level's file sets down stay as left for the whole run, in any level: taken out, where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player.
 ---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
 ---@field height? number Its body's height, in voxels (its model's unless set).

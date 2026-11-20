@@ -412,7 +412,7 @@ pub const API: &[Item] = &[
             0 empties it. A level made in code (c.world.size) is built this way." },
     Item { of: "level", name: "solid", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "boolean" },
         doc: "Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the \
-            level's file)." },
+            level's file), or a solid thing's (c.things.NAME.solid)." },
     Item { of: "level", name: "ground", what: Method { params: &[("x", "integer"), ("y", "integer")], returns: "integer" },
         doc: "The height of the ground at x, y: the cell above the column's top voxel." },
     Item { of: "level", name: "spawn", what: Method { params: &[("kind", "string"), ("x", "number"), ("y", "number"), ("options?", "SpawnOptions")], returns: "Thing" },
@@ -458,6 +458,10 @@ pub const API: &[Item] = &[
     Item { of: "level.camera", name: "look_at", what: Method { params: &[("x", "number"), ("y", "number")], returns: "" },
         doc: "The camera rests over this point from now on, following nothing, whatever spawns (follow follows a thing again): a room, a \
             boss arena, a scene, a field that scrolls by itself." },
+    Item { of: "level.camera", name: "yaw", what: Field { ty: "number", set: false }, doc: "The way the camera looks in this level, degrees \
+            clockwise seen from above (0 north): the level file's [camera] yaw, else c.camera.yaw. Only to read.\nThe engine turns no keys \
+            for a game in Lua alone: input.dir and input.move are the keys as pressed, screen directions. Seen from behind (180), a game \
+            whose up walks north turns them: if level.camera.yaw == 180 then x, y = -x, -y end. The ready-made rules turn their own." },
     // player
     Item { of: "player", name: "state", what: Field { ty: "table", set: false }, doc: "The player's data for the whole run, from level to \
             level. It starts as c.state.player says. Plain data, no things; lives and the like are your game's own keys. A script reads and \
@@ -577,7 +581,8 @@ pub const API: &[Item] = &[
     Item { of: "input", name: "up", what: Field { ty: "boolean", set: false }, doc: "Held this tick (input:pressed(\"up\") whether it went down this tick)." },
     Item { of: "input", name: "down", what: Field { ty: "boolean", set: false }, doc: "Held this tick (input:pressed(\"down\") whether it \
             went down this tick)." },
-    Item { of: "input", name: "dir", what: Field { ty: "Way", set: false }, doc: "The directions held as a way: x and y each -1, 0 or 1." },
+    Item { of: "input", name: "dir", what: Field { ty: "Way", set: false }, doc: "The directions held as a way: x and y each -1, 0 or 1. \
+            The keys as pressed, whichever way the level's camera looks (level.camera.yaw)." },
     Item { of: "input", name: "move", what: Field { ty: "Stick", set: false }, doc: "Where the left stick leans, { x, y }: x right, y up, \
             each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, \
             about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering." },
@@ -1094,6 +1099,7 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("model", "string", "Its model, a .vvx of the game."),
     ("hp", "integer", "The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none."),
     ("fixed", "boolean", "It stays exactly where it is put, in the air too (a kind without a behavior)."),
+    ("solid", "boolean", "It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.\nOnly for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside."),
     ("persistent", "boolean", "Its things a level's file sets down stay as left for the whole run, in any level: taken out, where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player."),
     ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
@@ -1653,7 +1659,7 @@ mod tests {
     fn the_kinds_keys_are_what_a_kind_takes() {
         let keys = kind_keys();
         let engine: Vec<&str> = keys.iter().filter(|k| k.kit.is_empty()).map(|k| k.key.as_str()).collect();
-        let mut taken: Vec<&str> = ["like", "behavior", "model", "hp", "fixed", "width", "height", "facing"].into_iter().chain(crate::sim::things::COMMON).collect();
+        let mut taken: Vec<&str> = ["like", "behavior", "model", "hp", "fixed", "solid", "width", "height", "facing"].into_iter().chain(crate::sim::things::COMMON).collect();
         taken.sort();
         let mut ours = engine.clone();
         ours.sort();

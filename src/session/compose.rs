@@ -157,7 +157,7 @@ impl<G: Game> Session<G> {
     /// `look` in a window of shape `aspect` (`shot`'s).
     pub fn look_in(&self, aspect: f32) {
         let sim = self.game.sim();
-        let (cam, aspect) = (&self.cfg.camera, self.picture_aspect(aspect));
+        let (cam, aspect) = (&*self.camera(), self.picture_aspect(aspect));
         let target = self.within_stage(self.view_target(1.0), cam, aspect);
         let sun = self.drawn_sun.get().unwrap_or_else(|| self.sun());
         let (light_vp, _) = camera::light_view_proj(cam, target, aspect, sun, sim.world.size.as_vec3(), sim.world.stage_box(), self.options.shadow_map);
@@ -225,7 +225,7 @@ impl<G: Game> Session<G> {
         // How the play is seen unless the game sets this picture's camera
         // (`frame:camera`, in its `on_draw`).
         let viewing = matches!(scene, Scene::Play).then(|| Viewing {
-            cam: self.cfg.camera.clone(),
+            cam: self.camera().into_owned(),
             follows: self.view_target(alpha),
             shake: self.shaking().unwrap_or(Vec3::ZERO),
             aspect,
@@ -395,9 +395,10 @@ impl<G: Game> Session<G> {
                 let e = t.clamp(0.0, 1.0);
                 let e = e * e * (3.0 - 2.0 * e);
                 let mut cam = self.title_camera();
-                let (from, to) = (camera::shown_width(&cam, aspect), camera::shown_width(&self.cfg.camera, aspect));
+                let play = self.camera();
+                let (from, to) = (camera::shown_width(&cam, aspect), camera::shown_width(&play, aspect));
                 cam.show_width(from + (to - from) * e);
-                let end = self.within_stage(self.view_target(alpha), &self.cfg.camera, aspect);
+                let end = self.within_stage(self.view_target(alpha), &play, aspect);
                 (cam, between(self.title_target(), end, e))
             }
         }
@@ -420,7 +421,8 @@ impl<G: Game> Session<G> {
         }
         if let (Some(at), Some(m)) = (self.flyby_at(time), self.cfg.title_screen.flyby.as_ref().and_then(|f| self.models.props.get(f))) {
             out.fade = 1.0;
-            out.put_model(m, (time * 30.0) as usize % m.frames.len(), at, IVec2::X, Quat::IDENTITY, None);
+            let ahead = self.screen_right().round().as_ivec2();
+            out.put_model(m, (time * 30.0) as usize % m.frames.len(), at, ahead, Quat::IDENTITY, None);
         }
         out.fade = 1.0;
     }

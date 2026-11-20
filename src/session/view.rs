@@ -11,6 +11,22 @@ impl<G: Game> Session<G> {
         self.game.daylight().sun.unwrap_or_else(|| Vec3::from(self.cfg.light.sun)).normalize_or(Vec3::NEG_Z)
     }
 
+    /// The game's camera in the level played: `c.camera`, turned by the
+    /// level's own yaw (`[camera] yaw` in its file) where it states one.
+    pub fn camera(&self) -> std::borrow::Cow<'_, crate::config::CameraConfig> {
+        match self.game.sim().world.yaw {
+            Some(yaw) => std::borrow::Cow::Owned(crate::config::CameraConfig { yaw, ..self.cfg.camera.clone() }),
+            None => std::borrow::Cow::Borrowed(&self.cfg.camera),
+        }
+    }
+
+    /// The screen's right on the ground in the level played: +x, unless
+    /// the camera turns (`[camera] yaw`, `c.camera.yaw`).
+    pub(super) fn screen_right(&self) -> glam::Vec2 {
+        let (sin, cos) = self.game.sim().yaw_sin_cos();
+        glam::Vec2::new(cos, -sin)
+    }
+
     /// The faces the meshes hold: those a view ray or the sun can hit, the
     /// suns of every level (`[light]`) with `c.light`'s, so a level entered
     /// finds its faces there; for a game that moves its sun
@@ -21,8 +37,11 @@ impl<G: Game> Session<G> {
     /// that picture on (`seen_faces`; the meshes are built anew once).
     pub fn face_mask(&self) -> FaceMask {
         // (A picture of its own shape: as wide as that; a wider window
-        // adds its faces when drawn, `seen_faces`.)
-        let rays = camera::corner_rays(&self.cfg.camera, self.cfg.camera.aspect.unwrap_or(camera::WIDEST_KEPT));
+        // adds its faces when drawn, `seen_faces`. A level turned another
+        // way than the last has faces of its own: the meshes are built
+        // anew as it is entered.)
+        let cam = self.camera();
+        let rays = camera::corner_rays(&cam, cam.aspect.unwrap_or(camera::WIDEST_KEPT));
         let mut mask = if self.game.moves_sun() {
             mesh::face_mask_any_sun(&rays)
         } else {
@@ -136,9 +155,9 @@ impl<G: Game> Session<G> {
         self.compose(alpha, aspect, Scene::Play, None)
     }
 
-    /// The title scene's camera: the game's, closer.
+    /// The title scene's camera: the game's (as its level turns it), closer.
     pub(super) fn title_camera(&self) -> crate::config::CameraConfig {
-        let mut cam = self.cfg.camera.clone();
+        let mut cam = self.camera().into_owned();
         if let Some(w) = self.cfg.title_screen.view_width {
             cam.show_width(w);
         }
@@ -166,8 +185,15 @@ impl<G: Game> Session<G> {
         }
         let target = self.title_target();
         let span = self.title_camera().view_width * 0.9;
-        let x = target.x - span + 2.0 * span * into / FLYBY_TIME;
-        let y = target.y + span * 0.12;
+        let (x, y) = match self.game.sim().world.yaw {
+            None => (target.x - span + 2.0 * span * into / FLYBY_TIME, target.y + span * 0.12),
+            // A level that turns the camera: across its screen all the same.
+            Some(_) => {
+                let right = self.screen_right();
+                let p = target.truncate() + right * (2.0 * span * into / FLYBY_TIME - span) + right.perp() * (span * 0.12);
+                (p.x, p.y)
+            }
+        };
         let ground = self.game.sim().world.column_top(target.x as i32, y as i32) as f32;
         Some(Vec3::new(x, y, ground + t.flyby_altitude).floor())
     }

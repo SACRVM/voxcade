@@ -107,10 +107,11 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `level.places` | its named places: `level.places.west` is `{ x, y, z, facing }`; `level.places.start` is always there, where the level starts |
 | `level.areas` | its named areas, boxes set in its file: `level.areas.by_the_stove:holds(player)` (a thing where its feet stand, or a point `{ x, y, z }`, z left out: any height); only to read |
 | `level.arrived` | where the player came into this level (a place, with its name): a game without the engine's figure for the player stands its hero there |
-| `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it; soft voxels are not) |
+| `level:voxel(x, y, z)`, `level:solid(x, y, z)`, `level:set_voxel(…)`, `level:fill(…)`, `level:ground(x, y)` | its voxels (`solid`: whether bodies stand on it, a solid piece's or a solid thing's cells too; soft voxels are not) |
 | `level:spawn(kind, x, y, options?)`, `level:thing(name or id)`, `level:things(kind or family?)`, `level:count(kind or family?)` | its things; `options`: `{ z =, name =, facing =, props =, state = }`; x and y inside the level (only a kind with `fixed = true` may wait outside, coming in from off the screen); a thing that died is no longer listed or counted (only its picture lingers until its rules take it away) |
 | `level:explode(at, radius)`, `level:sound(name, at, volume?)` | what happens in it (a sound by its file's name: `sounds/NAME.toml`, or one the engine or a kit brings) |
 | `level.camera:follow(thing)`, `level.camera:look_at(x, y)` | where the camera looks (one picture's camera: `frame:camera` in `on_draw`) |
+| `level.camera.yaw` | the way the camera looks in this level, degrees clockwise seen from above (0 north): the level file's `[camera] yaw`, else `c.camera.yaw`; only to read |
 
 ### `player`: the one who plays
 
@@ -428,8 +429,9 @@ held, as dialogue and shops always were; light is the picture's, so
   the state hash, replays, the sounds' places and `level.camera` do not
   see it (a replay draws every tick and comes out the same);
   `frame:to_screen` after it goes by it; on the title the title's camera
-  stays. The camera does not turn round yet (`yaw` is refused: a turned view
-  is not what scenes need now). Faces: a
+  stays. A picture's camera does not turn round yet (`yaw` is refused: a
+  turned view is not what scenes need now; a level turns its camera by its
+  file's `[camera] yaw`, and `frame:camera` keeps that yaw). Faces: a
   picture moved or zoomed looks along the very rays of the game's camera
   (perspective at its pitch and field of view: moving and zooming change
   only where the eye is), so the meshes stay as they are and cost
@@ -1217,6 +1219,31 @@ daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
 to 1, as in `c.light`, which takes both too): over the game's for
 that level, under `frame:daylight` in `on_draw`, the picture only (no
 hash); the meshes keep the faces every level's sun lights (`Game::suns`).
+A level's file may turn the camera, `[camera]` with `yaw` (2026-11-20,
+the owner's "a level seen from its other side"): degrees clockwise seen
+from above as `c.camera.yaw`'s, over the game's for that level, a
+quarter turn (0, 90, 180, 270; another is a mistake with its line); a
+game that sees its levels from the side (a corner ray of its view not
+pointing down: a jump & run's) or plays the jump & run's rules turns
+them by halves only so far (90 and 270 refused with the line). It is the
+level's data (`World::yaw`; in the fingerprint through the level file),
+so every machine and every replay turns alike: the picture, its faces
+(the meshes are built anew for them as the level is entered), the
+shadows, the sounds' places, `level.camera.yaw`. What turns with it:
+the shooter's keys (as by `c.camera.yaw`), the jump & run's left and
+right seen from behind (right on the keys walks right on the screen,
+towards the world's west). What does not: `input.dir`, `input.move` and
+`input.aim` are the keys and sticks as pressed, screen directions,
+recorded raw; a game in Lua alone turns them itself by
+`level.camera.yaw` (HELP has the lines), and a key held through a door
+into a level seen from the other side means the way back there, the
+game's to handle. Ways stay the world's: a `facing` of a kind, a
+thing's `rotation` in the file, a place's `facing`, a piece's (a piece
+without one faces south, as always: the room is the same room seen from
+behind). A thing whose way nothing states (no `facing` of its kind, the
+file or `level:spawn`, no figure the kit stands sideways) rests facing
+the camera there (`Sim::rest_way`: north at 180), as it rests facing it
+at 0; nothing changes in a level without `[camera]`.
 `[[area]]` is a named box: `level.areas.NAME`,
 `area:holds(thing or point)`. Names given in the file are the things'
 names (`level:thing(name)`); unnamed ones keep their kind and number
@@ -1263,6 +1290,29 @@ yet: areas' events, setting a light's colour or radius in code.
   and `jump` move nothing. For kinds the script moves, so the ones
   without a behavior (and the same in a game with a kit); on a kind with
   a behavior it is a mistake, for its ready-made rules move it.
+- **`solid = true`** (`c.things.NAME.solid`, 2026-11-20, the owner's "a
+  thing that stops bodies"): a thing of the kind stops bodies as a
+  level's solid piece does, in the cells its model is drawn in where it
+  stands, in quarter turns of the way it faces (its first frame, from
+  its pivot's cell: `session::piece_cells`); `level:solid` says so,
+  `thing:walk`, the ready-made rules' bodies, rounds and grenades stop
+  there, its voxels stay none of the world's (`level:voxel` 0). Only a
+  kind that stands: `fixed = true`, no behavior, a model (each else a
+  mistake naming the key and why; its box, `width` and `height`, is not
+  what stops: its model's cells). The world keeps its cells by its id
+  (`world::Solids`, `World::put_solid_thing`): they come as it comes in,
+  move where `thing:place` sets it and go with `thing:remove`, each at
+  the tick's end (`Stage::settle_solids`; the things a level's file sets
+  down before `on_level_start`). A body it is set onto (placed or
+  spawned there) is pushed out sideways to the nearest spot where it
+  stands free at its height (`host::free_beside`, a fixed order: the
+  nearest, then the further south, then west; within 48 voxels, else it
+  stays), never onto its head; things that stay where they are put are
+  no bodies here. A place, or a thing of a kind that moves, the level's
+  file sets inside one (as the file turns it, or facing the camera) is a
+  mistake at load naming its line. In the snapshot (the world), and in
+  the state hash where a game has such things (where each stands and its
+  quarter turn); a game without hashes as before.
 - **`persistent = true`** (`c.things.NAME.persistent`): its things a
   level's file sets down stay as left for the whole run, in any level
   ("Levels that remember"); not on the hero that becomes the player.
