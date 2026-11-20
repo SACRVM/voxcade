@@ -4,6 +4,10 @@
 
 use super::*;
 
+/// A scenario's other levels as it says they were left: each level's
+/// things by name (`memory`).
+type AsLeft = Vec<(String, Vec<(String, memory::Left)>)>;
+
 impl<K: Kit> LuaGame<K> {
     /// `Game::scenarios`: each scenario by name, with its `about`.
     pub(super) fn scenarios_about(&mut self) -> Result<Vec<(String, String)>> {
@@ -28,12 +32,21 @@ impl<K: Kit> LuaGame<K> {
         self.code.modules.push((path.clone(), lex::tokens(&path, &src)?));
         let mut elsewhere = None;
         let set_up = self.reopened(true, |game, env| {
-            let (begins, setup) = game.scenario_read(&path, &src, env)?;
+            let (begins, setup, as_left) = game.scenario_read(&path, &src, env)?;
             if let Some((level, place)) = begins
                 && !game.begun_at(&level, place.as_deref())
             {
                 elsewhere = Some((level, place));
                 return Ok(());
+            }
+            // The other levels as the scenario says they were left: laid
+            // over each as it is entered (`memory`).
+            if !as_left.is_empty() {
+                let mut records = (*game.stage.records).clone();
+                for (level, things) in as_left {
+                    records.insert(level, memory::Record::of_things(things).seal());
+                }
+                game.stage.records = Arc::new(records);
             }
             match &setup {
                 Some(setup) => game.with_world(|sb, _| sb.call_start::<()>(setup, ())),
@@ -76,13 +89,14 @@ impl<K: Kit> LuaGame<K> {
     }
 
     /// A scenario's table read and checked: the level and place it begins
-    /// in (the level's start unless it names one), its setup.
-    fn scenario_read(&mut self, path: &str, src: &str, env: &Table) -> Result<(Begins, Option<Function>)> {
+    /// in (the level's start unless it names one), its setup, the other
+    /// levels as it says they were left (`as_left`).
+    fn scenario_read(&mut self, path: &str, src: &str, env: &Table) -> Result<(Begins, Option<Function>, AsLeft)> {
         let table = scenario_table(path, self.sandbox.run_in(path, src, env, "the start")?)?;
         for key in table.pairs::<mlua::Value, mlua::Value>() {
             let (key, _) = key?;
             let key = key.to_string().unwrap_or_else(|_| "?".into());
-            anyhow::ensure!(["about", "level", "place", "setup"].contains(&key.as_str()), "{path}: no field called '{key}' (about, level, place, setup)");
+            anyhow::ensure!(["about", "level", "place", "setup", "as_left"].contains(&key.as_str()), "{path}: no field called '{key}' (about, level, place, setup, as_left)");
         }
         // A scenario that names where the run begins needs no setup.
         let setup: Option<Function> = table.raw_get("setup")?;
@@ -105,7 +119,49 @@ impl<K: Kit> LuaGame<K> {
             (None, Some(_)) => anyhow::bail!("{path}: a place belongs to a level: level = \"...\", place = \"...\""),
             (None, None) => None,
         };
-        Ok((begins, setup))
+        let begins_in = begins.as_ref().map_or_else(|| self.stage.levels.first().name.clone(), |(l, _)| l.clone());
+        let as_left = self.scenario_as_left(path, &table, &begins_in)?;
+        Ok((begins, setup, as_left))
+    }
+
+    /// A scenario's `as_left`: the levels by name, each its things by name
+    /// as a record keeps them (`memory::Left`: `{ removed = true }`, `{ at =
+    /// { x, y, z }, facing = { x, y }, state = { ... } }`), each name one its
+    /// level's file sets down; not the level the run begins in (`setup`
+    /// sets that one).
+    fn scenario_as_left(&self, path: &str, table: &Table, begins_in: &str) -> Result<AsLeft> {
+        let v: mlua::Value = table.raw_get("as_left")?;
+        if v.is_nil() {
+            return Ok(Vec::new());
+        }
+        let what = format!("{path}: as_left");
+        let Some(Value::Table(levels)) = value::capture(&v, &what, &mut value::Seen::default(), false)? else {
+            anyhow::bail!("{what}: the other levels by name, each its things as left: as_left = {{ hall = {{ door = {{ state = {{ open = true }} }} }} }}");
+        };
+        let kinds = &self.stage.kinds;
+        let piece = kinds.iter().position(|k| k.name == crate::grid::PIECE).unwrap_or(usize::MAX);
+        let mut out = Vec::new();
+        for (k, v) in &levels {
+            let value::Key::Str(name) = k else { anyhow::bail!("{what}: levels by their names") };
+            let name = String::from_utf8_lossy(name).to_string();
+            let Some(index) = self.stage.levels.find(&name) else {
+                let all = self.stage.levels.names();
+                let near = crate::audio::words::near(&name, all.iter().copied()).map_or_else(|| format!("the game's: {}", all.join(", ")), |n| format!("did you mean {n}?"));
+                anyhow::bail!("{what}.{name}: no such level ({near})");
+            };
+            anyhow::ensure!(name != begins_in, "{what}.{name}: the run begins in {name}; setup() sets it as it should be");
+            let things = memory::things_of(v, &format!("{what}.{name}"))?;
+            let level = &self.stage.levels.list[index];
+            let named = level.kinds_by_name(|k| kinds.get(k).map_or(("", false), |k| (k.name.as_str(), k.player)), piece);
+            for (thing, _) in &things {
+                if !named.contains_key(thing) {
+                    let near = crate::audio::words::near(thing, named.keys().map(String::as_str)).map_or_else(|| format!("its things: {}", named.keys().cloned().collect::<Vec<_>>().join(", ")), |n| format!("did you mean {n}?"));
+                    anyhow::bail!("{what}.{name}.{thing}: level {name} sets down no thing called that ({near})");
+                }
+            }
+            out.push((name, things));
+        }
+        Ok(out)
     }
 
     /// `Game::eval`: a console line run in the game, what it printed and

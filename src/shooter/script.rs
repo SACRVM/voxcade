@@ -515,6 +515,14 @@ impl Host for Shooter {
         Some(crate::sim::spawn_point(world, self.sim.cfg.player.spawn, self.player.body.height, self.sim.half()))
     }
 
+    fn thing_body(&mut self, id: Id) -> Option<(&mut crate::sim::Body, &mut Option<crate::sim::things::Walk>)> {
+        self.things.get_mut(id).map(|t| (&mut t.body, &mut t.off))
+    }
+
+    fn rules_off(&self, id: Id) -> bool {
+        self.things.get(id).is_some_and(|t| t.off.is_some())
+    }
+
     fn box_clone(&self) -> Box<dyn Host> {
         Box::new(self.clone())
     }

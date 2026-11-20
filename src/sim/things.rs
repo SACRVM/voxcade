@@ -68,6 +68,9 @@ pub struct Def {
     /// (`solid = true`), as a level's solid piece does (`world::Solids`):
     /// only a kind that stands, `fixed` and without a behavior.
     pub solid: bool,
+    /// Its things a level's file sets down stay as left for the whole run,
+    /// in any level (`persistent = true`: a chest, a lever; `lua::memory`).
+    pub persistent: bool,
     /// Its model's frames for what it does and its poses, by name
     /// (`frames`), and how many a second where a set does not say (`fps`).
     pub frames: BTreeMap<String, Frames>,
@@ -201,7 +204,7 @@ impl Effect {
 
 /// The keys every kind has besides `like`, `behavior`, `model` and `hp`
 /// (`Def`): a behavior's own numbers are the rest.
-pub const COMMON: [&str; 13] = ["props", "names", "family", "effect", "sound", "reach", "team", "immune", "rotates", "spin", "frames", "fps", "swing"];
+pub const COMMON: [&str; 14] = ["props", "names", "family", "effect", "sound", "reach", "team", "immune", "rotates", "spin", "frames", "fps", "swing", "persistent"];
 
 /// The player's team (a kind's `team` names others).
 pub const PLAYER_TEAM: &str = "player";
@@ -258,6 +261,7 @@ fn piece() -> Def {
         spin: 0.0,
         fixed: true,
         solid: false,
+        persistent: false,
         frames: BTreeMap::new(),
         fps: FPS,
         swing: BTreeMap::new(),
@@ -456,6 +460,14 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 Some(toml::Value::Boolean(b)) => b,
                 Some(_) => bail!("{}: true or false (a thing that stays where it is put)", what("fixed")),
             };
+            let persistent = match params.remove("persistent") {
+                None => false,
+                Some(toml::Value::Boolean(b)) => b,
+                Some(_) => bail!("{}: true or false (true: its things a level sets down stay as left for the whole run)", what("persistent")),
+            };
+            if persistent && behavior.as_deref() == Some(PLAYER_BEHAVIOR) {
+                bail!("{}: the first {name} a level sets down becomes the player, who goes from level to level and has no name in a level to be kept by; the player's own data goes in player.state", what("persistent"));
+            }
             if fixed && behavior.is_some() {
                 bail!("{}: a kind with a behavior is moved by its ready-made rules; fixed is for kinds the script moves (no behavior)", what("fixed"));
             }
@@ -500,7 +512,7 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 let near = crate::audio::words::near(key, known).map(|k| format!(" (did you mean `{k}`?)")).unwrap_or_default();
                 bail!("{}: not a setting of a kind without a behavior (the script's: model, hp, fixed, solid, width, height, facing and {}){near}", what(key), COMMON.join(", "));
             }
-            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, spin, fixed, solid, frames, fps, swing, params })
+            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, spin, fixed, solid, persistent, frames, fps, swing, params })
         })
         .collect()
 }

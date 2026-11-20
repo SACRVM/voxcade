@@ -127,7 +127,7 @@ fn scenarios_and_console_lines_say_what_went_wrong() {
     for (name, says) in [
         ("gone", "no scenario 'gone' (the game's: bare, broken, nowhere, odd, plain)"),
         ("plain", "scenarios/plain.lua: a scenario gives back a table"),
-        ("odd", "scenarios/odd.lua: no field called 'start' (about, level, place, setup)"),
+        ("odd", "scenarios/odd.lua: no field called 'start' (about, level, place, setup, as_left)"),
         ("bare", "scenarios/bare.lua: a scenario says where the run begins (level = \"name\", place = \"name\") or sets it up"),
         ("nowhere", "scenarios/nowhere.lua: level = \"zz\" is none of the game's levels"),
         ("broken", "scenarios/broken.lua:3:"),

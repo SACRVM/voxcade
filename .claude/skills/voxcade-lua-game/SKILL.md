@@ -463,6 +463,21 @@ stay out of `level.state`, `on_level_start(how)` builds and places;
 (`world:go_to("b", "door", { fade = 0 })`, `world:restart({ fade = 0 })`,
 `world:go_to("chapter2", { fade = 1.2 })` between chapters).
 
+Levels that remember (`docs/game-model.md`): levels whose files say the
+same `location = "station"` are each as left while the player goes among
+them (their things by name: taken out, where they stood, `thing.state`;
+their voxels) and share one `level.state` (things in it nil after a
+change; fresh when the location is entered from outside; a sequence
+ending in `go_to` clears its step and `held` first). Leaving the location
+forgets that but for what is persistent: `persistent = true` in a level's
+file (all of it, the whole run), `c.things.NAME.persistent = true` (a
+kind's things a file sets down, any level). `level.location`;
+`level.away` (ticks it was left: nothing moves in a room nobody is in,
+`on_level_start` makes up for it); `world:restart()` gives the level as
+entered this visit; `{ fresh = true }` on `go_to`/`restart` takes it from
+its file; a scenario's `as_left = { hall = { key_1 = { removed = true } } }`
+sets other levels as left.
+
 Save games: `c.saves = { slots = 3, version = 1 }` puts SAVE and LOAD in
 the pause menu and CONTINUE on the title (the newest save); `world:save(slot)` at the tick's end (save points),
 `world:load(slot)` like a level change (`"load"` for `on_level_end` and

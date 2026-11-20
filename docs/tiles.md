@@ -308,6 +308,18 @@ facing = [0, -1]
   as a model's `.vvx`: BunnyFarm's farm reads as its map). x runs left to
   right in both. A new level reads from the front when it is taller than
   deep, else from above; the editor keeps the file's view.
+- **Remembering** (0.7, `docs/game-model.md`, "Levels that remember"):
+  `location = "station"` after `size` (and `view`), in a level of blocks
+  or of pieces, puts it in a location: while the player changes among the
+  levels that say the same name, each is as it was left (its things by
+  name, its voxels) and they share `level.state`; leaving the location
+  forgets that. `persistent = true` keeps everything the level sets down,
+  and its voxels, as left for the whole run. Each optional, written only
+  where set; a name that is no string, a `persistent` that is not true or
+  false, are mistakes with their line; the game's own title belongs to no
+  location. The level editor's LEVEL has LOCATION (the locations the
+  game's levels say, or a name typed) and PERSISTENT (`voxcade edit GAME
+  --level FILE --location NAME --persistent`).
 - **Signs**: one letter or digit a pair of block and turn (62), two each
   when a level needs more (`..` empty); a new sign takes a letter of its
   block's name where it can (`s` for stone, `S` the next stone or the

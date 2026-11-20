@@ -99,6 +99,7 @@
 
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
+---@field fresh? boolean world:go_to and world:restart only: true enters the level as its file has it, forgetting what it kept of earlier visits (a level of a location, a persistent one, things of a persistent kind).
 
 ---@class Menu A menu in the engine's look (frame:menu).
 ---@field name? string Its name as the pointer says it (input.pointer.hud).
@@ -169,14 +170,15 @@
 local World = {}
 
 ---Leaves this level for another at the end of the tick (the code after it still runs): by name or number (world:go_to(level.next) goes on in order), arriving at the place called place, else where the level starts. player.state.checkpoint is forgotten. One ask counts in a tick: world.leaving.
----- options: { fade = seconds } for this change alone, out and as many in, 0 to 10. 0 is a cut: world:go_to("b", "door", { fade = 0 }). 1.2 is a slow fade for a new chapter. Unless said, c.transition's. Without a place: world:go_to("b", { fade = 0 }).
+---- Between levels of one location (location = "station" in their files) each is as it was left and level.state goes on; leaving the location forgets them, but for what is persistent.
+---- options: { fade = seconds } for this change alone, out and as many in, 0 to 10. 0 is a cut: world:go_to("b", "door", { fade = 0 }). 1.2 is a slow fade for a new chapter. Unless said, c.transition's. Without a place: world:go_to("b", { fade = 0 }). { fresh = true }: the level as its file has it, what it kept forgotten.
 ---@param level string|integer
 ---@param place? string|LevelChange
 ---@param options? LevelChange
 function World:go_to(level, place, options) end
 
----Enters this level afresh at the end of the tick: everything from its file again, level.state fresh; the player at place, else at the place player.state.checkpoint names, else where it starts. One ask counts in a tick: world.leaving.
----- options: { fade = seconds } for this change alone, as world:go_to's: world:restart({ fade = 0 }) starts over at once.
+---Enters this level again at the end of the tick, as it was entered this visit: everything from its file again, level.state fresh (a level that remembers: with what it kept then, and in a location level.state as it came in); the player at place, else at the place player.state.checkpoint names, else where it starts. One ask counts in a tick: world.leaving.
+---- options: { fade = seconds } for this change alone, as world:go_to's: world:restart({ fade = 0 }) starts over at once. { fresh = true }: the level as its file has it, what it kept forgotten.
 ---@param place? string|LevelChange
 ---@param options? LevelChange
 function World:restart(place, options) end
@@ -189,7 +191,7 @@ function World:read(name) end
 ---Saves the game into a slot (1 to c.saves.slots) at the end of the tick, or of the on_level_start that asks: for save points, or saving on its own. The player can save from the pause menu too (such a save has no label). Never on your game's own title (c.title_screen.level).
 ---- options: { label = "Chapter 2: the station" } tells the save by a line of your own, one line of 80 characters at most: world.saves[slot].label reads it back, and the engine's own SAVE and LOAD pages show it in place of the level's name.
 ---- Kept: world.state, player.state, every level's level.kept, the level being played with its level.state and the voxels changed in it (blown away, built), and where the player stands.
----- Not kept: the level's things. They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep what you need to place them again.
+---- Not kept: the level's things, but in a level that remembers (a location's, a persistent one, things of a persistent kind: what the levels kept, by name). They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep what you need to place them again.
 ---@param slot integer
 ---@param options? SaveOptions
 function World:save(slot, options) end
@@ -234,11 +236,13 @@ function World:quit() end
 function World:to_title() end
 
 ---@class Level The level being played: its voxels, its things, what happens in it, its camera.
----@field state table Your game's data for this level while it is played: the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
+---@field state table Your game's data for this level while it is played: the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its things nil). The levels of one location (level.location) share it: it goes on as the player changes among them (things in it nil then), and is fresh when the location is entered from outside. The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches wait; on_tick, on_draw and the time go on): for a message, a shop, a tally.
 ---@field name string Its name: its file's name without the ending (hall for levels/hall.toml); main for a game's one level made in code.
 ---@field number integer Its place among world.levels, from 1.
 ---@field next string|nil The next level's name, nil after the last one. Your game's own title (c.title_screen.level) is passed over.
 ---@field visits integer How often it was entered in this run, restarts too: 1 the first time.
+---@field location string|nil The location it belongs to, as its file says (location = "station"), nil for none. While the player changes among the levels of one location, each is as it was left (its things by their names: taken out, where they stood, thing.state, its voxels) and they share level.state. Leaving the location forgets that, but for what is persistent (persistent = true in a level's file, or on a kind). No time passes in a level nobody is in: level.away.
+---@field away integer The ticks since this level was left, when it comes back as it was left (a level of a location, a persistent one, things of a persistent kind); 0 on a first visit and where it kept nothing. Nothing moves in a level nobody is in: on_level_start can make up what would have happened meanwhile (a timer in thing.state counted down by level.away).
 ---@field kept table What this level keeps across visits for the whole run (a lever pulled, a puzzle solved): read it in on_level_start. Plain data, no things.
 ---@field arrived Place Where the player arrived in this level, with its name (a place's, or start): a game without a figure of the engine's stands its hero there in on_level_start.
 ---@field places table<string, Place> Its named places, set in its file (level.places.west): where a player arrives; start is always there (the place called start, else where the ready-made rules stand the player, else c.player.spawn).
@@ -1056,6 +1060,7 @@ function on_pickup(thing, item) end
 ---@field fixed? boolean It stays exactly where it is put, in the air too (a kind without a behavior).
 ---@field solid? boolean It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.
 Only for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside.
+---@field persistent? boolean Its things a level's file sets down stay as left for the whole run, in any level: taken out, where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player.
 ---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
 ---@field height? number Its body's height, in voxels (its model's unless set).
 ---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north).

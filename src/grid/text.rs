@@ -119,6 +119,7 @@ pub fn write(level: &GridLevel, kept: &Legend) -> String {
     if !level.has_grid() {
         let s = level.size;
         let mut out = format!("format = \"{FORMAT}\"\nsize = [{}, {}, {}]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n", s.x, s.y, s.z);
+        out += &remembers_text(level);
         if let Some(d) = &level.daylight {
             out += &format!("\n{}", daylight_text(d));
         }
@@ -174,6 +175,7 @@ pub fn write(level: &GridLevel, kept: &Legend) -> String {
         View::Front => "view = \"front\"        # each layer the grid seen from the front, the front layer first, its top row first\n".to_string(),
         View::Above => "view = \"above\"        # each layer the grid seen from above, the bottom layer first, its far row first\n".to_string(),
     };
+    out += &remembers_text(level);
     out += "\n[blocks]              # blocks/NAME.vvx, each what it is to the game\n";
     for b in &level.blocks {
         out += &format!("{} = \"{}\"\n", key(&b.name), b.kind.name());
@@ -514,6 +516,16 @@ fn over(src: &str, was: &GridLevel, now: &GridLevel, kept: &Legend) -> Option<St
         if was.camera != now.camera {
             head_table_edits(src, head_end, sections.is_empty(), "[camera]", now.camera.as_ref().map(camera_text), &mut edits);
         }
+    }
+
+    // What it says of remembering: its lines changed, put in after its
+    // size (and view), or taken out.
+    if (was.location != now.location || was.persistent != now.persistent) && (same_head || !now.has_grid()) {
+        let head = Section { sort: 0, k: 0, start: 0, header: 0, table: top as &dyn toml_edit::TableLike };
+        let after = if top.contains_key("view") { "view" } else { "size" };
+        field(src, &head, "location", now.location.as_deref().map(vvx::quoted), Some(after), &mut edits)?;
+        let after = if top.contains_key("location") { "location" } else { after };
+        field(src, &head, "persistent", now.persistent.then(|| "true".to_string()), Some(after), &mut edits)?;
     }
 
     // The terrain: its fields and materials changed in place, put in
@@ -1061,7 +1073,8 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
     let r = Reader { src };
     let top = doc.as_table();
     vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
-    r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "light", "camera", "terrain", "thing", "place", "area"], "a level")?;
+    r.only(top, &["format", "block", "size", "view", "location", "persistent", "blocks", "legend", "cells", "light", "camera", "terrain", "thing", "place", "area"], "a level")?;
+    let remembers = read_remembers(&r, top)?;
     let daylight = top.get("light").map(|item| read_daylight(&r, item)).transpose()?;
     let camera = top.get("camera").map(|item| read_camera(&r, item)).transpose()?;
     let whole = |item: &Item, what: &str| -> Result<i32> {
@@ -1087,6 +1100,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
             return Err(r.fail(size_item.span(), format!("the level of {why}")));
         }
         let mut level = GridLevel::new(0, size);
+        (level.location, level.persistent) = remembers;
         (level.daylight, level.camera) = (daylight, camera);
         read_terrain(&r, top, &mut level)?;
         read_set_down(&r, top, &mut level)?;
@@ -1196,6 +1210,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
             k += 1;
         }
     }
+    (level.location, level.persistent) = remembers;
     (level.daylight, level.camera) = (daylight, camera);
     read_terrain(&r, top, &mut level)?;
     read_set_down(&r, top, &mut level)?;
@@ -1250,6 +1265,39 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
         },
     };
     Ok(ThingLight { at, radius, color, falloff, cone, blend, rotation, pitch, shadows, fog })
+}
+
+/// What a level says of remembering (`docs/game-model.md`, "Levels that
+/// remember"): the location it belongs to (`location = "station"`) and
+/// whether everything it sets down stays as left for the run
+/// (`persistent = true`).
+fn read_remembers(r: &Reader, top: &toml_edit::Table) -> Result<(Option<String>, bool)> {
+    let location = match top.get("location") {
+        None => None,
+        Some(item) => match item.as_str() {
+            Some(name) if !name.trim().is_empty() && name.trim() == name && !name.contains(['\n', '"']) => Some(name.to_string()),
+            Some(_) => return Err(r.fail(item.span(), "location is a name, in quotes (location = \"station\"): the levels that say the same name are one location")),
+            None => return Err(r.fail(item.span(), "location is a name, in quotes (location = \"station\"): the levels that say the same name are one location")),
+        },
+    };
+    let persistent = match top.get("persistent") {
+        None => false,
+        Some(item) => item.as_bool().ok_or_else(|| r.fail(item.span(), "persistent must be true or false (true: everything the level sets down, and its voxels, stay as left for the whole run)"))?,
+    };
+    Ok((location, persistent))
+}
+
+/// The lines of what a level says of remembering, after its size (and
+/// view): `location`, `persistent`, each only where set.
+fn remembers_text(level: &GridLevel) -> String {
+    let mut out = String::new();
+    if let Some(l) = &level.location {
+        out += &format!("location = {}    # levels of one location are as left while the player stays among them\n", vvx::quoted(l));
+    }
+    if level.persistent {
+        out += "persistent = true     # what it sets down, and its voxels, stay as left for the whole run\n";
+    }
+    out
 }
 
 /// A level's own daylight (`[light]`), each word checked.

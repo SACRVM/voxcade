@@ -133,6 +133,7 @@ const TYPES: &str = "\
 
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
+---@field fresh? boolean world:go_to and world:restart only: true enters the level as its file has it, forgetting what it kept of earlier visits (a level of a location, a persistent one, things of a persistent kind).
 
 ---@class Menu A menu in the engine's look (frame:menu).
 ---@field name? string Its name as the pointer says it (input.pointer.hud).
@@ -305,13 +306,17 @@ pub const API: &[Item] = &[
     Item { of: "world", name: "go_to", what: Method { params: &[("level", "string|integer"), ("place?", "string|LevelChange"), ("options?", "LevelChange")], returns: "" },
         doc: "Leaves this level for another at the end of the tick (the code after it still runs): by name or number \
             (world:go_to(level.next) goes on in order), arriving at the place called place, else where the level starts. \
-            player.state.checkpoint is forgotten. One ask counts in a tick: world.leaving.\n- options: { fade = seconds } for this change \
-            alone, out and as many in, 0 to 10. 0 is a cut: world:go_to(\"b\", \"door\", { fade = 0 }). 1.2 is a slow fade for a new chapter. \
-            Unless said, c.transition's. Without a place: world:go_to(\"b\", { fade = 0 })." },
+            player.state.checkpoint is forgotten. One ask counts in a tick: world.leaving.\n- Between levels of one location (location = \"station\" \
+            in their files) each is as it was left and level.state goes on; leaving the location forgets them, but for what is persistent.\n- \
+            options: { fade = seconds } for this change alone, out and as many in, 0 to 10. 0 is a cut: world:go_to(\"b\", \"door\", { fade = 0 }). \
+            1.2 is a slow fade for a new chapter. Unless said, c.transition's. Without a place: world:go_to(\"b\", { fade = 0 }). { fresh = true }: \
+            the level as its file has it, what it kept forgotten." },
     Item { of: "world", name: "restart", what: Method { params: &[("place?", "string|LevelChange"), ("options?", "LevelChange")], returns: "" },
-        doc: "Enters this level afresh at the end of the tick: everything from its file again, level.state fresh; the player at place, else \
+        doc: "Enters this level again at the end of the tick, as it was entered this visit: everything from its file again, level.state \
+            fresh (a level that remembers: with what it kept then, and in a location level.state as it came in); the player at place, else \
             at the place player.state.checkpoint names, else where it starts. One ask counts in a tick: world.leaving.\n- options: { fade = \
-            seconds } for this change alone, as world:go_to's: world:restart({ fade = 0 }) starts over at once." },
+            seconds } for this change alone, as world:go_to's: world:restart({ fade = 0 }) starts over at once. { fresh = true }: the level as \
+            its file has it, what it kept forgotten." },
     Item { of: "world", name: "read", what: Method { params: &[("name", "string")], returns: "string" },
         doc: "The text of a file in the game folder, by its path there (world:read(\"levels/microban.txt\")): only while main.lua starts: at \
             its top, in on_world_start or the first on_level_start. The files read count for the replays, and saving one runs main.lua anew." },
@@ -321,7 +326,8 @@ pub const API: &[Item] = &[
             - options: { label = \"Chapter 2: the station\" } tells the save by a line of your own, one line of 80 characters at most: world.saves[slot].label \
             reads it back, and the engine's own SAVE and LOAD pages show it in place of the level's name.\n- Kept: world.state, player.state, every level's level.kept, \
             the level being played with its level.state and the voxels changed in it (blown away, built), and where the player stands.\n- \
-            Not kept: the level's things. They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep \
+            Not kept: the level's things, but in a level that remembers (a location's, a persistent one, things of a persistent kind: what \
+            the levels kept, by name). They come from its file when it is loaded; a thing kept in level.state comes back as nil, so keep \
             what you need to place them again." },
     Item { of: "world", name: "load", what: Method { params: &[("slot", "integer"), ("options?", "LevelChange")], returns: "" },
         doc: "Goes on from the save in a slot at the end of the tick, like a level change (on_level_end(\"load\"), then \
@@ -363,7 +369,8 @@ pub const API: &[Item] = &[
     // level
     Item { of: "level", name: "state", what: Field { ty: "table", set: false }, doc: "Your game's data for this level while it is played: \
             the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its \
-            things nil). The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches \
+            things nil). The levels of one location (level.location) share it: it goes on as the player changes among them (things in it \
+            nil then), and is fresh when the location is entered from outside. The engine reads one key: level.state.held = true holds the level (the ready-made rules, the physics and touches \
             wait; on_tick, on_draw and the time go on): for a message, a shop, a tally." },
     Item { of: "level", name: "name", what: Field { ty: "string", set: false }, doc: "Its name: its file's name without the ending (hall for \
             levels/hall.toml); main for a game's one level made in code." },
@@ -372,6 +379,15 @@ pub const API: &[Item] = &[
             title (c.title_screen.level) is passed over." },
     Item { of: "level", name: "visits", what: Field { ty: "integer", set: false }, doc: "How often it was entered in this run, restarts too: \
             1 the first time." },
+    Item { of: "level", name: "location", what: Field { ty: "string|nil", set: false }, doc: "The location it belongs to, as its file \
+            says (location = \"station\"), nil for none. While the player changes among the levels of one location, each is as it was left \
+            (its things by their names: taken out, where they stood, thing.state, its voxels) and they share level.state. Leaving the \
+            location forgets that, but for what is persistent (persistent = true in a level's file, or on a kind). No time passes in a \
+            level nobody is in: level.away." },
+    Item { of: "level", name: "away", what: Field { ty: "integer", set: false }, doc: "The ticks since this level was left, when it comes \
+            back as it was left (a level of a location, a persistent one, things of a persistent kind); 0 on a first visit and where it \
+            kept nothing. Nothing moves in a level nobody is in: on_level_start can make up what would have happened meanwhile (a timer \
+            in thing.state counted down by level.away)." },
     Item { of: "level", name: "kept", what: Field { ty: "table", set: false }, doc: "What this level keeps across visits for the whole run \
             (a lever pulled, a puzzle solved): read it in on_level_start. Plain data, no things." },
     Item { of: "level", name: "arrived", what: Field { ty: "Place", set: false }, doc: "Where the player arrived in this level, with its \
@@ -1084,6 +1100,7 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("hp", "integer", "The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none."),
     ("fixed", "boolean", "It stays exactly where it is put, in the air too (a kind without a behavior)."),
     ("solid", "boolean", "It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.\nOnly for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside."),
+    ("persistent", "boolean", "Its things a level's file sets down stay as left for the whole run, in any level: taken out, where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player."),
     ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
     ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),

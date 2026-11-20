@@ -65,6 +65,9 @@ impl<K: Kit> LuaGame<K> {
             size: sim.world.size.to_array(),
             palette,
             lights: stage.here.lights.iter().filter(|(id, _)| host.get(Id::from_raw(**id)).is_some()).filter_map(|(id, b)| Some((stage.here.names.get(id)?.clone(), *b))).collect(),
+            here: self.take_record(self.keeps_whole(stage.level))?.map(|r| data::write(&r.value())).unwrap_or_default(),
+            entered: stage.entered.as_deref().map(data::write).unwrap_or_default(),
+            records: stage.records.iter().map(|(n, r)| (n.clone(), data::write(&r.value()))).collect(),
         })
     }
 
@@ -208,6 +211,28 @@ impl<K: Kit> LuaGame<K> {
         }
         let place = save.figure.as_ref().filter(|_| found.is_some()).map(|f| crate::levels::Place { name: "saved".into(), at: Vec3::from(f.at), facing: Some(glam::IVec2::from(f.facing)) });
         let lights = if found.is_some() { save.lights.iter().map(|(n, b)| (n.clone(), *b)).collect() } else { Vec::new() };
-        self.enter(index, place, "load", Some(Loaded { level_state, voxels, palette, lights }))
+        // What the levels kept (`memory`): the others', the one played's as
+        // it stood, its level.state as it was entered. An older save has
+        // none: every level as its file has it.
+        let mut records = std::collections::BTreeMap::new();
+        for (name, text) in &save.records {
+            match self.stage.levels.find(name) {
+                Some(_) => _ = records.insert(name.clone(), memory::Record::from_value(&read(text, &format!("record of {name}"))?, &format!("the save's record of {name}"))?.seal()),
+                None => self.note(&format!("the save's record of '{name}' is dropped: the level is gone")),
+            }
+        }
+        let here = match found.is_some() && !save.here.is_empty() {
+            true => Some(memory::Record::from_value(&read(&save.here, "level played")?, "the save's level played")?.seal()),
+            false => None,
+        };
+        let entered = match found.is_some() && !save.entered.is_empty() {
+            true => Some(read(&save.entered, "level.state as entered")?),
+            false => None,
+        };
+        self.stage.records = Arc::new(records);
+        self.laying = Some(memory::Laying { record: here, state: None });
+        self.enter(index, place, "load", Some(Loaded { level_state, voxels, palette, lights }))?;
+        self.stage.entered = entered.filter(|v| self.stage.levels.list[index].location.is_some() && !v.is_empty()).map(Arc::new);
+        Ok(())
     }
 }

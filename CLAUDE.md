@@ -50,7 +50,8 @@ nothing else; `mod.rs` each command's work; tests
 sandbox, the world API over `lua::host::Host`, `conf.lua`, errors that
 halt; `api.rs` the API's register; `mod.rs` the game and `impl Game`, its
 own work by concern in `start.rs`, `calls.rs`, `course.rs`, `events.rs`,
-`seats.rs`, `saving.rs`, `hashing.rs`), `src/mcp.rs` the MCP server.
+`seats.rs`, `saving.rs`, `hashing.rs`; `memory.rs` levels that
+remember), `src/mcp.rs` the MCP server.
 `src/vvx.rs` is the model format, `.vvx` (text: the format line, `size`,
 a `[palette]` of signs, `[[frame]]`s or `[[part]]`s with `layers`);
 `src/vox/` the models as the engine holds them (`VoxModel`, `Part`) and
@@ -835,7 +836,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   takes one through `grid::load_at` and pins its voxels.
 - Levels and worlds are text (`docs/tiles.md`, 2026-11-12). A level of
   blocks is `levels/NAME.toml` ("voxcade level 1", `grid::text`): `block`,
-  `size`, `view`, `[blocks]` (name = kind), `[legend]` (a sign a block
+  `size`, `view`, `location`, `persistent` (levels that remember, below),
+  `[blocks]` (name = kind), `[legend]` (a sign a block
   and its orientation: `s = "stone"`, `S = { block = "stone", orientation = 17 }`),
   `[cells]` with `layers` as a `.vvx`'s, `[[thing]]` and `[[place]]`; a
   thing of a kind may carry `props = { to = "02_crypt" }` over its kind's
@@ -1239,12 +1241,41 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   its own. A kind without a behavior takes the engine's keys (`model`,
   `hp`, `fixed`, `width`, `height`, `facing`, `props`, `names`, `family`,
   `effect`, `sound`, `reach`, `team`, `immune`, `rotates`, `spin`,
-  `frames`, `fps`, `swing`) and no others: an unknown key is refused at
+  `frames`, `fps`, `swing`, `persistent`) and no others: an unknown key is refused at
   load, naming the key, the table and a near name (the owner's D2, test
   `an_unknown_key_of_a_kind_is_refused`). `c.actions` holds 32 at most
-  (`lua::conf::MOST_ACTIONS`). `keep = true` on a kind is planned for
-  0.7, not built (the owner's D3): `level.kept` is the way. Mistakes name the table that makes them; a reload keeps things
+  (`lua::conf::MOST_ACTIONS`). The planned `keep = true` on a kind is
+  built as `persistent = true` (the owner's word, 2026-11-20; below).
+  Mistakes name the table that makes them; a reload keeps things
   by their kind's name (test `a_reload_keeps_things_by_their_kind`).
+- Levels that remember (`docs/game-model.md`, the owner's "ja, bau es"
+  to `shots/reviews/places-draft.md`, 2026-11-20; `src/lua/memory.rs`): a
+  level's file says `location = "station"`, and while the player changes
+  among the levels of one location each is as it was left and they share
+  one `level.state` (carried as plain data, things nil; fresh when the
+  location is entered from outside; a hold goes on with it); leaving the
+  location forgets that but for what is persistent, `persistent = true` in
+  a level's file (all it sets down and its voxels, the whole run) or on a
+  kind (its things a file sets down, any level; not the hero that becomes
+  the player). A record (`memory::Record`, by the levels' names in
+  `Stage::records`, each behind an `Arc` and hashed once as made) holds
+  each thing the file set down by its name (`Here::filed`): taken out (or
+  died), where it stood, its rules switched off, its `thing.state` with
+  the engine's keys; and the changed voxels. The level is built from its
+  file as ever, the record laid over it (`LuaGame::lay`), then
+  `on_level_start(how)`. `world:restart()` and a level file read anew give
+  it as entered this visit (`again`; in a location `level.state` as
+  entered, `Stage::entered`); `go_to` the same level of a location keeps
+  it; `{ fresh = true }` on `go_to`/`restart` drops the record (new, not
+  seen by the owner yet); the checkpoint is still forgotten on every
+  `go_to`. `level.away`: the ticks the laid record was left (0 without
+  one and after a load). One form in memory, a save (`here`, `records`,
+  `entered`; an older save has none and loads as before), `inspect`
+  (`"records"`) and a scenario's `as_left` (new, not seen by the owner
+  yet). In the hash (part `levels`) only where a game has records, so
+  every other game's replays stay. The level editor's LEVEL: LOCATION and
+  PERSISTENT (`edit --location NAME --persistent`); tools/vvx.py writes
+  both. Tests `src/lua/tests/remember.rs`.
 - The simulation only reports sounds (`Sim::sounds`: events by name); the
   engine turns them into audio (`Session::play_sounds`) so the simulation
   stays deterministic. A sound is a file of the game (the owner,
@@ -1592,7 +1623,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `host::solid_cells`), a body set into one pushed out sideways
   (`host::free_beside`, `Host::shove`), a place or a moving thing the
   file sets inside one a mistake (`levels::check_solid_things`); in the
-  hash only where a game has them. Tests `src/lua/tests/solid.rs`.
+  hash only where a game has them; a level's record (`lua::memory`) is
+  laid before they settle, so one moved or taken out stays so on return
+  (test `a_solid_thing_a_level_remembers_blocks_where_it_was_left`).
+  Tests `src/lua/tests/solid.rs`.
 - Strafing aims the way the player's model looks, along it, never
   diagonally (the user: shots went off at a slant after running
   diagonally). Test: `strafing_fires_the_way_the_model_looks`.
@@ -1927,8 +1961,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   editor's `Figures::key_in` alike; tests in `src/lua/tests/camera.rs`,
   `the_shooters_keys_turn_with_a_level_seen_from_behind`, the stillness
   tests at 180 too). The level editor's LEVEL has YAW, GAME VIEW looks
-  that way. Not built: a picture's own yaw (`frame:camera`), 90 and 270
-  from the side.
+  that way. Levels of one location may look different ways: the record
+  of one left brings back a thing's way over its rest facing (test
+  `levels_of_one_location_turned_two_ways`). Not built: a picture's own
+  yaw (`frame:camera`), 90 and 270 from the side.
 - World voxels are palette indices (0 empty). Moving things are instanced
   cubes built in `Session::compose` and the game's `Game::draw` (through
   `session::Drawing`), on the voxel grid by default: one cell each,

@@ -481,12 +481,19 @@ pub struct GridLevel {
     pub camera: Option<LevelCamera>,
     /// Its landscape (`[terrain]`, `crate::terrain`).
     pub terrain: Option<crate::terrain::Terrain>,
+    /// The location it belongs to (`location = "station"`): levels of one
+    /// location remember each other while the player stays among them
+    /// (`docs/game-model.md`, "Levels that remember").
+    pub location: Option<String>,
+    /// Everything it sets down, and its voxels, stay as left for the whole
+    /// run (`persistent = true`).
+    pub persistent: bool,
 }
 
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
         let cells = if n > 0 { (size.x * size.y * size.z).max(0) as usize } else { 0 };
-        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, camera: None, terrain: None }
+        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, camera: None, terrain: None, location: None, persistent: false }
     }
 
     /// Whether it has a grid of blocks (else only what is set down).
@@ -748,7 +755,8 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
     let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
     world.yaw = level.camera.map(|c| c.yaw as f32);
-    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight, camera: level.camera })
+    let (location, persistent) = (level.location.clone(), level.persistent);
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight, camera: level.camera, location, persistent })
 }
 
 /// The mistake for the first thing, place or area of a level that lies
@@ -1689,9 +1697,10 @@ size = [40, 30, 40]
         }
     }
 
-    /// `tools/vvx.py` writes a level's things' props and group as the
-    /// engine does (`the_python_writer_writes_what_the_engine_writes` for
-    /// models), and reads them back.
+    /// `tools/vvx.py` writes a level's things' props and group, and its
+    /// location and persistent, as the engine does
+    /// (`the_python_writer_writes_what_the_engine_writes` for models), and
+    /// reads them back.
     #[test]
     fn the_python_writer_writes_props_as_the_engine() {
         if std::process::Command::new("python3").arg("--version").output().is_err() {
@@ -1704,9 +1713,10 @@ import sys
 sys.path.insert(0, sys.argv[1])
 import vvx
 props = {"to": "02_crypt", "locked": True, "worth": 50, "speed": 1.5, "say \"hi\"": ["a", 2], "more": {"z": 1, "a": {}}}
-vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props, "group": "gates"}, {"kind": "door", "at": [5, 2, 3]}])
+vvx.write_level(sys.argv[2], 4, [2, 1, 1], [("rock", "solid")], {(0, 0, 0): (1, 0)}, things=[{"kind": "door", "at": [1, 2, 3], "props": props, "group": "gates"}, {"kind": "door", "at": [5, 2, 3]}], location="station", persistent=True)
 assert vvx.read_level(sys.argv[2])["things"][0]["props"] == props
 assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
+assert (vvx.read_level(sys.argv[2])["location"], vvx.read_level(sys.argv[2])["persistent"]) == ("station", True)
 "#;
         let file = out.join("level.toml");
         let run = std::process::Command::new("python3").arg("-B").arg("-c").arg(script).arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tools")).arg(&file).output().unwrap();
@@ -1714,6 +1724,7 @@ assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
         let wrote = std::fs::read_to_string(&file).unwrap();
         let level = GridLevel::from_text(&wrote).unwrap();
         assert_eq!((level.things[0].props.len(), level.things[0].group.as_deref(), level.things[1].group.as_deref()), (6, Some("gates"), None));
+        assert_eq!((level.location.as_deref(), level.persistent), (Some("station"), true));
         assert!(wrote.contains("props = { to = \"02_crypt\", locked = true, worth = 50, speed = 1.5, \"say \\\"hi\\\"\" = [\"a\", 2], more = { a = {}, z = 1 } }\n"), "{wrote}");
         assert_eq!(level.to_text(), wrote, "the engine writes it so too");
     }
@@ -1799,6 +1810,23 @@ assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
         assert!(with("pitch = 30").contains("'pitch' is no field of the level's [camera]"), "{}", with("pitch = 30"));
         assert!(with("").contains("[camera] needs yaw"), "{}", with(""));
         assert_eq!(GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", "\n\n[camera]\nyaw = 270\n\n[[thing]]", 1)).unwrap().camera.map(|c| (c.yaw, c.line)), Some((270, 5)));
+        // Beside a location and persistent (the levels that remember):
+        // each changed touches only its own line.
+        let mut kept = back.clone();
+        (kept.location, kept.persistent) = (Some("station".into()), true);
+        let src = text::rewrite(&out, &back, &kept, &legend);
+        let read = GridLevel::from_text(&src).unwrap();
+        assert_eq!(read, kept, "{src}");
+        let mut turned = read.clone();
+        turned.camera = Some(LevelCamera { yaw: 0, line: 0 });
+        assert_eq!(changed_lines(&src, &text::rewrite(&src, &read, &turned, &legend)), ["yaw = 0"]);
+        let mut moved = read.clone();
+        moved.location = Some("platform".into());
+        assert_eq!(changed_lines(&src, &text::rewrite(&src, &read, &moved, &legend)), ["location = \"platform\""]);
+        let mut forgets = read.clone();
+        forgets.persistent = false;
+        let without = text::rewrite(&src, &read, &forgets, &legend);
+        assert!(without.contains("[camera]") && without.contains("location = \"station\"") && !without.contains("persistent"), "{without}");
     }
 
     /// A level of blocks whose grid changed is written anew above its

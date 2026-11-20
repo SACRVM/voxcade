@@ -131,3 +131,33 @@ fn the_jump_and_run_seen_from_behind_walks_the_way_the_keys_say_on_the_screen() 
     assert!(walked(None) > 10.0, "from the front right is east");
     assert!(walked(Some(180)) < -10.0, "from behind right is west");
 }
+
+/// Two levels of one location turned two ways (a platform seen from the
+/// other side): going back and forth, each comes back as left and the
+/// camera and its faces turn with each change; a thing the script turned
+/// in the turned level keeps the way the record brings back (the rest
+/// facing at its spawn does not win), one nothing turned faces the camera
+/// again.
+#[test]
+fn levels_of_one_location_turned_two_ways() {
+    let platform = TURNED.replace("size = [64, 48, 40]\n", "size = [64, 48, 40]\nlocation = \"station\"\n");
+    let dir = turned("yaw-location", &platform, "  c.actions = { \"fire\" }\n  c.start = \"room\"\n");
+    std::fs::write(dir.join("levels/hall.toml"), platform.replace("[camera]\nyaw = 180\n\n", "")).unwrap();
+    std::fs::write(dir.join("main.lua"), "function on_tick()\n  if world.tick == 1 then level:thing('crate_1'):face({ x = 1, y = 0 }) end\n  if input:pressed('fire') then world:go_to(level.name == 'room' and 'hall' or 'room') end\nend\n").unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 3);
+    let (faces, turned) = (g.face_mask(), said(&mut g, "level:thing('crate_1').facing.x, level:thing('east').facing.x"));
+    assert_eq!(turned, "1\t1", "turned east by the script; east by the file");
+    let fire = Input { actions: 1, ..Input::default() };
+    g.step(&fire);
+    g.step(&Input::default());
+    assert_eq!((said(&mut g, "level.name, level.camera.yaw"), g.camera().yaw), ("\"hall\"\t0".to_string(), 0.0));
+    assert_ne!(g.face_mask(), faces, "the hall's faces");
+    assert_eq!(said(&mut g, "level:thing('crate_1').facing.y"), "-1", "at rest south in the hall");
+    g.step(&fire);
+    g.step(&Input::default());
+    assert_eq!((said(&mut g, "level.name, level.camera.yaw"), g.camera().yaw), ("\"room\"\t180".to_string(), 180.0));
+    assert_eq!(g.face_mask(), faces, "the platform's faces again");
+    assert_eq!(said(&mut g, "level:thing('crate_1').facing.x, level:thing('crate_1').facing.y"), "1\t0", "the way the record brings back");
+    assert_eq!(said(&mut g, "player.facing.y"), "1", "the player at rest facing the camera");
+}

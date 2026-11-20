@@ -96,6 +96,14 @@ impl UserData for LevelView {
             level_here(lua, "level.visits")?;
             look(lua, |h| Ok(h.visits[h.level]))
         });
+        f.add_field_function_get("location", |lua, _| {
+            level_here(lua, "level.location")?;
+            look(lua, |h| Ok(h.levels.list[h.level].location.clone()))
+        });
+        f.add_field_function_get("away", |lua, _| {
+            level_here(lua, "level.away")?;
+            look(lua, |h| Ok(h.away))
+        });
         f.add_field_function_get("kept", |lua, _| {
             level_here(lua, "level.kept")?;
             let name = look(lua, |h| Ok(h.levels.list[h.level].name.clone()))?;

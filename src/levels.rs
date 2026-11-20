@@ -139,6 +139,13 @@ pub struct Made {
     /// Its own camera (`[camera]` in its file), its yaw also its world's
     /// (`World::yaw`).
     pub camera: Option<crate::grid::LevelCamera>,
+    /// The location it belongs to (`location = "station"` in its file):
+    /// while the player stays among a location's levels each is as it was
+    /// left, and they share one `level.state` (`lua::memory`).
+    pub location: Option<String>,
+    /// Everything its file sets down, and its voxels, stay as left for the
+    /// whole run (`persistent = true`).
+    pub persistent: bool,
 }
 
 impl Made {
@@ -146,7 +153,7 @@ impl Made {
     /// down, no places, the game's daylight.
     pub fn world(world: World, markers: Vec<Marker>, files: Vec<PathBuf>) -> Self {
         let daylight = Default::default();
-        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), marker_props: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight, camera: None }
+        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), marker_props: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight, camera: None, location: None, persistent: false }
     }
 
     /// Each of its things' own props is one its kind declares, of its
@@ -200,6 +207,14 @@ impl Level {
             (name, self.marker_names.get(m).and_then(Option::as_deref), player)
         });
         thing_names(markers.chain(self.pieces.iter().map(|p| (crate::grid::PIECE, p.name.as_deref(), false))))
+    }
+
+    /// The kind of each of its things by the name it has as it is entered
+    /// (`thing_names`), as `thing_names` takes `kind`; `piece` the pieces'
+    /// kind.
+    pub fn kinds_by_name<'a>(&'a self, kind: impl Fn(usize) -> (&'a str, bool), piece: usize) -> BTreeMap<String, usize> {
+        let kinds = self.markers.iter().map(|m| m.kind).chain(self.pieces.iter().map(|_| piece));
+        self.thing_names(kind).into_iter().zip(kinds).filter_map(|(name, k)| Some((name?, k))).collect()
     }
 }
 
@@ -505,6 +520,11 @@ pub fn load<G: Game>(game: &Files, cfg: &GameConfig) -> Result<Levels> {
     }
     levels.files.sort();
     levels.files.dedup();
+    if let Some(title) = levels.title.map(|t| &levels.list[t])
+        && let Some(location) = &title.location
+    {
+        anyhow::bail!("{}: location = \"{location}\": this level is the game's own title (c.title_screen.level), played before a run and never in one, so it belongs to no location", title.file);
+    }
     Ok(levels)
 }
 
@@ -520,6 +540,15 @@ pub fn level_files(game: &Files, world: &crate::config::WorldConfig) -> Vec<(Str
         return vec![(stem(Path::new(file)), file.clone())];
     }
     files.iter().map(|p| (stem(p), format!("levels/{}", p.file_name().unwrap_or_default().to_string_lossy()))).collect()
+}
+
+/// The location a level's text says it belongs to (`location = "..."`
+/// before its first table), read without reading the rest: what the level
+/// editor's LOCATION offers.
+pub fn location_of(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).take_while(|l| !l.starts_with('[')).find(|l| l.starts_with("location"))?;
+    let table: toml::Table = line.parse().ok()?;
+    table.get("location")?.as_str().map(str::to_string)
 }
 
 /// The level files in `levels/`, in the order of their names.

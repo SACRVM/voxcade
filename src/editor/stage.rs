@@ -871,6 +871,7 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
             }
         });
     }
+    remembering(ui, ed, shown);
     let yaw = ed.level.camera.map(|c| c.yaw);
     row(ui, "YAW", "Which way the camera looks in this level, degrees clockwise seen from above: 0 north, 180 from the other side", |ui| {
         if ui.add(egui::Button::new(RichText::new("GAME").small()).selected(yaw.is_none())).on_hover_text("As the game's camera (c.camera.yaw in conf.lua)").clicked() && yaw.is_some() {
@@ -915,6 +916,55 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     row(ui, "LIGHT", "", |ui| {
         field(ui, shown, "AMBIENT", None, percent(day.ambient, g.ambient), Field::Ambient, 0.5, 0.0..=100.0, "The light every face gets, 0 to 100", 100.0);
         field(ui, shown, "SHADOW", None, percent(day.shadow, g.shadow), Field::Shadow, 0.5, 0.0..=100.0, "How dark shadows are, 0 to 100", 100.0);
+    });
+}
+
+/// LOCATION: the location the level belongs to (`location = "..."`),
+/// typed (Enter or a click elsewhere sets it, Escape leaves it; empty:
+/// none) or chosen from those the game's levels say; PERSISTENT: what it
+/// sets down stays as left for the whole run.
+fn remembering(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
+    let now = ed.level.location.clone().unwrap_or_default();
+    let tip = "The location it belongs to (location = \"NAME\"): while the player changes among the levels of one location, each is as it was left and they share level.state. A location there is, or a new name typed; empty: none";
+    let height = ui.text_style_height(&TextStyle::Body) + 6.0;
+    row(ui, "LOCATION", tip, |ui| {
+        let id = egui::Id::unique("stage location");
+        let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| now.clone());
+        let response = ui.add_sized([zones::col(2), height], egui::TextEdit::singleline(&mut text).font(TextStyle::Body).hint_text(RichText::new(NONE).color(QUIET))).on_hover_text(tip);
+        let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) || escape {
+            response.surrender_focus();
+        }
+        if response.has_focus() {
+            ui.data_mut(|d| d.insert_temp(id, text));
+        } else {
+            if response.lost_focus() && !escape && text.trim() != now {
+                shown.located = Some(text);
+            }
+            ui.data_mut(|d| d.remove::<String>(id));
+        }
+        // The locations there are, none first.
+        let combo = egui::ComboBox::from_id_salt("stage locations").selected_text("").width(zones::col(1)).wrap_mode(egui::TextWrapMode::Truncate);
+        combo.show_ui(ui, |ui| {
+            if ui.selectable_label(now.is_empty(), RichText::new(NONE).color(QUIET)).clicked() {
+                shown.located = Some(String::new());
+            }
+            for l in ed.locations().iter() {
+                if ui.selectable_label(*l == now, l).clicked() {
+                    shown.located = Some(l.clone());
+                }
+            }
+        }).response.on_hover_text("The locations the game's levels say");
+    });
+    // PERSISTENT (`persistent`): lit while it is, a click switches it.
+    row(ui, "", "", |ui| {
+        let on = ed.level.persistent;
+        let mut job = egui::text::LayoutJob::default();
+        job.append("PERSISTENT", 0.0, egui::TextFormat { font_id: TextStyle::Button.resolve(ui.style()), color: if on { ACCENT } else { TEXT }, ..Default::default() });
+        let tip = if on { "Everything this level sets down, and its voxels, stay as left for the whole run (persistent = true). Click: as its file has them on each visit" } else { "Click: everything this level sets down, and its voxels, stay as left for the whole run (persistent = true)" };
+        if ui.add(egui::Button::new(job).selected(on)).on_hover_text(tip).clicked() {
+            shown.clicked.push(Action::Persistent(!on));
+        }
     });
 }
 

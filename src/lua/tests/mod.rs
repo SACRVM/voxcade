@@ -15,6 +15,7 @@ mod picture;
 mod pointer;
 mod pieces;
 mod props;
+mod remember;
 mod runs;
 mod sandbox;
 mod solid;

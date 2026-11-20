@@ -6,7 +6,8 @@ impl<K: Kit> LuaGame<K> {
     /// The state hash (`Game::state_hash`), each part's hash kept in
     /// `parts` as it is taken in: the ready-made rules with their things
     /// (or the core's things), `world.state`, `player.state`,
-    /// `level.state`, the levels and visits, the kept states, the things'
+    /// `level.state`, the levels and visits (and what they kept of how they
+    /// were left), the kept states, the things'
     /// states, the seats, the music. Parts a game does not use leave the
     /// hash as it was, so every machine names the same parts.
     pub(super) fn hash_by_parts(&self, mut parts: Option<&mut Vec<(&'static str, u64)>>) -> u64 {
@@ -29,7 +30,8 @@ impl<K: Kit> LuaGame<K> {
             (Some(kit), _) => {
                 let moved_on = self.stage.level != 0 || self.stage.visits.iter().enumerate().any(|(i, &v)| v != (i == 0) as u32);
                 let solid = self.stage.host.sim().world.pieces.is_some();
-                if script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.code.uses_music && self.stage.here.lights.is_empty() && !solid {
+                let remembers = !self.stage.records.is_empty() || self.stage.entered.is_some() || self.stage.away != 0;
+                if !remembers && script.state.is_none() && script.player.is_none() && script.level.is_none() && script.kept.is_empty() && script.data.is_empty() && !moved_on && !self.code.uses_music && self.stage.here.lights.is_empty() && !solid {
                     let only = kit.state_hash();
                     for name in PARTS {
                         mark(name, only);
@@ -64,6 +66,19 @@ impl<K: Kit> LuaGame<K> {
             for &v in &stage.visits {
                 s.u64(v as u64);
             }
+        }
+        // What the levels kept of how they were left (`memory`), only in a
+        // game whose levels remember, so the others keep their replays.
+        if !stage.records.is_empty() || stage.entered.is_some() || stage.away != 0 {
+            s.u64(0x6b65_7074).u64(stage.records.len() as u64);
+            for (name, r) in stage.records.iter() {
+                s.bytes(name.as_bytes()).u64(r.hash());
+            }
+            if let Some(v) = &stage.entered {
+                s.u64(0x656e_7465);
+                value::hash(&mut s, v);
+            }
+            s.u64(stage.away);
         }
         mark(PARTS[4], s.finish());
         for (name, v) in &script.kept {

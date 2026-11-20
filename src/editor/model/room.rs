@@ -1346,6 +1346,56 @@ impl Editor {
         self.change(None, |l| l.camera = yaw.map(|yaw| crate::grid::LevelCamera { yaw, line: 0 }));
     }
 
+    /// LOCATION: the location the level belongs to (`location = "..."`,
+    /// `lua::memory`), typed or chosen; empty: none. One step, its line
+    /// only.
+    pub fn set_location(&mut self, typed: &str) -> Result<(), String> {
+        let name = typed.trim();
+        if name.contains(['"', '\n', '\\']) {
+            return Err("A location's name is a word or a few, without quotes.".into());
+        }
+        let location = (!name.is_empty()).then(|| name.to_string());
+        if location != self.level.location {
+            self.change(None, |l| l.location = location);
+        }
+        Ok(())
+    }
+
+    /// PERSISTENT: everything the level sets down, and its voxels, stay as
+    /// left for the whole run (`persistent = true`). One step.
+    pub fn set_persistent(&mut self, on: bool) {
+        if on != self.level.persistent {
+            self.change(None, |l| l.persistent = on);
+        }
+    }
+
+    /// The locations the game's levels say (LOCATION offers them), this
+    /// one's as it stands, in natural order, each once; the other files'
+    /// kept until the disk is looked at again.
+    pub fn locations(&self) -> std::rc::Rc<Vec<String>> {
+        let made = || {
+            let game = crate::files::Files::folder(&self.dir);
+            let mut out: Vec<String> = Vec::new();
+            for (_, file) in self.game_levels().iter().filter(|(_, f)| *f != self.file) {
+                if let Some(l) = game.read_to_string(file).ok().and_then(|t| crate::levels::location_of(&t)).filter(|l| !out.contains(l)) {
+                    out.push(l);
+                }
+            }
+            sort_names(&mut out);
+            std::rc::Rc::new(out)
+        };
+        let others = self.pieces.locations.borrow_mut().get_or_insert_with(made).clone();
+        match &self.level.location {
+            Some(own) if !others.contains(own) => {
+                let mut all = (*others).clone();
+                all.push(own.clone());
+                sort_names(&mut all);
+                std::rc::Rc::new(all)
+            }
+            _ => others,
+        }
+    }
+
     /// EDIT MODEL: the chosen piece's model asked to open in the model
     /// editor.
     pub fn edit_model(&mut self) {
@@ -2193,6 +2243,26 @@ mod tests {
         ed.day_as_game();
         assert_eq!(saved(&dir), PIECES, "as the game: the file as it was");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// LOCATION and PERSISTENT (`lua::memory`): each a step writing its
+    /// line only, offered back among the locations there are, undone to the
+    /// file as it was; a name with quotes refused.
+    #[test]
+    fn a_levels_location_and_persistent_are_steps() {
+        let (mut ed, dir) = room("location", false);
+        ed.set_location(" station ").unwrap();
+        ed.set_persistent(true);
+        assert_eq!(read(&dir).location.as_deref(), Some("station"));
+        assert!(read(&dir).persistent);
+        let added: Vec<String> = saved(&dir).lines().filter(|l| !PIECES.lines().any(|p| p == *l)).map(str::to_string).collect();
+        assert_eq!(added, ["location = \"station\"", "persistent = true"]);
+        ed.look_at_disk();
+        assert_eq!(ed.locations().as_slice(), ["station"]);
+        assert!(ed.set_location("the \"hall\"").is_err());
+        ed.undo();
+        ed.undo();
+        assert_eq!(saved(&dir), PIECES, "undone: the file as it was");
     }
 
     /// A place and an area are added like a piece (an area round the
