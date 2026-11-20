@@ -613,6 +613,11 @@ impl<K: Kit> Game for LuaGame<K> {
         (self.stage.level as u64) << 32 | visits as u64
     }
 
+    fn location(&self) -> Option<crate::game::Location> {
+        let name = self.stage.levels.list.get(self.stage.level)?.location.clone()?;
+        Some(crate::game::Location { name, levels: Arc::clone(&self.stage.levels), level: self.stage.level })
+    }
+
     /// The models of the level being played's pieces.
     fn level_models(&self) -> Vec<String> {
         let level = self.stage.levels.list.get(self.stage.level);

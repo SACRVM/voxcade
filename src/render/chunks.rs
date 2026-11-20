@@ -39,14 +39,6 @@ impl Renderer {
         dirty.len()
     }
 
-    /// Throws away all meshes and builds every chunk again.
-    pub fn rebuild_all(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &mut World, mask: &FaceMask) {
-        self.meshes.clear();
-        world.take_dirty();
-        let chunks = world.chunk_keys();
-        self.remesh_all(device, queue, world, &chunks, mask);
-    }
-
     /// Meshes `chunks`. A few on this thread; more spread over the CPU's
     /// cores (each chunk's mesh depends on the world alone, so they can be
     /// built at once: after a blast at 16-bit scale some fifty change in a
@@ -95,38 +87,53 @@ impl Renderer {
     /// change again). A quarter faster after a blast than new buffers each
     /// time, and the GPU memory does not churn.
     fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, cc: IVec3, vertices: &[Vertex], indices: &[u32]) {
-        if indices.is_empty() {
-            self.meshes.remove(&cc);
-            return;
-        }
-        let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(vertices), bytemuck::cast_slice(indices));
-        let old = self.meshes.remove(&cc);
-        let rebuilt = old.is_some();
-        let buffer = |old: Option<wgpu::Buffer>, bytes: &[u8], usage, label| {
-            let fits = old.filter(|b| b.size() >= bytes.len() as u64);
-            let buffer = fits.unwrap_or_else(|| {
-                // Exact for a chunk built the first time, half again for one rebuilt.
-                let room = if rebuilt { bytes.len() / 2 } else { 0 };
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(label),
-                    size: ((bytes.len() + room) as u64).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT),
-                    usage: usage | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                })
-            });
-            queue.write_buffer(&buffer, 0, bytes);
-            buffer
-        };
-        let (old_vertices, old_indices) = old.map(|m| (m.vertices, m.indices)).unzip();
-        let min = (cc * CHUNK).as_vec3();
-        let mesh = ChunkMesh {
-            vertices: buffer(old_vertices, vertex_bytes, wgpu::BufferUsages::VERTEX, "chunk vertices"),
-            indices: buffer(old_indices, index_bytes, wgpu::BufferUsages::INDEX, "chunk indices"),
-            index_count: indices.len() as u32,
-            vertex_count: vertices.len(),
-            min,
-            max: min + Vec3::splat(CHUNK as f32),
-        };
-        self.meshes.insert(cc, mesh);
+        upload_into(&mut self.meshes, device, queue, cc, vertices, indices);
     }
+
+    /// Throws away all meshes and builds every chunk again; the levels
+    /// kept built (`kept`) were built so and go too.
+    pub fn rebuild_all(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &mut World, mask: &FaceMask) {
+        self.kept.forget();
+        self.meshes.clear();
+        world.take_dirty();
+        let chunks = world.chunk_keys();
+        self.remesh_all(device, queue, world, &chunks, mask);
+    }
+}
+
+/// `Renderer::upload` into `meshes` (a level's built ahead too).
+pub(super) fn upload_into(meshes: &mut crate::world::CellMap<ChunkMesh>, device: &wgpu::Device, queue: &wgpu::Queue, cc: IVec3, vertices: &[Vertex], indices: &[u32]) {
+    if indices.is_empty() {
+        meshes.remove(&cc);
+        return;
+    }
+    let (vertex_bytes, index_bytes): (&[u8], &[u8]) = (bytemuck::cast_slice(vertices), bytemuck::cast_slice(indices));
+    let old = meshes.remove(&cc);
+    let rebuilt = old.is_some();
+    let buffer = |old: Option<wgpu::Buffer>, bytes: &[u8], usage, label| {
+        let fits = old.filter(|b| b.size() >= bytes.len() as u64);
+        let buffer = fits.unwrap_or_else(|| {
+            // Exact for a chunk built the first time, half again for one rebuilt.
+            let room = if rebuilt { bytes.len() / 2 } else { 0 };
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: ((bytes.len() + room) as u64).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT),
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        });
+        queue.write_buffer(&buffer, 0, bytes);
+        buffer
+    };
+    let (old_vertices, old_indices) = old.map(|m| (m.vertices, m.indices)).unzip();
+    let min = (cc * CHUNK).as_vec3();
+    let mesh = ChunkMesh {
+        vertices: buffer(old_vertices, vertex_bytes, wgpu::BufferUsages::VERTEX, "chunk vertices"),
+        indices: buffer(old_indices, index_bytes, wgpu::BufferUsages::INDEX, "chunk indices"),
+        index_count: indices.len() as u32,
+        vertex_count: vertices.len(),
+        min,
+        max: min + Vec3::splat(CHUNK as f32),
+    };
+    meshes.insert(cc, mesh);
 }

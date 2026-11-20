@@ -13,7 +13,8 @@ impl<G: Game> App<G> {
     pub(super) fn draw(&mut self) -> Result<()> {
         let App { display, game, front, net, settings, finder, net_finder, text_input, prompt, clock, parting, .. } = self;
         let crate::window::Screen { device, queue, window, .. } = &display.screen;
-        display.renderer.update_chunks(device, queue, game.world_mut(), &display.mask);
+        let location = game.game.location();
+        display.renderer.update_level(device, queue, game.world_mut(), &display.mask, location);
 
         // The picture's shape: the game's own (bars round it), else the
         // window's.

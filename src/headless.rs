@@ -51,7 +51,7 @@ const WARM_UP_DRAWS: usize = 3;
 pub(crate) struct Canvas {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    renderer: Renderer,
+    pub(crate) renderer: Renderer,
     view: wgpu::TextureView,
     target: wgpu::Texture,
     readback: wgpu::Buffer,
@@ -131,7 +131,7 @@ impl Canvas {
     }
 
     /// Builds the meshes of the whole world.
-    fn mesh_all<G: Game>(&mut self, game: &mut Session<G>) {
+    pub(crate) fn mesh_all<G: Game>(&mut self, game: &mut Session<G>) {
         self.mask = game.face_mask();
         self.renderer.rebuild_all(&self.device, &self.queue, game.world_mut(), &self.mask);
     }
@@ -148,11 +148,12 @@ impl Canvas {
 
     /// Rebuilds the chunks the last tick changed and sends them to the GPU,
     /// as the game does every frame; how many.
-    fn remesh<G: Game>(&mut self, game: &mut Session<G>) -> usize {
+    pub(crate) fn remesh<G: Game>(&mut self, game: &mut Session<G>) -> usize {
         if game.face_mask() != self.mask {
             self.mesh_all(game);
         }
-        let dirty = self.renderer.update_chunks(&self.device, &self.queue, game.world_mut(), &self.mask);
+        let location = game.game.location();
+        let dirty = self.renderer.update_level(&self.device, &self.queue, game.world_mut(), &self.mask, location);
         // Held back, the uploads of all ticks pile up in GPU memory.
         self.queue.submit([]);
         dirty

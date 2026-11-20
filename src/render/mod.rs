@@ -10,6 +10,7 @@ mod chunks;
 mod cubes;
 mod fog;
 mod frame;
+mod kept;
 mod lamps;
 mod limits;
 mod movers;
@@ -430,6 +431,8 @@ pub struct Renderer {
     fog: Option<fog::FogPass>,
     /// The format the pictures are put together in (the window's).
     format: wgpu::TextureFormat,
+    /// The levels of the location played kept built (`kept`).
+    kept: kept::Kept,
 }
 
 /// Where a picture of the shape `shape` (width over height) lies in a

@@ -340,6 +340,21 @@ fn bits_buffer(device: &wgpu::Device, words: usize) -> (wgpu::Buffer, usize) {
     (read_buffer(device, "the moving things' voxels", words * 4), words)
 }
 
+/// What a level put aside built keeps of the lamps' pass (`Lamps::put_aside`).
+pub(super) struct LampsKept {
+    volume: Option<Held>,
+    seen: Option<(u64, wgpu::Buffer)>,
+    state: u32,
+    known: std::collections::BTreeSet<[u32; 2]>,
+}
+
+impl LampsKept {
+    /// The bytes it holds on the GPU.
+    pub(super) fn bytes(&self) -> u64 {
+        self.volume.as_ref().map_or(0, |h| h.texture.size().width as u64 * h.texture.size().height as u64 * h.texture.size().depth_or_array_layers as u64 * 8 / 7) + self.seen.as_ref().map_or(0, |(_, b)| b.size())
+    }
+}
+
 struct Held {
     volume: Volume,
     view: wgpu::TextureView,
@@ -431,6 +446,36 @@ impl Lamps {
     fn walls_changed(&mut self) {
         self.state = next_state(self.state);
         self.known.clear();
+    }
+
+    /// What the level being played holds of the pass, taken away as it is
+    /// put aside built (`render::kept`): its volume (and thin things) and
+    /// the faces' memory with the state its answers were found in. The
+    /// next level's are made as a fresh renderer makes them.
+    pub(super) fn put_aside(&mut self) -> LampsKept {
+        let kept = LampsKept { volume: self.volume.take(), seen: self.seen.take(), state: self.state, known: std::mem::take(&mut self.known) };
+        // (Another state, so no answer of the level put aside is taken for
+        // the next one's.)
+        self.state = next_state(self.state);
+        self.bind = None;
+        kept
+    }
+
+    /// A level put aside taken up again (`render::kept`): what it held of
+    /// the pass, its memory's answers still its own; None: as a fresh
+    /// renderer has none.
+    pub(super) fn take_up(&mut self, kept: Option<LampsKept>) {
+        let Some(k) = kept else {
+            (self.volume, self.seen) = (None, None);
+            self.known.clear();
+            self.state = next_state(self.state);
+            self.bind = None;
+            return;
+        };
+        // (A count of answers without room read from the memory before
+        // tells this one's too: the same picture asks as much.)
+        (self.volume, self.seen, self.state, self.known) = (k.volume, k.seen, k.state, k.known);
+        self.bind = None;
     }
 
     /// Whether it holds anything a picture made (`used`): the tests'.
