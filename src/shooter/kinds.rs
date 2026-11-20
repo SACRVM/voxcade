@@ -302,51 +302,51 @@ pub struct PickupRules {
     pub bob_ticks: u32,
 }
 
-/// A weapon, the player's or anyone's.
-#[derive(Clone, Debug, Deserialize)]
+/// A weapon, the player's or anyone's. Each field's words are what
+/// `voxcade api` and the editors show for the key, so each stands alone.
+#[derive(Clone, Debug, Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WeaponRules {
     /// What the HUD and the status line call it.
     pub label: String,
     /// Ticks between shots (a gunship's gun: between the rounds of a burst).
     pub cooldown: u32,
-    /// A random number of ticks below this on top of `cooldown` (0: none).
+    /// A random number of ticks below this is added to the cooldown each time (0: none).
     pub jitter: u32,
-    /// Rounds in a burst, and the ticks after one (a gunship's gun).
+    /// How many rounds one burst has (1: a single shot).
     pub burst: u32,
+    /// Ticks after a burst before the next one (a gunship's gun).
     pub pause: u32,
-    /// How fast a round flies, and for how many seconds.
+    /// How fast a round flies, in voxels a second.
     pub speed: f32,
+    /// How long a round flies before it is gone, in seconds.
     pub life: f32,
-    /// Hits a round takes off.
+    /// The hits a round takes off what it hits.
     pub damage: i32,
-    /// The crater where a round hits the world (0: sparks); a rocket's or a
-    /// grenade's blast.
+    /// The crater where a round hits the world, in voxels (0: sparks); a rocket's or a grenade's blast.
     pub blast: f32,
-    /// How far rounds stray at random, with aim assist.
+    /// How far rounds stray from their line at random, with aim assist (0: not at all). With c.weapons.aim_assist off nothing scatters.
     pub spread: f32,
-    /// Blows up where it hits, hurting everyone near.
+    /// true: the round blows up where it hits, hurting everyone near.
     pub rocket: bool,
-    /// A full throw, for thrown weapons (grenades); 0 for guns.
+    /// A full throw, in voxels, for thrown weapons (grenades); 0 for guns.
     pub throw: f32,
-    /// How many of its rounds an inventory holds: the player's weapon's rounds
-    /// are an item of its name (0: it never runs out).
+    /// How many of its rounds an inventory holds: a player's weapon spends the item of its own name (0: it never runs out).
     pub ammo: u32,
-    /// The sound a shot makes: the kit's or one of the game's files in
-    /// `sounds/`.
+    /// The sound a shot makes: a name of the ready-made rules' sounds or of a file of the game in sounds/.
     pub sound: crate::names::Name,
-    /// A blow, not a shot: it reaches this far (voxels, along the ground)
-    /// to one in front, within `cone` degrees, at the attacker's height.
+    /// Above 0 it is a blow, not a shot: it reaches this far, in voxels along the ground, to one in front.
     pub reach: f32,
+    /// A blow reaches those within this many degrees of the way the attacker faces, at its height.
     pub cone: f32,
-    /// It attacks again while its action is held (false: once a press).
+    /// true: it attacks again while its action is held. false: once a press.
     pub auto: bool,
-    /// How far it is heard (none: as far as a listener hears shots; 0:
-    /// silent).
+    /// How far it is heard, in voxels (unset: as far as a listener hears shots; 0: silent).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub noise: Option<f32>,
-    /// Its blast hurts its own team too (false: it spares them).
+    /// true: its blast hurts its own team too. false: it spares them.
     pub friendly_fire: bool,
-    /// Its blast does less towards the edge (true), or its whole damage.
+    /// true: its blast does less towards the edge. false: its whole damage everywhere in it.
     pub falloff: bool,
 }
 

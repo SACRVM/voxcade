@@ -1854,6 +1854,12 @@ fn reference(ui: &mut egui::Ui) {
     ui.label(RichText::new(ALL).color(ACCENT));
     ui.add_space(8.0);
     ui.label("Every name you can use in your game's Lua, by what it belongs to; at the end every setting of conf.lua and every key of a kind of thing. Resting the mouse on a name in your code shows the same.");
+    ui.add_space(14.0);
+    ui.label(RichText::new(READING).color(ACCENT));
+    for text in [crate::lua::api::MISTAKES, crate::lua::api::CONVENTIONS, crate::lua::api::A_TICK] {
+        ui.add_space(8.0);
+        ui.label(RichText::new(text).small().color(QUIET));
+    }
     for (of, callbacks, heading, plain) in GROUPS {
         let items: Vec<_> = API.iter().filter(|i| i.of == *of && (!of.is_empty() || matches!(i.what, What::Callback { .. }) == *callbacks)).collect();
         if items.is_empty() {
@@ -1875,6 +1881,7 @@ fn reference(ui: &mut egui::Ui) {
     }
     settings_part(ui);
     kinds_part(ui);
+    types_part(ui);
 }
 
 /// One line of the reference's settings or kinds: how it is written, then
@@ -1925,9 +1932,32 @@ fn kinds_part(ui: &mut egui::Ui) {
     }
 }
 
+/// The reference's TYPES: the tables the API takes and gives, each with
+/// its fields (`lua::api::types`).
+fn types_part(ui: &mut egui::Ui) {
+    ui.add_space(20.0);
+    ui.label(RichText::new(TYPES).color(ACCENT));
+    ui.label("The tables the names above take and give, as { x = 1, y = 2 }. A field marked needed must be there; the others may be left out.");
+    ui.add_space(10.0);
+    for t in crate::lua::api::types() {
+        ui.label(RichText::new(format!("{}: {}", t.name, t.ty)).monospace().color(TEXT));
+        ui.label(&t.doc);
+        for (name, ty, doc) in &t.fields {
+            let (name, needed) = match name.strip_suffix('?') {
+                Some(n) => (n, ""),
+                None => (name.as_str(), if name.starts_with('[') { "" } else { ", needed" }),
+            };
+            entry(ui, &format!("  {name}: {ty}{needed}"), doc);
+        }
+        ui.add_space(6.0);
+    }
+}
+
 /// The reference's parts after the API's names.
+const READING: &str = "READING THE ENTRIES";
 const SETTINGS: &str = "SETTINGS (CONF.LUA)";
 const KINDS: &str = "KINDS OF THINGS (C.THINGS)";
+const TYPES: &str = "TYPES";
 
 /// The topics' column: as wide as its longest title, with a row's insets,
 /// the list's margin and its scroll bar, so no title is cut; at most half

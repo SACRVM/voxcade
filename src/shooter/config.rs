@@ -43,40 +43,41 @@ impl ShooterConfig {
     }
 }
 
-/// The shooter's keys in `[player]`, beside the engine's movement.
-#[derive(Deserialize, Clone, Debug)]
+/// The shooter's keys in `[player]`, beside the engine's movement. Each
+/// field's words are what `voxcade api` and the editors show for the key,
+/// so each stands alone.
+#[derive(Deserialize, serde::Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct PlayerConfig {
-    /// Where shots leave the gun: voxels ahead of the feet's centre and
-    /// above them. Unset: just in front of the body at half its height.
+    /// Where shots leave the gun, { ahead, up } from the middle of the feet in voxels. Unset: just in front of the body at half its height.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub muzzle: Option<[f32; 2]>,
-    /// Ticks nothing hurts the player after a hit (0: none).
+    /// Ticks after a hit during which nothing hurts the player (0: none).
     pub invulnerable: u32,
-    /// What each of the game's actions attacks with: its weapons in order,
-    /// the first that can (`held`: the gun in hand, `player.state.weapon`).
-    /// An action named here is the rules'; one not named is the code's.
+    /// What each of the game's actions attacks with, by the action's name: its weapons in order, the first that can. A weapon is a name of c.weapons, or "held", the gun in hand (player.state.weapon). An action named here is the ready-made rules'; one not named is your code's.
     pub attacks: std::collections::BTreeMap<String, Vec<String>>,
-    /// The way the player faces as a run starts (x east, y north); unset:
-    /// south, `{ 0, -1 }`.
+    /// The way the player faces as a run starts, { x, y } (x east, y north). Unset: south, { 0, -1 }.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub facing: Option<[f32; 2]>,
-    /// The moves the player has: `jump`, `strafe` (none unless named).
+    /// The moves the player has, by the action that does each: "jump", "strafe". None unless named.
     pub moves: Vec<String>,
-    /// Its model's frames for what it does (idle, walk, jump), as a kind's
-    /// (`c.things.NAME.frames`), and how many a second where a set does
-    /// not say.
+    /// The player's model's frames for what it does (idle, walk, jump), as a kind's (c.things.NAME.frames).
     pub frames: toml::Table,
+    /// How many frames a second the player's sets go where a set does not say its own, as a kind's fps. Unset: 10.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fps: Option<f32>,
-    /// A model of parts: the parts that swing as it walks, degrees, as a
-    /// kind's (`c.things.NAME.swing`).
+    /// For a model of parts: the parts that swing as it walks, with how many degrees, as a kind's (c.things.NAME.swing).
     pub swing: std::collections::BTreeMap<String, f32>,
-    /// While hits do nothing it blinks: this many ticks shown, as many
-    /// not (0: it does not).
+    /// While nothing hurts the player it blinks: shown this many ticks, then hidden as many (0: it does not blink).
     pub blink: u32,
-    /// The dust its steps and landings raise, as a soldier's
-    /// (`kinds::Steps`).
+    /// A puff of dust rises every this many voxels the player walks. Unset: half its height.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stride: Option<f32>,
+    /// How many specks of dust each puff of its steps has (0: no dust).
     pub step_dust: u32,
+    /// Landing from higher than this, in voxels, raises a puff of dust.
     pub landing: f32,
+    /// How many specks of dust a landing puff has.
     pub landing_dust: u32,
 }
 

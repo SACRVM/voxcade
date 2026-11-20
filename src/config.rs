@@ -53,7 +53,7 @@ pub struct GameConfig {
     /// (`like = "other"`) and says what differs; a level places them by
     /// name (`sim::things::defs`).
     pub things: BTreeMap<String, toml::Table>,
-    /// The building kit a Lua game plays with (`"shooter"`), if any.
+    /// The ready-made rules the game plays with: `"shooter"` or `"platformer"`. Without one your script moves everything; each kit brings behaviors for kinds of things (`c.things.NAME.behavior`) and its own settings. Takes effect after a restart (F5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kit: Option<String>,
     /// A Lua game's actions besides the four directions (a kit brings its
@@ -106,9 +106,10 @@ pub struct GameConfig {
     /// chose, the engine's menus speak it. None: English.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub languages: Vec<String>,
-    /// The seats the game has, how many play at once (`c.players = 4`;
-    /// `docs/game-model.md`, "Several players"): 1, a game of one, unless
-    /// set.
+    /// The seats the game has, how many players can play at once
+    /// (`c.players = 4`): 1, a game of one, unless set. Each seat is a
+    /// player (`world.players[n]`); players take a seat with START on a pad
+    /// or Return at the keyboard, or join over the network.
     #[serde(skip_serializing_if = "is_one")]
     pub players: u32,
     /// The high score table takes the run as one line, every seat's score
@@ -274,7 +275,7 @@ impl StateConfig {
 pub struct IconConfig {
     /// Its rows from the top, a letter a colour of `colors`, `.` empty.
     pub rows: Vec<String>,
-    /// A letter's colour: red, green, blue (and alpha), 0 to 255.
+    /// A letter's color: { red, green, blue } or { red, green, blue, alpha }, each an integer from 0 to 255 (alpha 255 where left out).
     pub colors: BTreeMap<String, Vec<u8>>,
 }
 
@@ -447,11 +448,11 @@ pub struct PlayerConfig {
     pub model: String,
     /// Start position on the ground (x, y). Negative means world centre.
     pub spawn: [f32; 2],
-    /// Running speed.
+    /// Running speed, in voxels a second.
     pub speed: f32,
-    /// How quickly it gets to running speed on the ground, and in the air.
+    /// How quickly it gets to running speed while it stands on something, in voxels per second per second. In the air `air_accel` applies instead.
     pub accel: f32,
-    /// How quickly it gets to running speed in the air.
+    /// How quickly it gets to running speed while it is in the air, in voxels per second per second (`accel` on the ground).
     pub air_accel: f32,
     /// Height of a full jump (holding the button); letting go early cuts it.
     pub jump: f32,
@@ -534,8 +535,7 @@ pub struct TitleScreenConfig {
     /// game's replays (`replays/`), as the arcade machines did; 0: never.
     pub attract_after: f32,
     /// The scene behind the menu is dark: its rows and hint in light
-    /// letters (default: dark ones, over bright ground like More Blood's
-    /// sand).
+    /// letters (default: dark ones, which read over bright ground).
     pub light_menu: bool,
     /// A level of the game as its own title (`c.title_screen.level = "title"`), a file in `levels/`, in place of the engine's title.
     /// The window opens in it; its code draws the menu and begins a run with `world:new_game()` or `world:load(slot)`.
@@ -888,14 +888,14 @@ pub struct CameraConfig {
     pub follow_height: Option<FollowHeight>,
     /// The view stops at the edges of the stage (`World::stage`; the world
     /// without one) instead of showing the dark beyond: a side view's level,
-    /// or the ground a view from above shows (BunnyFarm's meadow).
+    /// or the ground a view from above shows (a farm seen from above).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub stop_at_edges: bool,
     /// How far apart the players in play may be, across and deep, in
     /// voxels (`{ 240, 150 }`; `{ 240 }` across only, a side view): a move
     /// that would take the two furthest apart further is cut short, as the
-    /// edge of an arcade machine's screen held them (`docs/game-model.md`,
-    /// "Several players"). The simulation's, never the window's.
+    /// edge of an arcade machine's screen held them. The game's
+    /// rules hold them apart, whatever the window's size.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<Vec<f32>>,
     /// How the game sets things down: on the grid in quarter turns (the
@@ -966,24 +966,25 @@ pub struct FollowHeight {
 pub struct LightConfig {
     /// Direction the sunlight travels (towards the ground).
     pub sun: [f32; 3],
-    /// The sunlight's color and strength, 0..1 per channel: white unless
-    /// set (warm at dusk, a pale blue for the moon). A game's
-    /// `frame:daylight` sets it for one picture.
+    /// The sunlight's color and strength, three numbers from 0 to 1 or
+    /// "#rrggbb": white unless set (warm at dusk, a pale blue for the
+    /// moon). `frame:daylight` sets it for one picture, with numbers from
+    /// 0 to 255.
     #[serde(deserialize_with = "color")]
     pub sun_color: [f32; 3],
     /// Light that reaches every face, 0..1.
     pub ambient: f32,
     /// How much a shadow darkens sunlit faces, 0..1.
     pub shadow: f32,
-    /// Background color, 0..1 per channel.
+    /// The background's color, three numbers from 0 to 1 or "#rrggbb".
     #[serde(deserialize_with = "color")]
     pub sky: [f32; 3],
-    /// The sky metal mirrors: its color at the horizon and overhead, 0..1
-    /// per channel (below the horizon it mirrors the ground, in the haze's
-    /// color).
+    /// The sky metal mirrors: its color at the horizon, three numbers from
+    /// 0 to 1 or "#rrggbb" (below the horizon it mirrors the ground, in the
+    /// haze's color).
     #[serde(deserialize_with = "color")]
     pub reflection_horizon: [f32; 3],
-    /// The sky metal mirrors overhead, 0..1 per channel.
+    /// The sky metal mirrors overhead: its color, three numbers from 0 to 1 or "#rrggbb".
     #[serde(deserialize_with = "color")]
     pub reflection: [f32; 3],
     /// A streak of light sweeping over metal now and then, this bright
@@ -1001,7 +1002,7 @@ pub struct LightConfig {
     /// their own light, so hard edges stay hard).
     pub model_shading: ModelShading,
     /// Models shaded otherwise, by file (relative to the game folder), e.g.
-    /// `{ ["huey.vvx"] = "faces" }` for a machine among smooth figures.
+    /// `{ ["tank.vvx"] = "faces" }` for a machine among smooth figures.
     pub model_shading_for: BTreeMap<String, ModelShading>,
     /// With "edges": how far, in voxels, a voxel's surroundings may stray
     /// from one smooth surface before it counts as an edge.
@@ -1021,7 +1022,7 @@ pub struct LightConfig {
     /// or what lies further fades to a dark veil. A game's `frame:fog` sets
     /// it for one picture.
     pub fog_density: f32,
-    /// The fog's own color where no lamp lights it, 0..1 per channel.
+    /// The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". `frame:fog` sets it for one picture, with numbers from 0 to 255.
     #[serde(deserialize_with = "color")]
     pub fog_color: [f32; 3],
     /// How much the fog sends a lamp's light on ahead rather than back,
@@ -1100,8 +1101,7 @@ impl Default for DebrisConfig {
 /// What makes the picture livelier than flat voxels: glow, light from
 /// flashes and explosions, haze, blur at the screen edges, a white flash on
 /// big blasts, and the game holding still for a moment when an enemy dies.
-/// How the picture goes from one level to the next (`docs/game-model.md`,
-/// "Leaving a level"): it fades out to a colour and in again, the
+/// How the picture goes from one level to the next: it fades out to a colour and in again, the
 /// picture's alone (no ticks run meanwhile, so replays do not see it; tools
 /// without a window skip it).
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -1109,7 +1109,7 @@ impl Default for DebrisConfig {
 pub struct TransitionConfig {
     /// Seconds out and seconds in; 0: a cut.
     pub fade: f32,
-    /// The colour faded through, "#rrggbb".
+    /// The color faded through, a string "#rrggbb" (not numbers).
     pub color: String,
     /// A length of its own for a reason the level is left (a puzzle
     /// game's quick restart: `restart = 0`).
@@ -1161,9 +1161,9 @@ pub struct EffectsConfig {
     pub glow: f32,
     /// How strongly flashes and explosions light up what is around them.
     pub lights: f32,
-    /// Haze towards the far edge of the view, 0..1, and its colour (0..1).
+    /// Haze towards the far edge of the view, 0 (none) to 1 (thick); `haze_color` is its color.
     pub haze: f32,
-    /// The haze's colour, 0..1 per channel.
+    /// The haze's color, three numbers from 0 to 1 or "#rrggbb".
     #[serde(deserialize_with = "color")]
     pub haze_color: [f32; 3],
     /// Blur at the top and bottom of the screen, a miniature look, 0..1.
@@ -1177,7 +1177,7 @@ pub struct EffectsConfig {
     /// and its colour (0..1). Hidden behind what stands in front, drawn
     /// where one part of a model stands before another too.
     pub outline: f32,
-    /// The outline's colour, 0..1 per channel.
+    /// The outline's color, three numbers from 0 to 1 or "#rrggbb".
     #[serde(deserialize_with = "color")]
     pub outline_color: [f32; 3],
     /// Models drawn from lists of their faces that can be seen, made once,
