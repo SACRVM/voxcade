@@ -787,8 +787,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   owner: it only gets in the way of git's diffs), but for `.mcp.json`
   and LuaLS's `.luarc.json` (other programs' files) and a Tiled map read
   once by `voxcade import`. A model's voxels come out in the text's
-  reading order: More Blood's men burst into theirs in that order. Every
-  file of Voxcade's own states its format and version on its first line;
+  reading order: More Blood's men burst into theirs in that order. A
+  model, a level and a map state their format and version on the first
+  line (a save `format = 1`, a replay `version`; sounds, songs and
+  scenarios state none);
   every game states its Voxcade (`c.voxcade`); a format that changes
   brings a step in `src/upgrade/` (a step that comes while a version is
   being made also comes to the games already stating it, by `left`: their
@@ -1217,8 +1219,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
 - Blocks are shaped by hand only (the user rejected relief, rounding and
   primitive models made by tools as fake 3D): an imported tile is drawn
   out through its depth, every layer its picture, nothing more (a block's
-  `.vvx` silently drops glass, metal and glow, `Block::load_in`; scenes
-  refuse them with a message: open, to be decided). The
+  `.vvx` with glass, metal or glow is refused naming the line,
+  `Block::load_in`, as a scene's). The
   editor stays calm (the user on vengi: too much, hard on the eyes): few
   tools in view, big readable words, the game's own light. Its panels are
   the IDE's look, egui through `crate::gui` (`editor/panels.rs`; the
