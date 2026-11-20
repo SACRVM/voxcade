@@ -100,6 +100,8 @@ const O: Formants = [500.0, 900.0, 2400.0];
 const U: Formants = [350.0, 900.0, 2300.0];
 const E: Formants = [400.0, 2000.0, 2600.0];
 const AX: Formants = [600.0, 1300.0, 2400.0];
+/// German vocalic r [ɐ], an unstressed -er.
+const ER: Formants = [650.0, 1250.0, 2450.0];
 const I: Formants = [300.0, 2300.0, 3000.0];
 const IH: Formants = [430.0, 2030.0, 2680.0];
 const OE: Formants = [380.0, 1500.0, 2200.0];
@@ -121,6 +123,7 @@ pub(super) const PHONEMES: &[Phoneme] = &[
     vowel("o", O), // German so
     vowel("u", U), // blue, German gut
     vowel("ax", AX), // but, the a in sofa
+    vowel("er", ER), // German Schwester, an unstressed -er: the vocalic r
     vowel("oe", OE), // German schön
     vowel("ue", UE), // German über
     diphthong("aw", A, U), // now, German Haus
@@ -363,11 +366,18 @@ pub(super) struct Sing {
 /// Lays a channel's voice notes out: each a range of segments in
 /// `segments` (`voice`'s) or `clear` (the clear voice's, `super::clear`),
 /// its onset moved before its beat (never before the note before it), a
-/// melisma's notes tied, their coda on the last.
+/// melisma's notes tied, their coda on the last. The clear voice's notes
+/// that follow each other without a rest share the time between their
+/// vowels (`clear::joins`): a coda ends where the next onset begins.
 pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments: &mut Vec<Segment>, clear: &mut Vec<super::clear::Seg>) {
+    use super::song::Voicing;
     // Whether the voice note after `a` holds its vowel on, with no rest between.
     let holds_on = |a: &Sing, b: &Sing| b.text.is_none() && b.note == a.note + 1 && b.at == a.end;
+    // What each note sings: the onset on a syllable's first note only, the
+    // coda on the last note of its melisma; a note after a rest sings the
+    // vowel alone.
     let mut sung: Option<&Syllable> = None;
+    let mut laid: Vec<(Syllable, Part, bool)> = Vec::with_capacity(sings.len());
     for (i, sing) in sings.iter().enumerate() {
         let tied = sings.get(i + 1).is_some_and(|next| holds_on(sing, next));
         let held_on = i > 0 && holds_on(&sings[i - 1], sing);
@@ -375,8 +385,6 @@ pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments:
             sung = Some(text);
         }
         let Some(text) = sung else { unreachable!("the parser refuses a first voice note without a text") };
-        // The onset on a syllable's first note only, the coda on the last
-        // note of its melisma; a note after a rest sings the vowel alone.
         let mut syllable = text.bare();
         if sing.text.is_some() {
             syllable.onset.clone_from(&text.onset);
@@ -384,23 +392,40 @@ pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments:
         if !tied && (sing.text.is_some() || held_on) {
             syllable.coda.clone_from(&text.coda);
         }
-        let part = if tied { Part::Held } else { Part::Whole };
-        let formants = sing.voicing == super::song::Voicing::Formants;
-        let onset: i64 = if formants { syllable.onset.iter().map(|p| length(p)).sum() } else { super::clear::onset_length(&syllable) };
+        laid.push((syllable, if tied { Part::Held } else { Part::Whole }, tied));
+    }
+    // The clear voice's joins between notes that follow without a rest.
+    let follows: Vec<(&Syllable, bool)> = (0..sings.len())
+        .map(|i| {
+            let clear_pair = |n: &Sing| n.note == sings[i].note + 1 && n.at == sings[i].end && n.voicing == Voicing::Clear && sings[i].voicing == Voicing::Clear;
+            (&laid[i].0, sings.get(i + 1).is_some_and(clear_pair))
+        })
+        .collect();
+    let spans: Vec<i64> = (0..sings.len()).map(|i| sings.get(i + 1).map_or(0, |n| n.at as i64 - sings[i].at as i64)).collect();
+    let joins = super::clear::joins(&follows, &spans);
+    for (i, sing) in sings.iter().enumerate() {
+        let (syllable, part, tied) = (&laid[i].0, laid[i].1, laid[i].2);
+        let formants = sing.voicing == Voicing::Formants;
+        let onset: i64 = if formants { syllable.onset.iter().map(|p| length(p)).sum() } else { super::clear::onset_length(syllable, &joins[i]) };
         let earliest = if sing.note == 0 { 0 } else { notes[sing.note - 1].start };
         let note = &mut notes[sing.note];
         let beat = note.start;
         let begin = beat.saturating_sub(onset as u64).max(earliest).min(beat);
-        // Tied, the note is held up to the next.
-        let held = if tied { sing.end - sing.at } else { note.held };
+        // Tied, the note is held up to the next; the clear voice's up to where
+        // the next onset begins.
+        let held = match joins[i].next_onset {
+            _ if tied => sing.end - sing.at,
+            Some(next) if !formants => (sing.end - sing.at).saturating_sub(next as u64),
+            _ => note.held,
+        };
         let (on, off) = ((beat - begin) as i64, (beat - begin + held) as i64);
         let range = if formants {
             let from = segments.len();
-            plan(segments, &syllable, part, on, off);
+            plan(segments, syllable, part, on, off);
             (from, segments.len())
         } else {
             let from = clear.len();
-            super::clear::plan(clear, &syllable, part, on, off);
+            super::clear::plan(clear, syllable, part, on, off, &joins[i]);
             (from, clear.len())
         };
         note.start = begin;

@@ -1475,7 +1475,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   glottal pulse, five formants, loci and voice onset times, a parallel
   branch for the hiss; its name is `clear::WAVE`) and `voice`
   (`src/audio/music/voice.rs`, the first, kept to the sample: test
-  `the_voice_sings_as_pinned`): a quoted text before a note is its syllable
+  `the_voice_sings_as_pinned`; `singer`'s clusters, the owner's
+  2026-11-20 "Schwester" and t, g: a coda ending where the next onset
+  begins, bursts as transients, a v as Klatt's voiced fricative, no step
+  that clicks; every value from a paper names it in a comment, the rest
+  says it is ours (the owner: "fair play und kein AI slop"), tests
+  `the_singer_sings_every_consonant_of_a_cluster`,
+  `the_singers_bursts_fall_away_into_their_breath`): a quoted text before a note is its syllable
   in phonemes (`"s ae ng" e4`, one table,
   `music::phonemes`, HELP lists it), the onset before the beat, a note
   without a text holding the vowel, `consonants` (dB) their hiss against

@@ -54,9 +54,10 @@
 //! starts on the beat, the onset before it, the coda ends where the note is
 //! let go (`q`). A voice note without a text holds the vowel before (a
 //! melisma: tied notes share it, the coda on the last); after a rest it
-//! sings the vowel alone. The phonemes: vowels a ae e eh i ih o u ax oe
-//! ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch x
-//! h rr t k p d g b (x the German ach, rr a trilled r). `consonants` (dB,
+//! sings the vowel alone. The phonemes: vowels a ae e eh i ih o u ax er
+//! oe ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch x
+//! h rr t k p d g b (x the German ach, rr a trilled r, er an unstressed
+//! German -er, sung softer by `singer`). `consonants` (dB,
 //! -24 to 12) moves a voice's hiss, bursts and breath against its vowels. `duty`, `pwm` and `pwm_speed` mean nothing on a voice and
 //! are refused; the other words apply (the attack starts from where the
 //! voice was, so a line never drops to silence between its syllables).

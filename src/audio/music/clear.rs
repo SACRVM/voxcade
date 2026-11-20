@@ -10,15 +10,32 @@
 //!   vowel, so the formants' levels come out as a vocal tract makes them
 //!   (Peterson & Barney's 1952 levels are the measure).
 //! - Every join glides: the formants move from a consonant's locus into the
-//!   vowel and out of it again (F2 onsets after Sussman et al. 1991's locus
-//!   equations: labials low, alveolars towards 1700 Hz, velars with F2 and
-//!   F3 drawn together), over a time each class of sound takes; voiceless
+//!   vowel and out of it again (F2 onset = k F2vowel + c, the locus
+//!   equation's form, Klatt 1979b via Klatt 1987, p. 755; our k and c are
+//!   from memory of Sussman et al. 1991, not checked against the paper:
+//!   labials low, alveolars towards 1700 Hz, velars with F2 and F3 drawn
+//!   together), over a time each class of sound takes (ours); voiceless
 //!   plosives breathe before the voicing starts (voice onset time after
 //!   Lisker & Abramson 1964), voiced ones barely; nasals with a nasal pole
 //!   and a zero by their place (Fujimura 1962); l and r told apart by F3; a
 //!   trill (`rr`) taps.
 //! - A parallel branch gives fricatives and bursts spectra of their own: s
-//!   high, sh lower, the German ich between, ach low, f flat and weak.
+//!   high, sh lower, the German ich between, ach low, f flat and weak; a
+//!   burst a transient falling into its breath, lower and broader than its
+//!   place's fricative; voiced fricatives and closures a low hum.
+//! - Clusters: notes sung without a rest share the time between their
+//!   vowels (`joins`): a coda ends where the next onset begins, both
+//!   compressed down to each consonant's least where they do not fit;
+//!   consonants in a cluster a quarter shorter (Klatt 1979's rule; the
+//!   factor ours); a plosive after s or sh unaspirated, after a nasal of
+//!   its place briefly closed; each consonant's locus towards a liquid or
+//!   glide beside it.
+//! - No step that clicks (Klatt 1980, p. 974, 977, 987): the voicing set
+//!   only as a glottal pulse begins, a hiss coming and going over 5 ms but
+//!   a burst's onset, the nasal zero gliding with the formants; a voiced
+//!   fricative two voices at once (through the formants and as a murmur)
+//!   under a hiss 10 dB weaker than its voiceless twin's, beating with the
+//!   glottis, a labiodental's hiss through the flat bypass.
 //! - What sells a singer (Sundberg 1987): the pitch gliding into a note
 //!   from a little below, a vibrato that grows in (the player's), a little
 //!   jitter, shimmer and breath.
@@ -42,6 +59,9 @@ type Five = [f32; 5];
 /// note is taken up, with what it aims at.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Seg {
+    /// The phoneme it sings (read by the tests, and in a plan printed).
+    #[allow(dead_code)]
+    pub(super) name: &'static str,
     pub(super) from: u64,
     pub(super) to: u64,
     /// The formants and bandwidths aimed at, reached over `glide` samples
@@ -60,11 +80,19 @@ pub(super) struct Seg {
     nasal: f32,
     /// Taps a second breaking the voicing (a trill), 0 for none.
     taps: f32,
+    /// How much of the voicing is a murmur, the voice bar of a voiced
+    /// fricative or closure: the pulse low-passed, the lips or tongue
+    /// narrowing the tract so its formants above F1 barely ring (Klatt's
+    /// quasi-sinusoidal voicing). 0 for none.
+    murmur: f32,
+    /// A plosive's burst: the hiss a transient, a sharp onset falling away.
+    burst: bool,
 }
 
 impl Seg {
     fn new(from: i64, to: i64, formants: Five, widths: Five, glide: f32) -> Self {
         Self {
+            name: "",
             from: from.max(0) as u64,
             to: to.max(0) as u64,
             formants,
@@ -77,7 +105,14 @@ impl Seg {
             flat: 0.0,
             nasal: 0.0,
             taps: 0.0,
+            murmur: 0.0,
+            burst: false,
         }
+    }
+
+    /// Whether it hisses or bursts.
+    fn hisses(&self) -> bool {
+        self.flat > 0.0 || self.bands.iter().any(|b| b.2 > 0.0)
     }
 
     /// Its noise: the parallel branch's bands and flat part.
@@ -136,7 +171,9 @@ fn vowel_five(f: [f32; 3]) -> (Five, Five) {
 }
 
 /// Where a consonant's place sets the formants a vowel `v` glides from
-/// (or to): F2 by a locus equation, F1 low, F3 by the place.
+/// (or to): F2 by a locus equation (its form Klatt 1979b's, via Klatt 1987,
+/// p. 755; k and c ours, from memory of Sussman et al. 1991), F1 low, F3
+/// by the place (ours).
 fn locus(place: Place, v: Five) -> Five {
     let (k, c) = match place {
         Place::Labial => (0.85, 100.0),
@@ -155,14 +192,22 @@ fn locus(place: Place, v: Five) -> Five {
         Place::Glottal | Place::Vowel => v[2],
     };
     let f1 = if matches!(place, Place::Glottal | Place::Vowel) { v[0] } else { v[0].min(280.0) };
-    [f1, f2, f3, v[3], v[4]]
+    // F3 stays over F2 (a velar's drawn close, towards an r's low F3 too).
+    [f1, f2, f3.max(f2 + 150.0), v[3], v[4]]
 }
 
 /// The noise of a fricative or a burst by its place: two bands (Hz, width,
-/// level) and a flat part; a velar's band at the vowel's F2 and F3.
-fn spectrum(place: Place, v: Five) -> ([(f32, f32, f32); 2], f32) {
+/// level) and a flat part; a velar's band at the vowel's F2 and F3. A
+/// burst is not its place's fricative: an alveolar one lower and broader
+/// than an s (about 4 kHz), a labial one flat and low (Stevens & Blumstein
+/// 1978: diffuse rising, diffuse falling, compact).
+fn spectrum(place: Place, v: Five, burst: bool) -> ([(f32, f32, f32); 2], f32) {
     match place {
-        Place::Labial => ([(1200.0, 1500.0, 0.3), (5500.0, 5000.0, 0.4)], 0.25),
+        Place::Alveolar if burst => ([(4300.0, 2200.0, 1.0), (3000.0, 1200.0, 0.35)], 0.0),
+        Place::Labial if burst => ([(900.0, 1200.0, 0.5), (2500.0, 3000.0, 0.2)], 0.3),
+        // Labiodental noise has no peaks: through the bypass alone (Klatt
+        // 1980, p. 981-982, AB 57 dB for f and v).
+        Place::Labial => ([(1000.0, 500.0, 0.0); 2], 1.0),
         Place::Alveolar => ([(6200.0, 2000.0, 1.0), (7800.0, 2000.0, 0.4)], 0.0),
         Place::Postalveolar => ([(2800.0, 700.0, 1.0), (3500.0, 800.0, 0.4)], 0.0),
         Place::Palatal => ([(3700.0, 900.0, 1.0), (4600.0, 1000.0, 0.35)], 0.0),
@@ -177,7 +222,10 @@ fn spectrum(place: Place, v: Five) -> ([(f32, f32, f32); 2], f32) {
 /// 15, f and p about 20; voiced fricatives' hiss weaker under their voice).
 fn under(p: &Phoneme) -> f32 {
     match (p.kind, p.place) {
-        (Kind::Fricative { voicing, .. }, _) if voicing > 0.0 => -24.0,
+        // A voiced fricative's hiss 10 dB under its voiceless twin's
+        // (Klatt 1980, p. 986: AF 50 against 60 dB).
+        (Kind::Fricative { voicing, .. }, Place::Labial) if voicing > 0.0 => -30.0,
+        (Kind::Fricative { voicing, .. }, _) if voicing > 0.0 => -25.0,
         (Kind::Fricative { .. }, Place::Postalveolar) => -13.5,
         (Kind::Fricative { .. }, Place::Alveolar) => -15.0,
         (Kind::Fricative { .. }, Place::Palatal) => -17.0,
@@ -198,47 +246,189 @@ const VOWEL: f32 = 0.30;
 /// spectrum's shape, scaled so the whole lies `under(p)` dB under a vowel
 /// (a band's noise power is its width's share of the sample rate, times
 /// pi over 2 for its skirts).
-fn noise_of(p: &Phoneme, v: Five) -> ([(f32, f32, f32); 2], f32) {
-    let (bands, flat) = spectrum(p.place, v);
+fn noise_of(p: &Phoneme, v: Five, burst: bool) -> ([(f32, f32, f32); 2], f32) {
+    let (bands, flat) = spectrum(p.place, v, burst);
     let power: f32 = bands.iter().map(|(_, w, l)| l * l * std::f32::consts::PI * w / SAMPLE_RATE as f32).sum::<f32>() + flat * flat;
     let scale = VOWEL * 10f32.powf(under(p) / 20.0) / power.sqrt().max(1e-6);
     (bands.map(|(f, w, l)| (f, w, l * scale)), flat * scale)
 }
 
-/// The breath of a voiceless plosive and of h, into the cascade.
+/// The breath of h, into the cascade; a voiceless plosive's twice it, 6 dB
+/// louder, its breath going on from its burst.
 const ASPIRATE: f32 = 0.04;
 
-/// How long the onset's consonants take before the vowel's beat, in samples.
-pub(super) fn onset_length(s: &Syllable) -> i64 {
-    let mut t = 0;
-    for (i, p) in s.onset.iter().enumerate() {
-        t += length(p, s.onset.get(i + 1).is_none());
-    }
-    t
+/// What a syllable's neighbours ask of the clear voice: how much of their
+/// length its onset's and its coda's consonants keep (the two compressed
+/// together where a coda and the next onset do not fit before the next
+/// vowel), the sound before its onset (the coda of a syllable sung right
+/// before it), and the next syllable's onset length when that follows
+/// without a rest (its coda ends where that begins).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Join {
+    onset: f32,
+    coda: f32,
+    before: Option<&'static Phoneme>,
+    /// The next syllable's first consonant, when it follows without a rest:
+    /// a vowel without a coda turns towards it at its end.
+    after: Option<&'static Phoneme>,
+    pub(super) next_onset: Option<i64>,
 }
 
-/// A consonant's samples; a plosive breathes long only right before a vowel.
-fn length(p: &Phoneme, before_vowel: bool) -> i64 {
+impl Default for Join {
+    fn default() -> Self {
+        Self { onset: 1.0, coda: 1.0, before: None, after: None, next_onset: None }
+    }
+}
+
+/// The least a vowel keeps between its beat and the next onset: 45 ms, or
+/// 30 % of the time to the next beat.
+fn vowel_least(span: i64) -> i64 {
+    ms(45.0).max(span * 3 / 10)
+}
+
+/// The joins of a channel's clear notes: `laid` is what each note sings
+/// (its syllable as its melisma gives it) and whether the next follows it
+/// without a rest; `spans` the samples from each note's beat to the next's.
+pub(super) fn joins(laid: &[(&Syllable, bool)], spans: &[i64]) -> Vec<Join> {
+    let mut joins = vec![Join::default(); laid.len()];
+    for i in 0..laid.len().saturating_sub(1) {
+        let ((this, follows), (next, _)) = (laid[i], laid[i + 1]);
+        if !follows {
+            continue;
+        }
+        joins[i + 1].before = this.coda.last().copied();
+        joins[i].after = next.onset.first().copied();
+        let coda = coda_length(this, 1.0);
+        let onset = onset_length(next, &joins[i + 1]);
+        let room = spans[i] - vowel_least(spans[i]);
+        let scale = if coda + onset > room { (room.max(0) as f32 / (coda + onset) as f32).clamp(0.0, 1.0) } else { 1.0 };
+        joins[i].coda = scale;
+        joins[i + 1].onset = scale;
+        joins[i].next_onset = Some(onset_length(next, &joins[i + 1]));
+    }
+    joins
+}
+
+/// What follows a consonant: the vowel, or another consonant.
+#[derive(Clone, Copy)]
+enum Then {
+    Vowel,
+    Consonant(&'static Phoneme),
+    /// Nothing: a coda's last, released.
+    End,
+}
+
+fn voiceless_fricative(p: &Phoneme) -> bool {
+    matches!(p.kind, Kind::Fricative { voicing, .. } if voicing == 0.0)
+}
+
+fn nasal(p: &Phoneme) -> bool {
+    matches!(p.name, "m" | "n" | "ng")
+}
+
+fn liquid_or_glide(p: &Phoneme) -> bool {
+    matches!(p.kind, Kind::Sonorant { .. } | Kind::Trill { .. }) && !nasal(p)
+}
+
+/// A plosive's closure, burst and breath in ms, by what stands round it,
+/// at `scale` of their length (never under each part's least): after a
+/// voiceless fricative unaspirated (st, sp, sk, schp: Klatt 1975b, via
+/// Klatt 1987, p. 758), after a nasal of its place its closure short (the
+/// nasal closed already; this rule and its numbers are ours), its breath
+/// long before a vowel or a sonorant, short before another obstruent.
+fn plosive_parts(p: &Phoneme, voiced: bool, before: Option<&Phoneme>, then: Then, scale: f32) -> [f32; 3] {
+    let after_hiss = before.is_some_and(voiceless_fricative);
+    let after_nasal = before.is_some_and(|b| nasal(b) && b.place == p.place);
+    let closure = if after_nasal {
+        (20.0, 12.0)
+    } else if after_hiss {
+        (35.0, 25.0)
+    } else if voiced {
+        (CLOSURE[1], 25.0)
+    } else {
+        (CLOSURE[0], 30.0)
+    };
+    let burst = if voiced { (BURST[1], 6.0) } else { (BURST[0], 8.0) };
+    let breath = match (voiced, then) {
+        (true, _) => (0.0, 0.0),
+        (false, _) if after_hiss => (12.0, 8.0),
+        (false, Then::Vowel) => (onset_time(p.place), 35.0),
+        // Before a sonorant consonant at least as long as before a vowel
+        // (Klatt 1975b, via Klatt 1987, p. 758).
+        (false, Then::Consonant(c)) if liquid_or_glide(c) => (onset_time(p.place), 35.0),
+        (false, Then::Consonant(_)) => (12.0, 8.0),
+        (false, Then::End) => (25.0, 15.0),
+    };
+    [closure, burst, breath].map(|(full, least): (f32, f32)| (full * scale).max(least.min(full)))
+}
+
+/// How long a consonant lasts in samples, at `scale` of its length (never
+/// under its least: what still sounds as itself).
+fn length(p: &Phoneme, before: Option<&Phoneme>, then: Then, scale: f32) -> i64 {
+    let at = |full: f32, least: f32| ms((full * scale).max(least.min(full)));
     match p.kind {
         Kind::Vowel(_) | Kind::Diphthong(..) => 0,
-        Kind::Plosive { voiced, .. } => {
-            let v = usize::from(voiced);
-            let breath = if voiced { 0.0 } else if before_vowel { onset_time(p.place) } else { 15.0 };
-            ms(CLOSURE[v]) + ms(BURST[v]) + ms(breath)
-        }
-        Kind::Fricative { length, .. } => ms(length * 1000.0),
-        Kind::Breath { .. } => ms(BREATH),
-        Kind::Trill { length, .. } => ms(length * 1000.0),
-        Kind::Sonorant { .. } if matches!(p.name, "m" | "n" | "ng") => ms(NASAL),
-        Kind::Sonorant { .. } if matches!(p.name, "w" | "j") => ms(GLIDE),
-        Kind::Sonorant { .. } => ms(LIQUID),
+        Kind::Plosive { voiced, .. } => plosive_parts(p, voiced, before, then, scale).iter().map(|&t| ms(t)).sum(),
+        Kind::Fricative { length, voicing, .. } => at(length * 1000.0, if voicing > 0.0 { 35.0 } else { 45.0 }),
+        Kind::Breath { .. } => at(BREATH, 35.0),
+        Kind::Trill { length, .. } => at(length * 1000.0, 50.0),
+        Kind::Sonorant { .. } if nasal(p) => at(NASAL, 40.0),
+        Kind::Sonorant { .. } if matches!(p.name, "w" | "j") => at(GLIDE, 35.0),
+        Kind::Sonorant { .. } => at(LIQUID, 35.0),
+    }
+}
+
+/// Each consonant of a row (an onset or a coda) with the sound before it
+/// and what follows it.
+fn row<'a>(row: &'a [&'static Phoneme], before: Option<&'static Phoneme>, ends: Then) -> impl Iterator<Item = (&'static Phoneme, Option<&'static Phoneme>, Then)> + 'a {
+    row.iter().enumerate().map(move |(i, &p)| (p, if i == 0 { before } else { Some(row[i - 1]) }, row.get(i + 1).map_or(ends, |&n| Then::Consonant(n))))
+}
+
+/// What a row of consonants keeps of its consonants' lengths: in a cluster
+/// of two or more each is shorter than alone (Klatt's 1979 rule 10,
+/// "shortening in clusters", via Klatt 1987, p. 760; the factor 0.75 is
+/// ours, his numbers were not at hand), never under its least.
+fn cluster(row: &[&Phoneme]) -> f32 {
+    if row.len() > 1 { 0.75 } else { 1.0 }
+}
+
+/// How long the onset's consonants take before the vowel's beat, in samples.
+pub(super) fn onset_length(s: &Syllable, join: &Join) -> i64 {
+    row(&s.onset, join.before, Then::Vowel).map(|(p, b, t)| length(p, b, t, join.onset * cluster(&s.onset))).sum()
+}
+
+/// How long the coda's consonants take after the vowel, in samples.
+fn coda_length(s: &Syllable, scale: f32) -> i64 {
+    row(&s.coda, None, Then::End).map(|(p, b, t)| length(p, b, t, scale * cluster(&s.coda))).sum()
+}
+
+/// A labiodental fricative's formants and bandwidths, Klatt's (1980, Table
+/// III, p. 987), its F4 and F5 the vowel's; none for another sound.
+fn labiodental(p: &Phoneme, v: Five) -> Option<(Five, Five)> {
+    match p.kind {
+        Kind::Fricative { voicing, .. } if p.place == Place::Labial => Some(if voicing > 0.0 {
+            ([220.0, 1100.0, 2080.0, v[3], v[4]], [60.0, 90.0, 120.0, 250.0, 300.0])
+        } else {
+            ([340.0, 1100.0, 2080.0, v[3], v[4]], [200.0, 120.0, 150.0, 250.0, 300.0])
+        }),
+        _ => None,
+    }
+}
+
+/// A consonant's five formants (a liquid's or a glide's own), or none.
+fn own_five(p: &Phoneme, v: Five) -> Option<Five> {
+    match p.kind {
+        Kind::Sonorant { formants, .. } | Kind::Trill { formants, .. } if liquid_or_glide(p) => Some([formants[0], formants[1], formants[2], v[3], v[4]]),
+        _ => None,
     }
 }
 
 /// The segments of one note, as `voice::plan` lays them for `voice`: the
 /// onset before `beat`, the vowel from it, the coda ending at `off`; a
-/// later segment wins where they overlap.
-pub(super) fn plan(out: &mut Vec<Seg>, s: &Syllable, part: Part, beat: i64, off: i64) {
+/// later segment wins where they overlap. Each consonant takes its locus
+/// towards the sound next to it: a liquid or a glide beside it, else the
+/// vowel.
+pub(super) fn plan(out: &mut Vec<Seg>, s: &Syllable, part: Part, beat: i64, off: i64, join: &Join) {
     let (first, last) = match s.vowel.kind {
         Kind::Vowel(f) => (f, f),
         Kind::Diphthong(a, b) => (a, b),
@@ -259,92 +449,125 @@ pub(super) fn plan(out: &mut Vec<Seg>, s: &Syllable, part: Part, beat: i64, off:
         }
         out.push(seg);
     };
-    // The onset, the vowel's formants its locus.
-    let mut t = beat - onset_length(s);
-    for (i, p) in s.onset.iter().enumerate() {
-        t = consonant(&mut add, p, t, v, i + 1 == s.onset.len(), true);
+    // The onset, each consonant gliding towards what follows it.
+    let mut t = beat - onset_length(s, join);
+    for (p, before, then) in row(&s.onset, join.before, Then::Vowel) {
+        let toward = match then {
+            Then::Consonant(c) => own_five(c, v).unwrap_or(v),
+            Then::Vowel | Then::End => v,
+        };
+        t = consonant(&mut add, Sound { p, before, then, toward, vowel: v, scale: join.onset * cluster(&s.onset), onset: true }, t);
     }
-    // The vowel, gliding in from what came before; out to a coda's locus.
-    let coda_len: i64 = s.coda.iter().enumerate().map(|(i, p)| length(p, i + 1 == s.coda.len())).sum();
+    // The vowel, gliding in from what came before; out to a coda's locus. The
+    // reduced vowel er (an unstressed -er) sings softer.
+    let coda_len = coda_length(s, join.coda);
     let vowel_end = off - coda_len;
     let into = s.onset.last().map_or(25.0, |p| transition(p));
-    let mut vowel = Seg::new(beat, vowel_end, v, vw, into);
-    vowel.voicing = 1.0;
+    let mut vowel = Seg { name: s.vowel.name, ..Seg::new(beat, vowel_end, v, vw, into) };
+    vowel.voicing = if s.vowel.name == "er" { REDUCED } else { 1.0 };
     vowel.turn = (part == Part::Whole && first != last).then_some(last);
-    match s.coda.first() {
+    match s.coda.first().copied().or(join.after) {
         Some(p) if !matches!(p.kind, Kind::Breath { .. }) => {
-            // The last part of the vowel turns towards the coda's locus.
+            // The last part of the vowel turns towards the locus of the
+            // consonant after it: its coda's, or the next syllable's onset's.
             let out_ms = transition(p).min(40.0);
             let turn_at = (vowel_end - ms(out_ms)).max(beat + (vowel_end - beat) / 2);
             add(Seg { to: turn_at as u64, ..vowel });
-            let mut offglide = Seg::new(turn_at, vowel_end, locus(p.place, end_v), vw, out_ms);
-            offglide.voicing = 1.0;
-            add(offglide);
+            let goal = own_five(p, end_v).unwrap_or_else(|| locus(p.place, end_v));
+            add(Seg { name: s.vowel.name, voicing: vowel.voicing, ..Seg::new(turn_at, vowel_end, goal, vw, out_ms) });
         }
         _ => add(vowel),
     }
+    // The coda, each consonant from what stands before it.
     let mut t = vowel_end;
-    for (i, p) in s.coda.iter().enumerate() {
-        t = consonant(&mut add, p, t, end_v, i + 1 == s.coda.len(), false);
+    for (p, before, then) in row(&s.coda, None, Then::End) {
+        let toward = before.and_then(|b| own_five(b, end_v)).unwrap_or(end_v);
+        t = consonant(&mut add, Sound { p, before, then, toward, vowel: end_v, scale: join.coda * cluster(&s.coda), onset: false }, t);
     }
 }
 
-/// A consonant from `at` before (`onset`) or after a vowel of formants
-/// `v`; where it ends.
-fn consonant(add: &mut impl FnMut(Seg), p: &Phoneme, at: i64, v: Five, last: bool, onset: bool) -> i64 {
+/// How loud the reduced vowel er sings against a full one.
+const REDUCED: f32 = 0.75;
+
+/// A consonant as it is sung: what stands round it, the formants it takes
+/// its locus towards and the syllable's vowel, its share of its length.
+struct Sound {
+    p: &'static Phoneme,
+    before: Option<&'static Phoneme>,
+    then: Then,
+    toward: Five,
+    vowel: Five,
+    scale: f32,
+    onset: bool,
+}
+
+/// A consonant from `at`; where it ends.
+fn consonant(add: &mut impl FnMut(Seg), s: Sound, at: i64) -> i64 {
+    let Sound { p, before, then, toward, vowel: v, scale, onset } = s;
+    let mut add = |seg: Seg| add(Seg { name: p.name, ..seg });
     let (_, vw) = vowel_five([v[0], v[1], v[2]]);
-    let at_locus = locus(p.place, v);
+    let at_locus = locus(p.place, toward);
     let wide = [vw[0] * 1.5, vw[1] * 1.3, vw[2], vw[3], vw[4]];
     match p.kind {
         Kind::Vowel(_) | Kind::Diphthong(..) => at,
         Kind::Plosive { voiced, .. } => {
-            let i = usize::from(voiced);
+            let [closure, burst, breath] = plosive_parts(p, voiced, before, then, scale);
             let mut t = at;
-            let end = t + ms(CLOSURE[i]);
-            add(Seg { voicing: if voiced { 0.12 } else { 0.0 }, ..Seg::new(t, end, at_locus, wide, 20.0) });
+            let end = t + ms(closure);
+            // A plosive after a nasal of its place: the nasal's voicing dies
+            // into the closure.
+            let voicing = if voiced || before.is_some_and(|b| nasal(b) && b.place == p.place) { 0.12 } else { 0.0 };
+            add(Seg { voicing, murmur: 1.0, ..Seg::new(t, end, at_locus, wide, 20.0) });
             t = end;
-            let (bands, flat) = noise_of(p, at_locus);
-            let end = t + ms(BURST[i]);
-            add(Seg::new(t, end, at_locus, wide, 0.0).noise(bands, flat));
+            let (bands, flat) = noise_of(p, at_locus, true);
+            let end = t + ms(burst);
+            add(Seg { burst: true, ..Seg::new(t, end, at_locus, wide, 0.0).noise(bands, flat) });
             t = end;
-            if !voiced {
+            if breath > 0.0 {
                 // The breath before the voicing starts, the formants already
-                // gliding towards the vowel (or after a coda, as they were).
-                let breath = if onset && last { onset_time(p.place) } else { 15.0 };
+                // gliding towards what follows (in a coda, as they were).
                 let end = t + ms(breath);
-                let (to, glide) = if onset && last { (v, transition(p)) } else { (at_locus, 0.0) };
-                add(Seg { aspiration: ASPIRATE, ..Seg::new(t, end, to, vw, glide) });
+                let (to, glide) = if onset { (toward, transition(p).min(breath)) } else { (at_locus, 0.0) };
+                add(Seg { aspiration: ASPIRATE * 2.0, ..Seg::new(t, end, to, vw, glide) });
                 t = end;
             }
             t
         }
-        Kind::Fricative { length, voicing, .. } => {
-            let end = at + ms(length * 1000.0);
-            let (bands, flat) = noise_of(p, at_locus);
-            add(Seg { voicing, ..Seg::new(at, end, at_locus, wide, 30.0).noise(bands, flat) });
+        Kind::Fricative { voicing, .. } => {
+            let end = at + length(p, before, then, scale);
+            let (bands, flat) = noise_of(p, at_locus, false);
+            // A voiced fricative is two voices at once, through the cascade
+            // and as a murmur, AV and AVS equal (Klatt 1980, p. 986: AV 47,
+            // AVS 47 dB); a labiodental takes Klatt's own formants and
+            // bandwidths (Table III, p. 987: f 340/1100/2080 Hz, B
+            // 200/120/150; v 220/1100/2080, B 60/90/120).
+            // Each 13 dB under a vowel's AV 60: 0.22 each, 0.45 together.
+            let (f, w) = labiodental(p, v).unwrap_or((at_locus, wide));
+            let voicing = if voicing > 0.0 { 0.45 } else { 0.0 };
+            add(Seg { voicing, murmur: if voicing > 0.0 { 0.5 } else { 0.0 }, ..Seg::new(at, end, f, w, 30.0).noise(bands, flat) });
             end
         }
         Kind::Breath { .. } => {
-            let end = at + ms(BREATH);
-            add(Seg { aspiration: ASPIRATE * 0.6, ..Seg::new(at, end, v, vw, 0.0) });
+            let end = at + length(p, before, then, scale);
+            add(Seg { aspiration: ASPIRATE * 0.6, ..Seg::new(at, end, toward, vw, 0.0) });
             end
         }
-        Kind::Trill { formants, length } => {
-            let end = at + ms(length * 1000.0);
+        Kind::Trill { formants, .. } => {
+            let end = at + length(p, before, then, scale);
             let f = [formants[0], formants[1], formants[2], v[3], v[4]];
             add(Seg { voicing: 0.8, taps: 26.0, ..Seg::new(at, end, f, wide, 25.0) });
             end
         }
         Kind::Sonorant { formants, voicing, .. } => {
-            let end = at + length(p, last);
-            let nasal = match p.name {
+            let end = at + length(p, before, then, scale);
+            let zero = match p.name {
                 "m" => 1000.0,
                 "n" => 1500.0,
                 "ng" => 2800.0,
                 _ => 0.0,
             };
-            let f = if nasal > 0.0 { [250.0, at_locus[1], at_locus[2], v[3], v[4]] } else { [formants[0], formants[1], formants[2], v[3], v[4]] };
-            add(Seg { voicing: if nasal > 0.0 { voicing * 1.4 } else { voicing }, nasal, ..Seg::new(at, end, f, wide, if onset { 20.0 } else { 35.0 }) });
+            let f = if zero > 0.0 { [250.0, at_locus[1], at_locus[2], v[3], v[4]] } else { [formants[0], formants[1], formants[2], v[3], v[4]] };
+            add(Seg { voicing: if zero > 0.0 { voicing * 1.4 } else { voicing }, nasal: zero, ..Seg::new(at, end, f, wide, if onset { 20.0 } else { 35.0 }) });
             end
         }
     }
@@ -415,6 +638,19 @@ pub(super) const SUNG: f32 = 0.45;
 /// The pitch the voice's loudness is set at (Hz).
 const PITCHED: f64 = 175.0;
 
+/// Where the murmur's low-pass lies (Hz).
+const MURMUR: f64 = 350.0;
+
+/// The flat noise's low-pass (its bend at 5 kHz, ours) and what keeps its
+/// level as it was: white noise keeps a/(2 - a) of its power under it.
+const FLAT_PASS: f64 = 0.5096;
+const FLAT_GAIN: f64 = 1.71;
+
+/// A burst's peak against its hiss held level, and how fast it falls (ms):
+/// about the same energy over its first milliseconds (ours).
+const BURST_PEAK: f64 = 2.0;
+const BURST_FALL: f64 = 3.0;
+
 /// The glottis open this share of each period.
 const OPEN: f64 = 0.6;
 
@@ -447,8 +683,22 @@ pub(super) struct Singer {
     from: ([f64; 5], [f64; 5]),
     /// The resonators' coefficients and the formant and width they are for.
     coefs: [Made; 5],
-    /// The levels as they glide: voicing, aspiration, frication.
+    /// The levels as they glide: voicing, aspiration, murmur; the voicing a
+    /// pulse takes, set only as a pulse begins (Klatt 1980, p. 977: no pops
+    /// from a level changed within a period); the murmur's low-pass.
     levels: [f64; 3],
+    av: f64,
+    low: f64,
+    /// The nasal zero where it is and where its glide began; the flat
+    /// noise's low-pass (Klatt's frication source falls 6 dB an octave,
+    /// 1980, p. 976; where it bends, 5 kHz, is ours).
+    zero: (f64, f64),
+    flat_low: f64,
+    /// How far the murmur's low-pass moves a sample; the nasal pole's
+    /// coefficients, and the zero's with where they are for.
+    pass: f64,
+    pole: (f64, f64, f64),
+    zero_made: (f64, (f64, f64, f64)),
     cursor: usize,
     entered: Option<usize>,
 }
@@ -477,6 +727,13 @@ impl Singer {
             from: ([500.0, 1500.0, 2500.0, 3300.0, 3800.0], [80.0, 90.0, 150.0, 250.0, 300.0]),
             coefs: [((0.0, 0.0), (0.0, 0.0, 0.0)); 5],
             levels: [0.0; 3],
+            av: 0.0,
+            low: 0.0,
+            zero: (NASAL_POLE.0, NASAL_POLE.0),
+            flat_low: 0.0,
+            pass: 1.0 - (-std::f64::consts::TAU * MURMUR / SR).exp(),
+            pole: resonator(NASAL_POLE.0, NASAL_POLE.1),
+            zero_made: (0.0, (0.0, 0.0, 0.0)),
             cursor: 0,
             entered: None,
         }
@@ -517,13 +774,13 @@ impl Singer {
             self.cursor += 1;
         }
         let seg = plan.get(self.cursor).filter(|s| t >= s.from);
-        let (mut voicing, mut aspiration, mut nasal, mut taps) = (0.0, 0.0, 0.0, 0.0);
-        let mut frication = 0.0;
+        let (mut voicing, mut aspiration, mut taps, mut murmur) = (0.0, 0.0, 0.0, 0.0);
         if let Some(s) = seg {
             if self.entered != Some(self.cursor) {
                 // A new segment: its glide starts from where the voice is.
                 self.entered = Some(self.cursor);
                 self.from = (self.formants, self.widths);
+                self.zero.1 = self.zero.0;
                 for (band, (f, w, _)) in self.bands.iter_mut().zip(s.bands) {
                     band.set(f, w);
                 }
@@ -541,14 +798,17 @@ impl Singer {
             let between = |from: f64, to: f32| from + (f64::from(to) - from) * k;
             self.formants = std::array::from_fn(|r| between(self.from.0[r], aim[r]));
             self.widths = std::array::from_fn(|r| between(self.from.1[r], s.widths[r]));
-            (voicing, aspiration, nasal, taps) = (f64::from(s.voicing), f64::from(s.aspiration), f64::from(s.nasal), f64::from(s.taps));
-            frication = 1.0;
+            // The nasal zero glides as the formants do: a zero jumping clicks
+            // (Klatt 1980, p. 987).
+            let zero_to = if s.nasal > 0.0 { f64::from(s.nasal) } else { NASAL_POLE.0 };
+            self.zero.0 = self.zero.1 + (zero_to - self.zero.1) * k;
+            (voicing, aspiration, taps, murmur) = (f64::from(s.voicing), f64::from(s.aspiration), f64::from(s.taps), f64::from(s.murmur));
         }
-        // The levels glide (5 ms voicing and breath, 2 ms the hiss).
+        // The levels glide (5 ms voicing, murmur and breath).
         let keep = |ms: f64| (-1000.0 / (SR * ms)).exp();
         self.levels[0] = voicing + (self.levels[0] - voicing) * keep(5.0);
         self.levels[1] = aspiration + (self.levels[1] - aspiration) * keep(4.0);
-        self.levels[2] = frication + (self.levels[2] - frication) * keep(2.0);
+        self.levels[2] = murmur + (self.levels[2] - murmur) * keep(5.0);
 
         // The pitch glides into the note's (30 ms).
         let f0 = f64::from(f0.max(1.0));
@@ -560,23 +820,30 @@ impl Singer {
             self.phase -= self.phase.floor();
             self.jitter = 1.0 + 0.004 * self.uniform();
             self.shimmer = 1.0 + 0.03 * self.uniform();
+            self.av = voicing;
         }
         let x = self.phase / OPEN;
         let flow = if x < 1.0 { 6.75 * x * x * (1.0 - x) } else { 0.0 };
         // A flow as much smaller as the period is shorter: the lips'
         // radiation raises it with the pitch, so a vowel keeps its
         // loudness (and the consonants their distance) at any pitch.
-        let mut voice = flow * self.levels[0] * self.shimmer * PITCHED / self.pitch;
+        let mut voice = flow * self.av * self.shimmer * PITCHED / self.pitch;
+        // A voice bar hums: the pulse low-passed, as much as it murmurs.
+        self.low += (voice - self.low) * self.pass;
+        voice += (self.low - voice) * self.levels[2];
         if taps > 0.0 {
             // The tongue tapping: the voicing broken `taps` times a second.
             let tap = (t as f64 * taps / SR).fract();
             voice *= if tap < 0.35 { 0.15 } else { 1.0 };
         }
         self.tilt += (voice - self.tilt) * 0.55;
-        let breath = noise * (self.levels[1] + BREATHY * flow * self.levels[0]);
+        let breath = noise * (self.levels[1] + BREATHY * flow * self.av);
         // The cascade: the nasal pole and zero, then F1 to F5.
-        let pole = resonator(NASAL_POLE.0, NASAL_POLE.1);
-        let zero = resonator(if nasal > 0.0 { nasal } else { NASAL_POLE.0 }, NASAL_POLE.1);
+        let pole = self.pole;
+        if self.zero_made.0 != self.zero.0 {
+            self.zero_made = (self.zero.0, resonator(self.zero.0, NASAL_POLE.1));
+        }
+        let zero = self.zero_made.1;
         for (r, (made, co)) in self.coefs.iter_mut().enumerate() {
             if *made != (self.formants[r], self.widths[r]) {
                 (*made, *co) = ((self.formants[r], self.widths[r]), resonator(self.formants[r], self.widths[r]));
@@ -597,12 +864,32 @@ impl Singer {
         self.last = (out[0], out[1]);
         // The parallel branch: the hiss through its own bands.
         let mut hiss = 0.0;
-        if let Some(s) = seg.filter(|s| s.flat > 0.0 || s.bands.iter().any(|b| b.2 > 0.0)) {
-            let n = noise * self.levels[2];
+        if let Some(s) = seg.filter(|s| s.hisses()) {
             for (band, (_, _, level)) in self.bands.iter_mut().zip(s.bands) {
-                hiss += band.next(n) * f64::from(level);
+                hiss += band.next(noise) * f64::from(level);
             }
-            hiss += n * f64::from(s.flat);
+            self.flat_low += (noise - self.flat_low) * FLAT_PASS;
+            hiss += self.flat_low * FLAT_GAIN * f64::from(s.flat);
+            let (into, left) = ((t - s.from) as f64, (s.to - t) as f64);
+            if s.burst {
+                // A burst jumps on (Klatt 1980, p. 977) and falls away into
+                // the breath after it (its fall, 3 ms, is ours).
+                hiss *= BURST_PEAK * (-into / (BURST_FALL * SR / 1000.0)).exp();
+            } else {
+                // A hiss comes and goes over 5 ms (Klatt 1980, p. 977), coming
+                // only where no hiss came before, going only where none follows.
+                let ramp = 5.0 * SR / 1000.0;
+                let comes = !self.cursor.checked_sub(1).and_then(|c| plan.get(c)).is_some_and(|b| b.to == s.from && b.hisses());
+                let goes = !plan.get(self.cursor + 1).is_some_and(|n| n.from == s.to && n.hisses());
+                hiss *= if comes { (into / ramp).min(1.0) } else { 1.0 } * if goes { (left / ramp).min(1.0) } else { 1.0 };
+            }
+            if s.voicing > 0.0 {
+                // A voiced fricative's hiss beats with the glottis, half as
+                // strong as the glottis closes (Klatt 1980, p. 976-977: a
+                // square wave of 50 %; here a cosine, ours, so it does not
+                // step).
+                hiss *= 0.75 + 0.25 * (std::f64::consts::TAU * self.phase).cos();
+            }
         } else {
             for band in &mut self.bands {
                 band.next(0.0);
@@ -617,5 +904,25 @@ impl Singer {
     /// F1 to F3 as they are now.
     pub(super) fn formants_now(&self) -> [f64; 3] {
         [self.formants[0], self.formants[1], self.formants[2]]
+    }
+}
+
+
+#[cfg(test)]
+impl Seg {
+    /// The middle of its noise's main band, if it hisses or bursts through
+    /// a band (not the flat bypass alone).
+    pub(super) fn band(&self) -> Option<f32> {
+        (self.bands[0].2 > 0.0).then_some(self.bands[0].0)
+    }
+
+    /// Whether it hisses or bursts at all.
+    pub(super) fn noisy(&self) -> bool {
+        self.hisses()
+    }
+
+    /// Whether it breathes (an aspiration).
+    pub(super) fn breathes(&self) -> bool {
+        self.aspiration > 0.0
     }
 }
