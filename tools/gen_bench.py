@@ -151,7 +151,7 @@ function conf(c)
   c.light.sun = {{ 0.35, 0.5, -1.0 }}
   c.light.ambient = 0.5
   c.light.shadow = 0.5
-  c.light.sky = {{ 0.09, 0.07, 0.06 }}
+  c.light.sky = "#17120f"
   c.light.shadow_style = "voxel"
   c.light.model_shading = "edges"
   c.light.model_shading_for = {{ ["huey.vvx"] = "faces" }}

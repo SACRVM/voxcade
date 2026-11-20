@@ -105,6 +105,13 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
             }),
         ),
         (
+            "colors from 0 to 255",
+            game("step-colors", &|d| {
+                put(d, "conf.lua", &conf("  c.light.sky = { 0.06, 0.07, 0.1 }\n  c.effects = { haze_color = { 0.86, 0.78, 0.62 } }\n  c.transition.color = \"000000\"\n"));
+                put(d, "levels/hall.toml", "format = \"voxcade level 1\"\nsize = [32, 32, 16]\n\n[light]\nsky = [0.125, 0.1875, 0.29]\nsun_color = \"#ffd0a0\"\n");
+            }),
+        ),
+        (
             "worlds and prefabs as text",
             game("step-worlds", &|d| {
                 put(d, "conf.lua", &conf("  c.world.file = \"world.vox\"\n"));
@@ -195,7 +202,7 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
         put(d, "main.lua", "function on_world_start() end\n");
     });
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255"]);
     assert!(steps[1].would.is_empty(), "no lamps to speak of");
     let e = opens(&dir).unwrap_err().to_string();
     assert!(e.contains("made for Voxcade 0.6.0"), "{e}");

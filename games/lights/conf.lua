@@ -33,8 +33,8 @@ function conf(c)
   -- readable round them.
   c.light.ambient = 0.3
   c.light.shadow = 0.35
-  c.light.sun_color = { 0.3, 0.32, 0.42 }
-  c.light.sky = { 0.02, 0.02, 0.04 }
+  c.light.sun_color = "#4d526b"
+  c.light.sky = "#05050a"
 
   c.title_screen.logo = { "LIGHTS" }
   c.title_screen.attract_after = 0

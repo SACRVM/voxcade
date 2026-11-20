@@ -1044,10 +1044,10 @@ end
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}
 c.light.ambient = 0.15
-c.light.sun_color = { 0.3, 0.35, 0.5 }
+c.light.sun_color = "#4d5980"
 c.light.fog_density = 0.004
 c.light.fog_glow = 3
-c.light.fog_color = { 0.04, 0.04, 0.06 }"##,
+c.light.fog_color = "#0a0a0f""##,
         files: &[],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 1, "#3a3a44")
@@ -1073,10 +1073,10 @@ end
         text: "A lamp that stays where it is belongs in the level's file: a [[thing]] with light = { ... } and no model is a light alone, and a piece (a model set down) may bring one too, or several as lights = [ { ... }, { ... } ]. In the level editor the same words are in the rows of a light. The words, all but radius optional: at is where it shines from, three whole numbers in voxels from the thing's place (from the model's pivot for a piece, turning with it), [0, 0, 0] unless set. radius is how far it reaches, voxels, above 0, needed. color is \"#rrggbb\", white unless set. falloff is how it fades towards its radius, from 0 to 16, 2 unless set: lower reaches further bright, higher is a small bright core. cone makes a spot: its whole opening angle in degrees, from 1 to 360; left out it shines every way, as the first lamp here. blend is how much of the cone's edge is soft, from 0 to 1, 0.15 unless set. rotation is the way a spot points round, degrees clockwise seen from above, north (+y) 0, east 90, south 180, from -360 to 360, 0 unless set. pitch is its way up or down in degrees from -90 to 90: below 0 points down, -90 straight down, 0 level, above 0 up. shadows says what stops it: \"static\" the level's voxels and its pieces (the wall here casts a shadow), \"all\" moving things too (costly: for a few lamps), \"none\" nothing (it shines through walls); left out, c.light.lamp_shadows says, \"static\" unless set. fog from 0 to 10, 1 unless set, is how strongly its light shows in fog (0 not at all; the example has a little fog, c.light.fog_density, so the spot's beam shows). Glass neither stops a lamp nor tints it. Lights that move are frame:light in on_draw (LIGHT, SHAKE AND FLASH). Only the picture: the game's rules do not see lights.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/hall.toml
 c.light.ambient = 0.2
-c.light.sun_color = { 0.25, 0.28, 0.4 }
+c.light.sun_color = { 63.75, 71.4, 102 }
 c.light.fog_density = 0.004
 c.light.fog_glow = 3
-c.light.fog_color = { 0.04, 0.04, 0.06 }"##,
+c.light.fog_color = "#0a0a0f""##,
         files: &[
             ("levels/hall.toml", r##"format = "voxcade level 1"
 size = [96, 64, 32]
@@ -1854,6 +1854,12 @@ fn reference(ui: &mut egui::Ui) {
     ui.label(RichText::new(ALL).color(ACCENT));
     ui.add_space(8.0);
     ui.label("Every name you can use in your game's Lua, by what it belongs to; at the end every setting of conf.lua and every key of a kind of thing. Resting the mouse on a name in your code shows the same.");
+    ui.add_space(14.0);
+    ui.label(RichText::new(READING).color(ACCENT));
+    for text in [crate::lua::api::MISTAKES, crate::lua::api::CONVENTIONS, crate::lua::api::A_TICK] {
+        ui.add_space(8.0);
+        ui.label(RichText::new(text).small().color(QUIET));
+    }
     for (of, callbacks, heading, plain) in GROUPS {
         let items: Vec<_> = API.iter().filter(|i| i.of == *of && (!of.is_empty() || matches!(i.what, What::Callback { .. }) == *callbacks)).collect();
         if items.is_empty() {
@@ -1875,6 +1881,7 @@ fn reference(ui: &mut egui::Ui) {
     }
     settings_part(ui);
     kinds_part(ui);
+    types_part(ui);
 }
 
 /// One line of the reference's settings or kinds: how it is written, then
@@ -1925,9 +1932,32 @@ fn kinds_part(ui: &mut egui::Ui) {
     }
 }
 
+/// The reference's TYPES: the tables the API takes and gives, each with
+/// its fields (`lua::api::types`).
+fn types_part(ui: &mut egui::Ui) {
+    ui.add_space(20.0);
+    ui.label(RichText::new(TYPES).color(ACCENT));
+    ui.label("The tables the names above take and give, as { x = 1, y = 2 }. A field marked needed must be there; the others may be left out.");
+    ui.add_space(10.0);
+    for t in crate::lua::api::types() {
+        ui.label(RichText::new(format!("{}: {}", t.name, t.ty)).monospace().color(TEXT));
+        ui.label(&t.doc);
+        for (name, ty, doc) in &t.fields {
+            let (name, needed) = match name.strip_suffix('?') {
+                Some(n) => (n, ""),
+                None => (name.as_str(), if name.starts_with('[') { "" } else { ", needed" }),
+            };
+            entry(ui, &format!("  {name}: {ty}{needed}"), doc);
+        }
+        ui.add_space(6.0);
+    }
+}
+
 /// The reference's parts after the API's names.
+const READING: &str = "READING THE ENTRIES";
 const SETTINGS: &str = "SETTINGS (CONF.LUA)";
 const KINDS: &str = "KINDS OF THINGS (C.THINGS)";
+const TYPES: &str = "TYPES";
 
 /// The topics' column: as wide as its longest title, with a row's insets,
 /// the list's margin and its scroll bar, so no title is cut; at most half

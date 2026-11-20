@@ -503,19 +503,18 @@ fn thing_id(v: &Value, what: &str) -> mlua::Result<u32> {
 }
 
 /// A voxel's palette index from a script: an index (0: empty), nil (empty)
-/// or a colour "#rrggbb" (taken into the world's palette).
+/// or a color, "#rrggbb" or { r, g, b } (taken into the world's palette;
+/// a level's voxels are opaque, so no fourth value).
 fn palette_index(world: &mut crate::world::World, v: &Value, what: &str) -> mlua::Result<u8> {
     match v {
         Value::Nil => Ok(0),
         Value::Integer(i) if (0..256).contains(i) => Ok(*i as u8),
-        Value::String(s) => {
-            let text = s.to_string_lossy();
-            let hex = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()));
-            let Some(hex) = hex else { return Err(mlua::Error::runtime(format!("{what}: a color is \"#rrggbb\", not \"{text}\""))) };
-            let rgb = [0, 2, 4].map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex digits"));
-            world.colour(rgb).ok_or_else(|| mlua::Error::runtime(format!("{what}: the world's palette is full (255 colors)")))
+        Value::String(_) | Value::Table(_) => {
+            let c = crate::color::read(pose::written(v), crate::color::SeeThrough::No("a level's voxels are opaque (a model's glass is see-through)"))
+                .map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))?;
+            world.colour(c.rgb_bytes()).ok_or_else(|| mlua::Error::runtime(format!("{what}: the world's palette is full (255 colors)")))
         }
-        _ => Err(mlua::Error::runtime(format!("{what}: a palette index (0 to 255), nil or a color \"#rrggbb\""))),
+        _ => Err(mlua::Error::runtime(format!("{what}: a palette index (0 to 255), nil or a color: {}", crate::color::RULE))),
     }
 }
 

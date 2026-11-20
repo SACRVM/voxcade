@@ -326,7 +326,7 @@ impl UserData for LevelView {
             level_here(lua, "level:solid")?;
             look(lua, |h| Ok(h.host.sim().world.solid(IVec3::new(x, y, z))))
         });
-        m.add_function("set_voxel", |lua, (_, x, y, z, v): (AnyUserData, i32, i32, i32, Value)| {
+        m.add_function("set_voxel", |lua, (_, x, y, z, GivenValue(v)): (AnyUserData, i32, i32, i32, GivenValue)| {
             level_here(lua, "level:set_voxel")?;
             change(lua, "level:set_voxel", |h| {
                 let size = h.host.sim().world.size;
@@ -338,7 +338,7 @@ impl UserData for LevelView {
                 Ok(())
             })
         });
-        m.add_function("fill", |lua, (_, x0, y0, z0, x1, y1, z1, v): (AnyUserData, i32, i32, i32, i32, i32, i32, Value)| {
+        m.add_function("fill", |lua, (_, x0, y0, z0, x1, y1, z1, GivenValue(v)): (AnyUserData, i32, i32, i32, i32, i32, i32, GivenValue)| {
             level_here(lua, "level:fill")?;
             change(lua, "level:fill", |h| {
                 let world = &mut h.host.sim_mut().world;

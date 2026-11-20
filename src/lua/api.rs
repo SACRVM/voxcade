@@ -36,18 +36,18 @@ use What::{Callback, Field, Function, Method};
 
 /// The types the API speaks of besides its objects.
 const TYPES: &str = "\
----@class Point A place in voxels.
----@field x number
----@field y number
----@field z number
+---@class Point A point in voxels, { x = 12, y = 30, z = 4 }.
+---@field x number Across, east (higher is further east).
+---@field y number Deep, north (higher is further north).
+---@field z number Up (higher is higher).
 
----@class Way A way on the ground: x east, y north (z is 0).
----@field x number
----@field y number
+---@class Way A way on the ground, { x, y }. Only its direction counts, not its length. { x = 0, y = 1 } is north, { x = 1, y = 0 } east, { x = 0, y = -1 } south.
+---@field x number East (below 0: west).
+---@field y number North (below 0: south).
 
----@class Stick A stick's value (input.move, input.aim): x right, y up, each -1 to 1, never longer than 1.
----@field x number
----@field y number
+---@class Stick A stick's value (input.move, input.aim), never longer than 1.
+---@field x number Right (below 0: left), -1 to 1.
+---@field y number Up the screen (below 0: down), -1 to 1.
 
 ---@class PointerAt What the pointer is over this tick (input.pointer).
 ---@field hud? string The name of the HUD panel under it (frame:hud, a named menu or grid), the topmost; nil over none.
@@ -58,7 +58,7 @@ const TYPES: &str = "\
 ---@field part? string That figure's part under it, by its name.
 ---@field area? string The name of the level's area it enters first before it meets the level.
 ---@field at? Point Where it meets the level's voxels and solid pieces (glass, water and things looked through); nil into the sky or off the level.
----@field cell? Point The voxel it meets there, whole numbers.
+---@field cell? Point The voxel it meets there, its x, y and z integers.
 
 ---@class PointerNow This machine's pointer in this picture (frame.pointer).
 ---@field x number Where it is across, in UI voxels from the screen's left.
@@ -75,30 +75,31 @@ const TYPES: &str = "\
 ---@field done boolean Enter was pressed.
 ---@field cancel boolean Escape was pressed.
 
----@alias Color integer[] Red, green, blue (and alpha), 0 to 255.
+---@alias Color string|number[] A color: \"#rrggbb\", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, \"#rrggbbaa\" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. conf.lua's colors (c.light, c.effects, c.transition.color, c.title_screen.logo_colors, an icon's letters) and a level's file take the same.
 
----@class Place Where a player arrives in a level.
----@field x number
----@field y number
----@field z number
----@field facing? Way The way it faces there, if the level says.
+---@class Place A named place of a level (level.places.NAME, level.arrived): where a player arrives, or a thing is put with thing:place.
+---@field x number Across, east, in voxels.
+---@field y number Deep, north, in voxels.
+---@field z number The height of the feet there, in voxels.
+---@field facing? Way The way it faces there, if the level's file says; else nil.
+---@field name? string Only in level.arrived: the place's name (\"start\" if it arrived at the start).
 
 ---@class Item A kind of item (c.items).
 ---@field name string Its name, the key in an inventory.
 ---@field model? string Its model, to draw it (frame:model).
 ---@field stack integer How many one inventory holds at most.
 
----@class Daylight A picture's daylight (frame:daylight); what it leaves out is c.light's.
+---@class Daylight A picture's daylight (frame:daylight); what it leaves out is what c.light says. Its colors are Colors.
 ---@field sun? number[] The way the sunlight travels, { x, y, z } with z below 0 (towards the ground).
----@field sun_color? Color The sunlight's color and strength, { r, g, b } from 0 to 255: white at noon, warm at dusk, a pale blue moon.
+---@field sun_color? Color The sunlight's color (a darker one shines weaker): white at noon, warm at dusk, a pale blue moon.
 ---@field ambient? number Light every face gets, 0 to 1.
 ---@field shadow? number How much a shadow darkens, 0 to 1.
----@field sky? Color The background's color, { r, g, b } from 0 to 255.
+---@field sky? Color The background's color.
 
 ---@class Light A light as frame:light{ ... } writes it, the words a level's light takes too; at and radius are needed.
 ---@field at Thing|Point|number[] Where it shines from: a thing (its middle) or a point { x, y, z } in voxels.
 ---@field radius number How far it reaches, voxels.
----@field color? Color Its color and strength, { r, g, b } from 0 to 255, white unless set.
+---@field color? Color Its color (a darker one shines weaker), white unless set.
 ---@field falloff? number How it fades to its radius: (1 - distance / radius) to this power, 0 to 16 (2 unless set; lower reaches further bright).
 ---@field cone? number A spot: its cone's whole opening angle, 1 to 360 degrees; left out, it shines every way.
 ---@field blend? number How much of the cone's edge is soft, 0 to 1 (0.15 unless set).
@@ -107,9 +108,9 @@ const TYPES: &str = "\
 ---@field shadows? string What stops it: \"static\" (the level's voxels and its pieces), \"all\" (moving things too: figures, things, models drawn) or \"none\" (it shines through). Left out, c.light.lamp_shadows says (\"static\" unless set); a light's own word beats it.
 ---@field fog? number How strongly its light shows in fog, 0 to 10 (1 unless set; 0 not at all).
 
----@class Fog A picture's fog (frame:fog); what it leaves out is c.light's (fog_density, fog_color, fog_anisotropy, fog_glow).
+---@class Fog A picture's fog (frame:fog); what it leaves out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow). Its color is a Color.
 ---@field density? number How thick, 0 to 1: the share of light a voxel of air takes (0: no fog).
----@field color? Color The fog's own color where no lamp lights it, { r, g, b } from 0 to 255.
+---@field color? Color The fog's own color where no lamp lights it.
 ---@field anisotropy? number How much it sends a lamp's light on ahead rather than back, -0.9 to 0.9 (0: every way alike).
 ---@field glow? number How brightly it shows the lamps' light, 0 to 20; the dimming is the density's alone (1: as the air would; 4 a stage's haze).
 
@@ -144,9 +145,9 @@ const TYPES: &str = "\
 ---@field tab? integer The chosen tab, from 1.
 ---@field hint? string Below: what the keys do, {act} BUY.
 ---@field shown? integer How many rows show at most.
----@field x? number Its top left on the HUD (else in the middle).
----@field y? number
----@field width? number How wide (else as wide as it needs).
+---@field x? number Its top left on the HUD, across, in UI voxels (else it is in the middle).
+---@field y? number Its top left on the HUD, down, in UI voxels (else it is in the middle).
+---@field width? number How wide, in UI voxels (else as wide as it needs).
 
 ---@class GridCell A slot (frame:grid).
 ---@field icon? string An icon of c.icons.
@@ -161,8 +162,8 @@ const TYPES: &str = "\
 ---@field cell? number A slot's size in UI voxels (18).
 ---@field at? integer The chosen slot, from 1.
 ---@field title? string Above the slots.
----@field x? number Its top left on the HUD (else in the middle).
----@field y? number
+---@field x? number Its top left on the HUD, across, in UI voxels (else it is in the middle).
+---@field y? number Its top left on the HUD, down, in UI voxels (else it is in the middle).
 
 ---@class Rotation How much further a model is rotated, in degrees (frame:model).
 ---@field rotation? number Round, clockwise seen from above (90: a quarter to the right).
@@ -175,7 +176,7 @@ const TYPES: &str = "\
 ---@field label? string The label the game gave it (world:save's options), nil when it has none.
 
 ---@class Saves What lies in the save slots: the slots by number, and which was saved last.
----@field [integer] SaveInfo
+---@field [integer] SaveInfo The save in that slot, nil while the slot is empty.
 ---@field newest? integer The number of the slot saved last, nil while every slot is empty.
 
 ---@class SaveOptions What a save is given (world:save).
@@ -233,8 +234,9 @@ pub const API: &[Item] = &[
             what a save holds changes (a key renamed), and bring older saves up to date here: if version < 2 then player.state.coins = \
             player.state.gold end. There is no level here yet." },
     Item { of: "", name: "on_tick", what: Callback { params: &[], returns: "" }, doc: "Runs 60 times a second: your game's rules go here. \
-            input tells what the player presses. It runs after the ready-made rules, if the game uses some, and after this tick's events \
-            (on_touch, on_hit …). math.random draws from the game's own random numbers, the same every time a run is played the same way \
+            input tells what the player presses. It runs after the ready-made rules, if the game uses some, after this tick's events \
+            (on_touch, on_hit …) and after on_beat. At the tick's end the things you removed go, the things you moved with thing:walk move, \
+            saves are written and a level change you asked for is carried out. math.random draws from the game's own random numbers, the same every time a run is played the same way \
             (replays and saves keep them)." },
     Item { of: "", name: "on_draw", what: Callback { params: &[("frame", "Frame")], returns: "" },
         doc: "Runs for every picture: draw text, models and lights on frame. Only drawing: change nothing here. It runs as often as the \
@@ -249,7 +251,7 @@ pub const API: &[Item] = &[
             player arriving on a door does not go through it again. A kind with a reach (c.things.NAME.reach: a pickup, a helipad) is \
             touched within it, by anything (two with a reach: within the larger)." },
     Item { of: "", name: "on_touch_end", what: Callback { params: &[("a", "Thing"), ("b", "Thing")], returns: "" },
-        doc: "Runs when two things that touched part: the end of a touch on_touch began, the player a again (not when one is taken away or \
+        doc: "Runs when two things that touched part: the end of a touch on_touch began, the player a again (not when one is removed or \
             dies, nor when the level is left)." },
     Item { of: "", name: "on_interact", what: Callback { params: &[("thing", "Thing"), ("by", "Thing")], returns: "" },
         doc: "Runs when the player presses the action called interact (c.actions) while touching this thing (the nearest, if several): talk, \
@@ -269,7 +271,7 @@ pub const API: &[Item] = &[
             music. Its clock is the game's, so replays play it the same; while the player's own song plays (none of yours), no beats." },
     Item { of: "", name: "on_fall_out", what: Callback { params: &[("thing", "Thing")], returns: "" },
         doc: "Runs when a thing falls out of the level (c.physics.lost_below voxels under it, 48 unless set, or down on the world's floor \
-            below): once, until it is back in. Things other than the player are taken away after it; the player waits for what your code \
+            below): once, until it is back in. Things other than the player are removed after it; the player waits for what your code \
             decides (a life less, and back at the checkpoint: player:place, player.state.hp). Without it the player falls on." },
     Item { of: "", name: "on_pickup", what: Callback { params: &[("thing", "Thing"), ("item", "string")], returns: "" },
         doc: "Runs when a thing took an item of c.items with thing:take (told in the next tick). Its inventory already counts it." },
@@ -381,7 +383,7 @@ pub const API: &[Item] = &[
             1 the first time." },
     Item { of: "level", name: "location", what: Field { ty: "string|nil", set: false }, doc: "The location it belongs to, as its file \
             says (location = \"station\"), nil for none. While the player changes among the levels of one location, each is as it was left \
-            (its things by their names: taken out, where they stood, thing.state, its voxels) and they share level.state. Leaving the \
+            (its things by their names: removed ones stay removed, the others where they stood, thing.state, its voxels) and they share level.state. Leaving the \
             location forgets that, but for what is persistent (persistent = true in a level's file, or on a kind). No time passes in a \
             level nobody is in: level.away." },
     Item { of: "level", name: "away", what: Field { ty: "integer", set: false }, doc: "The ticks since this level was left, when it comes \
@@ -404,11 +406,11 @@ pub const API: &[Item] = &[
     Item { of: "level", name: "voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "integer" },
         doc: "The voxel at a cell: its palette index, 0 empty (a solid piece's cells too: its model draws them, level:solid says they \
             block)." },
-    Item { of: "level", name: "set_voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer"), ("voxel", "integer|string|nil")], returns: "" },
-        doc: "Sets the voxel at a cell: a color \"#rrggbb\" (taken into the level's palette), a palette index, or nil or 0 for empty. A cell \
-            outside the level (level.size) is a mistake." },
-    Item { of: "level", name: "fill", what: Method { params: &[("x0", "integer"), ("y0", "integer"), ("z0", "integer"), ("x1", "integer"), ("y1", "integer"), ("z1", "integer"), ("voxel", "integer|string|nil")], returns: "" },
-        doc: "Fills the box from one corner cell to the other, both included, like set_voxel (only what of it lies inside the level); nil or \
+    Item { of: "level", name: "set_voxel", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer"), ("voxel", "integer|Color|nil")], returns: "" },
+        doc: "Sets the voxel at a cell: a Color (taken into the level's palette), a palette index (an integer), or nil or 0 for empty. A cell \
+            outside the level (level.size) is a mistake: the game halts." },
+    Item { of: "level", name: "fill", what: Method { params: &[("x0", "integer"), ("y0", "integer"), ("z0", "integer"), ("x1", "integer"), ("y1", "integer"), ("z1", "integer"), ("voxel", "integer|Color|nil")], returns: "" },
+        doc: "Fills the box from one corner cell to the other, both included, like set_voxel: a Color, a palette index or nil/0 (only what of the box lies inside the level); nil or \
             0 empties it. A level made in code (c.world.size) is built this way." },
     Item { of: "level", name: "solid", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "boolean" },
         doc: "Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the \
@@ -428,14 +430,14 @@ pub const API: &[Item] = &[
             there." },
     Item { of: "level", name: "things", what: Method { params: &[("kind?", "string")], returns: "Thing[]" },
         doc: "Every thing (of a kind, or of a family: c.things.NAME.family), in the order they came: not the player (it belongs to no \
-            level), not the dead, not what was taken away this tick. level:things(\"piece\") is every model and light the level's file set \
+            level), not the dead, not what was removed this tick. level:things(\"piece\") is every model and light the level's file set \
             down." },
     Item { of: "level", name: "players", what: Method { params: &[], returns: "Player[]" }, doc: "The players playing in this level, in seat \
             order: someone sits there, not out of play (state.out), and its figure stands (one taking a seat comes in at the tick's end). \
             Loop over it for every player's rules: for _, p in ipairs(level:players()) do p:walk(p.input.dir, 40) end. world.players is \
             every seat, the out too (a HUD, a continue)." },
     Item { of: "level", name: "count", what: Method { params: &[("kind?", "string")], returns: "integer" },
-        doc: "How many things (of a kind or family) there are: not the player, not the dead, not what was taken away this tick (count deaths \
+        doc: "How many things (of a kind or family) there are: not the player, not the dead, not what was removed this tick (count deaths \
             in on_death)." },
     Item { of: "level", name: "block", what: Method { params: &[("x", "number"), ("y", "number"), ("z", "number")], returns: "string|nil" },
         doc: "The kind of the level's block at a voxel: \"solid\", \"oneway\", \"ladder\", \"hazard\", or nil (nothing, decoration, a level \
@@ -453,7 +455,7 @@ pub const API: &[Item] = &[
         doc: "Plays a sound at a place, by its name: a file of the game, sounds/NAME.toml, or one the engine or the ready-made rules bring." },
     // level.camera
     Item { of: "level.camera", name: "follow", what: Method { params: &[("thing", "Thing")], returns: "" },
-        doc: "The camera follows this thing from now on; following the player, ready-made rules lead the view as theirs do (the jump & run's \
+        doc: "The camera follows this thing from now on; following the player, ready-made rules lead the view as theirs do (the platformer kit's \
             look ahead). Every level starts following the player." },
     Item { of: "level.camera", name: "look_at", what: Method { params: &[("x", "number"), ("y", "number")], returns: "" },
         doc: "The camera rests over this point from now on, following nothing, whatever spawns (follow follows a thing again): a room, a \
@@ -465,13 +467,13 @@ pub const API: &[Item] = &[
     // player
     Item { of: "player", name: "state", what: Field { ty: "table", set: false }, doc: "The player's data for the whole run, from level to \
             level. It starts as c.state.player says. Plain data, no things; lives and the like are your game's own keys. A script reads and \
-            sets the engine's keys like its own.\n- score: a whole number.\n- inventory: items by name and how many \
+            sets the engine's keys like its own.\n- score: an integer.\n- inventory: items by name and how many \
             (player.state.inventory.key).\n- checkpoint: the name of a place or a thing in this level where world:restart goes. Forgotten on \
             world:go_to.\n- hp: with a figure that has hit points, or with a kit.\n- typing: true while the player types: the keyboard's \
             letters, Backspace, Enter and Escape hold no action then (Escape does not pause), and input.typed says what came. Every \
             player has it (p.state.typing).\nWith a kit (c.kit):\n- invulnerable: ticks left without \
-            hits, or true until set back.\nWith the jump & run kit (c.kit = \"platformer\"):\n- pose: the hero's set of frames, as a thing's \
-            thing.state.pose.\nWith the shooter kit (c.kit = \"shooter\"):\n- weapon: the gun in hand, by its name in c.player.weapons.\n- \
+            hits, or true until set back.\nWith the platformer kit (c.kit = \"platformer\"):\n- pose: the hero's set of frames, as a thing's \
+            thing.state.pose.\nWith the shooter kit (c.kit = \"shooter\"):\n- weapon: the gun in hand, by its name in c.weapons (held in c.player.attacks).\n- \
             inventory also holds the rounds of its guns and its grenades, by their names.\n- hp set above 0 brings a player who is down back \
             to life." },
     // thing
@@ -483,11 +485,11 @@ pub const API: &[Item] = &[
     Item { of: "thing", name: "state", what: Field { ty: "table", set: false }, doc: "This thing's data while it lives: your game's own \
             keys, and some the engine keeps. It goes when the thing goes. A script reads and sets the engine's keys like its own.\n- hp: the \
             hits it still takes, where its kind has hp (c.things.NAME.hp at the start). At 0 on_death runs.\n- inventory: items by name and \
-            how many (a chest's, a trader's).\nWith the jump & run kit (c.kit = \"platformer\"):\n- pose: which set of its frames it shows \
+            how many (a chest's, a trader's).\nWith the platformer kit (c.kit = \"platformer\"):\n- pose: which set of its frames it shows \
             (c.things.NAME.frames), from the tick it is set. A prop, a door or a sign always shows one (\"open\"; \"idle\" the first). \
             Another kind shows it over its own animation (\"attack\"), nil for its own again. The hero's is player.state.pose.\n- goal: for \
             a platform, \"end\" or \"start\": it goes to that end of its travel and stays (a trapdoor, a lift). nil: to and fro again.\nWith \
-            the shooter kit (c.kit = \"shooter\"):\n- freed: for a hostage. Set true: the cage bursts, it runs off.\n- flying: for a \
+            the shooter kit (c.kit = \"shooter\"):\n- freed: for a captive. Set true: the cage bursts, it runs off.\n- flying: for a \
             gunship, up in the air fighting. Only to read.\nFor a piece of a level's file:\n- light: a lamp's brightness, all its lights \
             together, 0 (off) to 1 (the start). Their colors, places and reach are the file's.\n- parts: a figure of parts posed, as \
             frame:model's pose: { leaf = { rotation = 90 } } swings a door's leaf open; nil at rest. Drawn so every picture, for this visit \
@@ -515,7 +517,7 @@ pub const API: &[Item] = &[
             with no behavior in c.things, or one whose behavior thing:enable switched off)." },
     Item { of: "thing", name: "face", what: Method { params: &[("way", "Way")], returns: "" },
         doc: "Turns it to the nearest of the 8 ways: things your script moves, and the player with ready-made rules (it turns again as it \
-            moves; the jump & run's hero only left or right)." },
+            moves; the platformer kit's hero only left or right)." },
     Item { of: "thing", name: "jump", what: Method { params: &[("height", "number")], returns: "" },
         doc: "Jumps this high (voxels) if it stands on something. Only things your script moves." },
     Item { of: "thing", name: "ahead", what: Method { params: &[("distance", "number")], returns: "Point" },
@@ -537,22 +539,22 @@ pub const API: &[Item] = &[
         doc: "Hurts it, by a thing and with a weapon if given. Anything with hit points loses them (thing.state.hp, player.state.hp); at 0 \
             on_death runs. A kit's own take it as their hits: a soldier falls, a gunship spins down, the player is thrown back.\nA kind's \
             team and immune do not stop it: your code decides whom it hurts. While it may not be hurt (player.state.invulnerable) nothing \
-            happens. on_hit runs in the next tick's events; a thing it kills is out of the level's lists and counts at once." },
+            happens. on_hit runs in the next tick's events, and so does on_death when the hit points reach 0, after on_hit. A thing of a kind without a behavior stays in level:things and level:count until its on_death has run." },
     Item { of: "thing", name: "touching", what: Method { params: &[("kind?", "string")], returns: "Thing[]" },
         doc: "The things it touches now (of a kind or family), in the order they came: for what lasts while touched (spikes, an enemy's \
-            contact, lava), asked in on_tick, where it stays true every tick. Not the dead, nor what was taken away this tick." },
+            contact, lava), asked in on_tick, where it stays true every tick. Not the dead, nor what was removed this tick." },
     Item { of: "thing", name: "in_block", what: Method { params: &[("kind", "string")], returns: "boolean" },
         doc: "Whether any part of its body is in a block of the level of this kind: \"hazard\", \"ladder\", \"oneway\" or \"solid\" \
             (level:block for one voxel)." },
     Item { of: "thing", name: "bounce", what: Method { params: &[("height", "number")], returns: "" },
         doc: "Sends it up this high (voxels), standing or in the air: off an enemy it landed on, a spring. Always the full height; the jump \
-            button plays no part. Things your script moves, and the jump & run's hero (c.kit = \"platformer\")." },
+            button plays no part. Things your script moves, and the platformer kit's hero (c.kit = \"platformer\")." },
     Item { of: "thing", name: "launch", what: Method { params: &[("way", "Way"), ("speed", "number"), ("rise?", "number")], returns: "" },
         doc: "Sets it moving the way given at this speed (voxels a second), standing or in the air: a dash (player:launch(player.facing, \
             240)), a wall jump, a knockback. Only the way's direction counts, not its length.\n- rise: how high it goes up too, in \
             voxels.\nPhysics carries it on, and a kit's rules steer it on from there (the hero as the player presses, a soldier as he means \
             to go): thing:enable switches them off for a while. For things your script moves, things whose behavior is off, the player, the \
-            hero, walkers, hoppers, soldiers and hostages." },
+            hero, walkers, hoppers, soldiers and captives." },
     Item { of: "thing", name: "enable", what: Method { params: &[("behavior", "string"), ("on", "boolean")], returns: "" },
         doc: "Switches its ready-made behavior (its kind's, c.things.NAME.behavior: \"hero\", \"walker\", \"soldier\", ...) off or on again. \
             Off, it does nothing by itself: it still falls, is hit and touched, and your script moves it like its own (thing:walk, \
@@ -563,7 +565,8 @@ pub const API: &[Item] = &[
             item's stack; how many it took. on_pickup runs in the next tick's events." },
     Item { of: "thing", name: "remove", what: Method { params: &[], returns: "boolean" }, doc: "Takes it out of the level at the end of this \
             tick: it can still be read until then, but it is out of the level's lists, counts and touches at once. Whether it was there to \
-            remove. Not the player: it goes from level to level." },
+            remove. No on_touch_end and no on_death is told for it. Its kind's effect and sound play where it goes. \
+            Not the player: it goes from level to level." },
     Item { of: "thing", name: "name", what: Field { ty: "string|nil", set: false }, doc: "Its name in this level: the name the level's file \
             gives it (name = \"lamp\"), else a thing placed by the level file is called its kind and its number among them (door_1, door_2 \
             in the file's order), a spawned one what level:spawn named it. nil for the player and for things the ready-made rules bring \
@@ -596,7 +599,7 @@ pub const API: &[Item] = &[
             it is over (a figure as drawn and posed, a level's piece, a model frame:model drew with it), part: that figure's part by \
             name; nil once the thing is gone.\n- area: the name of the level's area it enters first before it meets the level (a door \
             in a wall).\n- at: where it meets the level's voxels and solid pieces, { x, y, z } (glass, water and things looked \
-            through; nil into the sky or off the level), cell: the voxel it meets there, whole numbers (a grid game's cell).\nUnder a \
+            through; nil into the sky or off the level), cell: the voxel it meets there, { x, y, z } integers (a grid game's cell).\nUnder a \
             panel the level's answers are nil: a panel covers. It is what the player saw: a click \
             carries what was under the pointer as the button went down. The mouse's buttons are keys (c.keys.click = { \"mouse_left\" \
             }): input:pressed(\"click\") with input.pointer.hud is a click on a panel. A pointer from the picture of a level left is \
@@ -676,13 +679,13 @@ pub const API: &[Item] = &[
             nearest quarter turn. A model's pivot is the middle cell of its size across and deep: of an even size one voxel off the middle, \
             so facing -y or sideways it fills cells a voxel further on the flipped axis (use odd sizes where that matters)." },
     Item { of: "frame", name: "cube", what: Method { params: &[("x", "number"), ("y", "number"), ("z", "number"), ("color?", "Color"), ("glow?", "number")], returns: "" },
-        doc: "Draws one voxel in the level, at x, y, z in the level's voxels (alpha below 255: see-through; glow from 0 to 1)." },
+        doc: "Draws one voxel in the level, at x, y, z in the level's voxels. Its color is a Color (white unless given), with a fourth value below 255 see-through. glow is 0 (none) to 1." },
     Item { of: "frame", name: "light", what: Method { params: &[("at", "Thing|Point|Light"), ("radius?", "number"), ("color?", "Color")], returns: "" },
         doc: "Lights the level round a thing or a point, in this picture: frame:light(at, radius, color), or frame:light{ at =, radius =, ... } \
             with the words a level's light takes too. These two forms only: more words go in the table.\n\
             - at: where it shines from, in voxels: a thing (its middle, half its height over its feet) or a point, { x, y, z } or { x =, y =, z = }.\n\
             - radius: how far it reaches, voxels, above 0.\n\
-            - color: its color and strength, { r, g, b } as whole numbers from 0 to 255, white unless set.\n\
+            - color: its color, a Color (a darker one shines weaker), white unless set.\n\
             - falloff: how it fades to its radius, (1 - distance / radius) to this power, 0 to 16, 2 unless set. Lower reaches further bright.\n\
             - cone: a spot, its whole opening angle in degrees, 1 to 360; left out (or 360), it shines every way.\n\
             - blend: how much of the cone's edge is soft, 0 to 1, 0.15 unless set.\n\
@@ -695,15 +698,15 @@ pub const API: &[Item] = &[
             stops no light and tints none.\n\
             - fog: how strongly it shows in fog (frame:fog), 0 to 10, 1 unless set.\nOnly the picture: the game's rules do not see it." },
     Item { of: "frame", name: "daylight", what: Method { params: &[("light", "Daylight")], returns: "" },
-        doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is c.light's.\n- sun: the way its light \
-            travels, { x, y, z } with z below 0.\n- sun_color: its color and strength, { r, g, b } from 0 to 255, white unless set.\n- ambient: the light every face \
-            gets, 0 to 1. shadow: how dark shadows are, 0 to 1.\n- sky: the sky's color, { r, g, b } from 0 to 255.\nWork it out from your game's clock every picture: \
+        doc: "Sets the sun and the sky for this picture: a day and a night. What you leave out is what c.light says (its sun, sun_color, ambient, shadow, sky).\n- sun: the way its light \
+            travels, { x, y, z } with z below 0.\n- sun_color: its color, a Color (a darker one shines weaker), white unless set.\n- ambient: the light every face \
+            gets, 0 to 1. shadow: how dark shadows are, 0 to 1.\n- sky: the sky's color, a Color.\nWork it out from your game's clock every picture: \
             the sun low and warm at dawn, white at noon, orange at dusk, a dim blue at night with frame:light lamps. Only the picture: the \
             game's rules do not see it. A game whose code names daylight has every face a sun above the horizon can light in its level." },
     Item { of: "frame", name: "fog", what: Method { params: &[("fog", "Fog")], returns: "" },
         doc: "Fills the level's air with fog for this picture: the lamps' light shows in it, a spot as a beam, and what lies further \
-            fades to the fog's color. What you leave out is c.light's.\n- density: how thick, 0 to 1 (0.004 a light haze in a big hall, \
-            0.03 thick; 0 none).\n- color: the fog's own color where no lamp lights it, { r, g, b } from 0 to 255 (dark at night).\n- anisotropy: above 0 a beam \
+            fades to the fog's color. What you leave out is what c.light says (fog_density, fog_color, fog_anisotropy, fog_glow).\n- density: how thick, 0 to 1 (0.004 a light haze in a big hall, \
+            0.03 thick; 0 none).\n- color: the fog's own color where no lamp lights it, a Color (dark at night).\n- anisotropy: above 0 a beam \
             is brighter looking towards its lamp, below 0 looking away (0: alike).\n- glow: how brightly it shows the lamps' light, 0 to 20; the \
             dimming is the density's alone (1 as the air would; 4 a stage's haze: bright beams, the room clear; 0 it only dims). Higher \
             is never fainter, and a beam never gets brighter than its lamp's light (times the light's fog).\nWalls stop a lamp's beam where they stop its light (shadows); a light's fog \
@@ -741,7 +744,7 @@ pub const API: &[Item] = &[
             pointer says (input.pointer.hud), index the slot." },
     Item { of: "frame", name: "text", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width \
-            across, frame.height down).\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \
+            across, frame.height down).\n- color: a Color, a fourth value see-through.\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \
             in braces is its key as the player sees it: \"PRESS {jump}\" writes PRESS X, or the pad's button (controls:key). {{ writes a \
             brace.\nWritten as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ \
             ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals." },
@@ -761,18 +764,22 @@ pub const API: &[Item] = &[
     Item { of: "frame", name: "text_width", what: Method { params: &[("text", "string"), ("size?", "integer")], returns: "number" },
         doc: "How many UI voxels wide the text is at that size (for centring and putting it at the right edge)." },
     Item { of: "frame", name: "box", what: Method { params: &[("x", "number"), ("y", "number"), ("width", "number"), ("height", "number"), ("color?", "Color")], returns: "" },
-        doc: "Draws a filled box on the screen, its top left at x, y." },
+        doc: "Draws a filled box on the screen, its top left at x, y, in UI voxels. color: a Color, a fourth value see-through." },
     Item { of: "frame", name: "bar", what: Method { params: &[("x", "number"), ("y", "number"), ("width", "number"), ("height", "number"), ("fraction", "number"), ("color?", "Color"), ("back?", "Color")], returns: "" },
         doc: "Draws a bar on the screen filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red \
-            unless given), back the rest." },
+            unless given), back the rest, each a Color, a fourth value see-through." },
     Item { of: "frame", name: "icon", what: Method { params: &[("name", "string"), ("x", "number"), ("y", "number")], returns: "" },
         doc: "Draws a small picture of c.icons on the screen, its top left at x, y: c.icons.heart = { rows = { \".RR.RR.\", ... }, colors = \
-            { R = { 214, 36, 44 } } }." },
+            { R = { 214, 36, 44 } } }: a letter's color is a Color, a fourth value see-through." },
     Item { of: "frame", name: "drop_in", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("ticks", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME \
-            OVER, a stage's name. Before 0 nothing shows." },
+            OVER, a stage's name. Before 0 nothing shows. color and size as frame:text's." },
     Item { of: "controls", name: "device", what: Field { ty: "string|nil", set: false }, doc: "What the player plays with, the one used \
             last: \"keyboard\" or \"gamepad\"; nil before the run's first tick and where nobody plays (tests, a replay recorded without it)." },
+    Item { of: "controls", name: "key", what: Method { params: &[("action", "string")], returns: "string" },
+        doc: "The first key or button of an action (c.actions, one the ready-made rules bring, or pause) as the player sees it: the \
+            keyboard's key as it is printed on it (Y where the binding is Z on a German keyboard), the pad's button as it is printed on the \
+            pad (B, CIRCLE). Empty if nothing is bound or nobody plays." },
     Item { of: "area", name: "name", what: Field { ty: "string", set: false }, doc: "Its name in the level's file (level.areas.NAME)." },
     Item { of: "area", name: "x", what: Field { ty: "integer", set: false }, doc: "Its low corner in voxels: x, y and z where it begins." },
     Item { of: "area", name: "y", what: Field { ty: "integer", set: false }, doc: "Its low corner's y." },
@@ -781,10 +788,6 @@ pub const API: &[Item] = &[
     Item { of: "area", name: "holds", what: Method { params: &[("at", "Thing|Point")], returns: "boolean" },
         doc: "Whether a thing stands inside it (where its feet are, the middle of the cell it stands on) or a point lies inside it ({ x, y, \
             z }; without z at any height). Ask it in on_tick: if level.areas.by_the_stove:holds(player) then ... end." },
-    Item { of: "controls", name: "key", what: Method { params: &[("action", "string")], returns: "string" },
-        doc: "The first key or button of an action (c.actions, one the ready-made rules bring, or pause) as the player sees it: the \
-            keyboard's key as it is printed on it (Y where the binding is Z on a German keyboard), the pad's button as it is printed on the \
-            pad (B, CIRCLE). Empty if nothing is bound or nobody plays." },
 ];
 
 /// One of the game model's objects as scripts name it: the class the
@@ -871,15 +874,6 @@ pub fn written(item: &Item) -> String {
     }
 }
 
-/// One entry of what `voxcade api` shows: the API's names, then the
-/// settings, then the kinds' keys; its name as written, its head line and
-/// its words.
-struct Entry {
-    name: String,
-    head: String,
-    doc: String,
-}
-
 /// What a script has of Lua's own library, as `voxcade api` lists it after
 /// the engine's names: each name, what it takes and gives as a script writes it, then its
 /// words (apart, so the scan for the system's maths finds no call here). The maths are every name `sandbox::maths` gives (test
@@ -904,11 +898,11 @@ pub const LUA: &[(&str, &str, &str)] = &[
     ("math.mininteger", ": integer", "The least whole number there is."),
     ("math.modf", "(x: number) -> number, number", "x's whole part and its fraction."),
     ("math.pi", ": number", "Pi."),
-    ("math.pow", "(x: number, y: number) -> number", "x to the power of y. Write this for any power but a square: x ^ 2 is allowed, any other ^ is refused as the game loads."),
+    ("math.pow", "(x: number, y: number) -> number", "x to the power of y, worked out by the engine itself so that every machine gets the same number. Write this for any power but a square: x ^ 2 is allowed (it is x times x), any other ^ is a mistake as the game loads, because the maths library of each system rounds other powers a little differently and a replay or a network game must come out the same on all of them."),
     ("math.rad", "(x: number) -> number", "An angle in degrees as radians: 90 degrees are half of math.pi."),
     ("math.random", "(m?: integer, n?: integer) -> number", "A random number from the game's own random numbers, the same every time a run is played the same way \
-        (replays and saves keep them).\n- math.random(): from 0 up to 1, never 1.\n- math.random(n): a whole number from 1 to n.\n\
-        - math.random(m, n): a whole number from m to n.\nNot in on_draw: a picture draws no random number."),
+        (replays and saves keep them).\n- math.random(): from 0 up to 1, never 1.\n- math.random(n): an integer from 1 to n.\n\
+        - math.random(m, n): an integer from m to n.\nNot in on_draw: a picture draws no random number."),
     ("math.randomseed", "()", "Refused: the engine seeds the game's random numbers, so that a run can be played again."),
     ("math.sin", "(x: number) -> number", "The sine of an angle in radians."),
     ("math.sqrt", "(x: number) -> number", "The square root of x."),
@@ -927,14 +921,119 @@ pub const LUA: &[(&str, &str, &str)] = &[
     ("print", "(...)", "Writes a line to the IDE's OUTPUT and the terminal."),
 ];
 
+/// What a mistake and a warning are, said once for every entry that
+/// speaks of one: the top of `voxcade api` and of HELP's reference.
+pub const MISTAKES: &str = "\
+A mistake is an error in your game's files or code, said in plain words with where it is: the file and line, or the setting (c.camera.fov).
+- Found as the game loads (a setting out of its range, a name that does not exist, a file that does not read): the game does not start.
+- Made while the game plays (a call with a wrong value, an error in your Lua): the game halts at that tick, naming the file, the line and the tick, and stays halted until the file is saved mended. shot, check and inspect end there with exit status 1.
+A warning is said but does not stop the game: a picture with more lights than the limit, a local variable of main.lua that keeps state outside the states. The IDE shows warnings in OUTPUT, shot prints them as warning: lines, inspect lists them under \"warnings\".";
+
+/// The conventions every entry takes for granted.
+pub const CONVENTIONS: &str = "\
+Space: x east, y north, z up, in voxels. A voxel at cell x, y, z fills from x to x + 1 (and the same up and north). A thing's x and y are the middle of its feet, its z the height of its feet.
+Angles are degrees. rotation turns clockwise seen from above, north (+y) 0, east 90; the camera's yaw is a rotation (0 looks north). pitch tips a model's nose or a light's spot up above 0; the camera's pitch (c.camera.pitch, frame:camera) is degrees below the horizon, so 90 looks straight down.
+Time: a tick is 1/60 of a second (world.tick counts them). Speeds are voxels a second, accelerations voxels a second per second; fades, a round's life and the like are seconds, and whatever is counted in ticks says so.
+The HUD (frame:text, frame:box ...) is measured in UI voxels from the top left of the screen; c.ui.height of them make the screen's height.
+Colors: one rule everywhere (the type Color): \"#rrggbb\", or { r, g, b } with numbers from 0 to 255; a fourth value (\"#rrggbbaa\", { r, g, b, a }) only where a color can be see-through: frame:cube, text, box, bar, drop_in and an icon's letters. conf.lua and a level's file take colors the same way.
+Levels, places, items, kinds and families are named by strings (world:go_to(\"hall\", \"door\"), thing:take(\"key\"), level:spawn(\"bat\", x, y)). A name that does not exist is a mistake, found as the game loads where its files allow it (a level's prop that names a place), else at the call. level:thing(name) is the one that answers nil for a name that is not there.";
+
+/// The order of a tick, as the engine runs it (`LuaGame::step`).
+pub const A_TICK: &str = "\
+A tick runs in this order:
+1. The music's clock goes on; the ready-made rules (c.kit) move their things, unless the level is held (level.state.held).
+2. on_player_join and on_player_leave, for the seats taken and left.
+3. The events, none dropped: what thing:hurt and thing:take did in the tick before (on_hit, on_pickup, and on_death where a hit brought hit points to 0), things whose hit points you set to 0 (on_death), then what the ready-made rules did this tick (on_hit, on_death, on_fall_out, on_pickup), then touches begun and ended (on_touch, on_touch_end) and on_interact.
+4. on_beat, for each beat of your game's song that began.
+5. on_tick.
+6. The tick's end: things you removed go, the figures of players that joined or left come or go, things you moved with thing:walk move, attacks you asked for start, world:save is written, then the one level change or ending you asked for is carried out.
+What a handler causes (a spawn in on_touch, a blast in on_hit) is told in the next tick's step 3. A drawn picture (on_draw) is not a step: it runs as often as the screen shows one.";
+
+/// A type the API names (`Light`, `Place`), read from the LuaLS text it is
+/// written in (`TYPES`).
+pub struct TypeDoc {
+    pub name: String,
+    /// The LuaLS type an alias stands for; "table" for a class.
+    pub ty: String,
+    pub doc: String,
+    /// Each field: its name (a `?` after it: may be left out), its type and its words.
+    pub fields: Vec<(String, String, String)>,
+}
+
+/// Every type of `TYPES` with its fields.
+pub fn types() -> Vec<TypeDoc> {
+    let mut out: Vec<TypeDoc> = Vec::new();
+    for line in TYPES.lines() {
+        if let Some(rest) = line.strip_prefix("---@class ") {
+            let (name, doc) = rest.split_once(' ').unwrap_or((rest, ""));
+            out.push(TypeDoc { name: name.to_string(), ty: "table".into(), doc: doc.to_string(), fields: Vec::new() });
+        } else if let Some(rest) = line.strip_prefix("---@alias ") {
+            let mut words = rest.splitn(3, ' ');
+            let (name, ty, doc) = (words.next().unwrap_or(""), words.next().unwrap_or(""), words.next().unwrap_or(""));
+            out.push(TypeDoc { name: name.to_string(), ty: ty.to_string(), doc: doc.to_string(), fields: Vec::new() });
+        } else if let Some(rest) = line.strip_prefix("---@field ") {
+            let mut words = rest.splitn(3, ' ');
+            let (name, ty, doc) = (words.next().unwrap_or(""), words.next().unwrap_or(""), words.next().unwrap_or(""));
+            if let Some(t) = out.last_mut() {
+                t.fields.push((name.to_string(), ty.to_string(), doc.to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// The part of `voxcade api` an entry belongs to (its heading).
+const HANDLERS: &str = "HANDLERS: functions your game defines; the engine calls them";
+const FUNCTIONS: &str = "FUNCTIONS: the engine's functions every script has";
+const SETTINGS_PART: &str = "SETTINGS: conf.lua, function conf(c)";
+const KINDS_PART: &str = "KINDS: c.things.NAME = { ... } in conf.lua";
+const LUA_PART: &str = "LUA'S OWN: what a script has of Lua 5.4's library (no os, io, debug, coroutine, load)";
+const TYPES_PART: &str = "TYPES: the tables the API takes and gives, with their fields";
+
+/// One entry of what `voxcade api` shows: the API's names, then the
+/// settings, the kinds' keys and the types; its name as written, its head
+/// line, its words and the part it is listed in.
+struct Entry {
+    name: String,
+    head: String,
+    doc: String,
+    part: String,
+}
+
 fn entries() -> Vec<Entry> {
-    let mut out: Vec<Entry> = API.iter().map(|i| Entry { name: written(i), head: signature(i), doc: i.doc.to_string() }).collect();
-    out.extend(LUA.iter().map(|(name, takes, doc)| Entry { name: format!("lua {name}"), head: format!("{name}{takes}"), doc: doc.to_string() }));
+    let part_of = |i: &Item| match i.what {
+        Callback { .. } => HANDLERS.to_string(),
+        Function { .. } => FUNCTIONS.to_string(),
+        _ => OBJECTS.iter().find(|o| o.of == i.of).map_or(String::new(), |o| format!("{}: {}", o.of, o.about)),
+    };
+    // The handlers first, then the functions, then each object's names
+    // together (the register's order).
+    let mut out: Vec<Entry> = Vec::new();
+    for rank in 0..3 {
+        let wanted = |i: &Item| match i.what {
+            Callback { .. } => rank == 0,
+            Function { .. } => rank == 1,
+            _ => rank == 2,
+        };
+        out.extend(API.iter().filter(|i| wanted(i)).map(|i| Entry { name: written(i), head: signature(i), doc: i.doc.to_string(), part: part_of(i) }));
+    }
+    out.extend(LUA.iter().map(|(name, takes, doc)| Entry { name: format!("lua {name}"), head: format!("{name}{takes}"), doc: doc.to_string(), part: LUA_PART.into() }));
     for s in settings() {
-        out.push(Entry { name: format!("c.{}", s.path), head: s.head(), doc: s.doc });
+        out.push(Entry { name: format!("c.{}", s.path), head: s.head(), doc: s.doc, part: SETTINGS_PART.into() });
     }
     for k in kind_keys() {
-        out.push(Entry { name: format!("c.things.NAME.{}", k.key), head: k.head(), doc: k.doc });
+        out.push(Entry { name: format!("c.things.NAME.{}", k.key), head: k.head(), doc: k.doc, part: KINDS_PART.into() });
+    }
+    for t in types() {
+        let fields = t.fields.iter().map(|(name, ty, doc)| {
+            let (name, needed) = match name.strip_suffix('?') {
+                Some(n) => (n, ""),
+                None => (name.as_str(), if name.starts_with('[') { "" } else { " (needed)" }),
+            };
+            format!("- {name}: {ty}{needed}. {doc}")
+        });
+        let doc = std::iter::once(t.doc.clone()).chain(fields).collect::<Vec<_>>().join("\n");
+        out.push(Entry { name: format!("type {}", t.name), head: format!("{}: {}", t.name, t.ty), doc, part: TYPES_PART.into() });
     }
     out
 }
@@ -942,21 +1041,25 @@ fn entries() -> Vec<Entry> {
 /// A name as `voxcade api` compares it: small letters, a method's `:` a
 /// dot, no call's brackets (`Thing:Walk()` is `thing.walk`).
 fn compared(name: &str) -> String {
-    let name = name.trim().trim_start_matches("lua ").split('(').next().unwrap_or("");
+    let name = name.trim().trim_start_matches("lua ").trim_start_matches("type ").split('(').next().unwrap_or("");
     name.to_lowercase().replace(':', ".")
 }
 
 /// The API as text, one name a line with what it does, then the settings
-/// of `conf.lua` and the keys of a kind (`c.things.NAME`). `filter` keeps
-/// the names that hold it, as written or in part, in any case, a method
-/// with `:` or `.` (`thing:walk`, `walk`, `world.state`, `view_width`); a
-/// player's names are a thing's too (`player:walk`). An unknown name is a
-/// mistake naming the nearest.
+/// of `conf.lua`, the keys of a kind (`c.things.NAME`) and the types.
+/// Without a filter it begins with what a mistake is, the conventions and
+/// the order of a tick. `filter` keeps the names that hold it, as written
+/// or in part, in any case, a method with `:` or `.` (`thing:walk`,
+/// `walk`, `world.state`, `view_width`); a player's names are a thing's
+/// too (`player:walk`); a type's name written as it is (`Light`) finds
+/// that type alone. An unknown name is a mistake naming the nearest.
 pub fn lookup(filter: Option<&str>) -> Result<String, String> {
     let all = entries();
-    let shown: Vec<&Entry> = match filter.map(compared).filter(|f| !f.is_empty()) {
-        None => all.iter().collect(),
-        Some(f) => {
+    let exact = filter.map(str::trim).and_then(|f| all.iter().find(|e| e.name.strip_prefix("type ") == Some(f)));
+    let shown: Vec<&Entry> = match (exact, filter.map(compared).filter(|f| !f.is_empty())) {
+        (Some(e), _) => vec![e],
+        (None, None) => all.iter().collect(),
+        (None, Some(f)) => {
             let thing = f.strip_prefix("player.").map(|rest| format!("thing.{rest}"));
             let holds = |e: &Entry| {
                 let name = compared(&e.name);
@@ -967,26 +1070,20 @@ pub fn lookup(filter: Option<&str>) -> Result<String, String> {
             if found.is_empty() {
                 let names: Vec<String> = all.iter().flat_map(|e| [compared(&e.name), compared(&e.name).rsplit('.').next().unwrap_or("").to_string()]).collect();
                 let near = crate::audio::words::near(&f, names.iter().map(String::as_str)).map_or(String::new(), |n| format!(" (did you mean {n}?)"));
-                return Err(format!("no name of the API, setting or kind's key is called {}{near}; voxcade api lists them all", filter.unwrap_or("").trim()));
+                return Err(format!("no name of the API, setting, kind's key or type is called {}{near}; voxcade api lists them all", filter.unwrap_or("").trim()));
             }
             found
         }
     };
     let mut out = String::new();
+    if filter.is_none_or(|f| f.trim().is_empty()) {
+        out += &format!("== READING THE ENTRIES\n\n{MISTAKES}\n\n{CONVENTIONS}\n\n{A_TICK}\n");
+    }
     let mut part = "";
     for e in shown {
-        let now = if e.name.starts_with("c.things.") {
-            "KINDS: c.things.NAME = { ... } in conf.lua"
-        } else if e.name.starts_with("c.") {
-            "SETTINGS: conf.lua, function conf(c)"
-        } else if e.name.starts_with("lua ") {
-            "LUA'S OWN: what a script has of Lua 5.4's library (no os, io, debug, coroutine, load)"
-        } else {
-            ""
-        };
-        if now != part {
-            out += &format!("\n== {now}\n\n");
-            part = now;
+        if e.part != part {
+            out += &format!("\n== {}\n\n", e.part);
+            part = &e.part;
         }
         out += &format!("{}\n", e.head);
         for line in e.doc.lines() {
@@ -1014,6 +1111,8 @@ pub struct Setting {
     /// Its range in words ("" none).
     pub range: String,
     pub doc: String,
+    /// The kit (`c.kit`) it belongs to; "" every game's.
+    pub kit: &'static str,
 }
 
 impl Setting {
@@ -1021,7 +1120,8 @@ impl Setting {
     pub fn head(&self) -> String {
         let default = if self.default.is_empty() { String::new() } else { format!(" = {}", self.default) };
         let range = if self.range.is_empty() { String::new() } else { format!(" ({})", self.range) };
-        format!("c.{}: {}{default}{range}", self.path, self.ty)
+        let of = if self.kit.is_empty() { String::new() } else { format!(" (c.kit = \"{}\")", self.kit) };
+        format!("c.{}: {}{default}{range}{of}", self.path, self.ty)
     }
 }
 
@@ -1059,18 +1159,71 @@ pub fn settings() -> Vec<Setting> {
             }
             let bounds: Vec<&crate::config::Bound> = crate::config::RANGES.iter().filter(|b| b.key == ranged || b.key.strip_prefix(ranged.as_str()).is_some_and(|rest| rest.starts_with('['))).collect();
             let range = bounds.iter().map(|b| if b.key == ranged { b.words() } else { format!("{} {}", if b.key.ends_with("[]") { "each" } else { &b.key[ranged.len()..] }, b.words()) }).collect::<Vec<_>>().join("; ");
-            let ty = if path == "things" { kinds_type() } else { lua_of(&k.rust) };
-            out.push(Setting { path, ty, default: default.map(lua_value).unwrap_or_default(), range, doc: k.doc });
+            let ty = if path == "things" { kinds_type() } else { ty_of(&path, &k.rust) };
+            out.push(Setting { path, ty, default: default.map(lua_value).unwrap_or_default(), range, doc: k.doc, kit: "" });
         }
     }
     let defaults = toml::Value::try_from(crate::config::GameConfig::default()).ok();
     let mut out = Vec::new();
     walk("GameConfig", "", "", defaults.as_ref(), &mut out);
+    // The shooter kit's keys of `c.player` follow the engine's, its weapons
+    // the sections.
+    let (player, weapons): (Vec<Setting>, Vec<Setting>) = kit_settings().into_iter().partition(|s| s.path.starts_with("player."));
+    let after = out.iter().rposition(|s| s.path.starts_with("player.")).map_or(out.len(), |i| i + 1);
+    out.splice(after..after, player.into_iter().chain(weapons));
+    out
+}
+
+/// A setting's LuaLS type: its Rust type's, but `Color` for a color.
+fn ty_of(path: &str, rust: &str) -> String {
+    match path.split_once('.') {
+        Some((section, key)) if crate::config::COLORS.contains(&(section, key)) => "Color".into(),
+        _ => lua_of(rust),
+    }
+}
+
+/// The shooter kit's source of its own settings.
+const SHOOTER_CONFIG_RS: &str = include_str!("../shooter/config.rs");
+const SHOOTER_KINDS_RS: &str = include_str!("../shooter/kinds.rs");
+
+/// What the shooter kit adds to `conf.lua` (`Game::sections`): its keys of
+/// `c.player` and `c.weapons`, read from the structs that read them, with
+/// their defaults and words. A weapon has no range checked beyond its
+/// type.
+pub fn kit_settings() -> Vec<Setting> {
+    let kit = "shooter";
+    let mut out = Vec::new();
+    let player = toml::Value::try_from(crate::shooter::config::PlayerConfig::default()).ok();
+    for k in keys_in(SHOOTER_CONFIG_RS, "PlayerConfig") {
+        let default = player.as_ref().and_then(|d| d.get(&k.key)).map(lua_value).unwrap_or_default();
+        out.push(Setting { path: format!("player.{}", k.key), ty: lua_of(&k.rust), default, range: String::new(), doc: k.doc, kit });
+    }
+    out.push(Setting {
+        path: "weapons.aim_assist".into(),
+        ty: "boolean".into(),
+        default: "true".into(),
+        range: String::new(),
+        doc: "Whether shots find a target near their line, the player's and the enemies' alike. true: a shot goes for the nearest target in a narrow cone round the way it was fired, slightly off the 8 ways. false: it keeps to the line (rising or dipping only for a target right on it) and nothing scatters.".into(),
+        kit,
+    });
+    out.push(Setting {
+        path: "weapons.NAME.like".into(),
+        ty: "string".into(),
+        default: String::new(),
+        range: String::new(),
+        doc: "Another weapon this one builds on: its keys first, then this one's (like = \"rifle\").".into(),
+        kit,
+    });
+    let weapon = toml::Value::try_from(crate::shooter::kinds::WeaponRules::default()).ok();
+    for k in keys_in(SHOOTER_KINDS_RS, "WeaponRules") {
+        let default = weapon.as_ref().and_then(|d| d.get(&k.key)).map(lua_value).unwrap_or_default();
+        out.push(Setting { path: format!("weapons.NAME.{}", k.key), ty: lua_of(&k.rust), default, range: String::new(), doc: k.doc, kit });
+    }
     out
 }
 
 /// A key of a kind of thing (`c.things.NAME.hp`): the engine's, of every
-/// kind, or a behavior's of a kit (`speed` of the jump & run's hero).
+/// kind, or a behavior's of a kit (`speed` of the platformer's hero).
 pub struct KindKey {
     /// The kit (`c.kit`) and the behavior it is of; "" the engine's.
     pub kit: &'static str,
@@ -1095,12 +1248,12 @@ impl KindKey {
 /// besides (`sim::things`): name, LuaLS type, words.
 pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("like", "string", "Another kind this one builds on: its keys first, then this one's (like = \"rifleman\")."),
-    ("behavior", "string", "Its ready-made behavior, with a kit (c.kit): the jump & run's hero, walker, hopper, flyer, pickup, platform, prop, crate; the shooter's soldier, spawner, captive, gunship, pickup. Without one your script moves it."),
+    ("behavior", "string", "Its ready-made behavior, with a kit (c.kit): the platformer kit's hero, walker, hopper, flyer, pickup, platform, prop, crate; the shooter kit's soldier, spawner, captive, gunship, pickup. Without one your script moves it.\nA behavior's own keys are listed below, each with its default. A length or speed left unset is that default scaled by the kind's height over the height of the figure the default was made for (half as tall: half as fast and high); counts, times and weapons' numbers are not scaled. voxcade kinds GAME prints every number in effect."),
     ("model", "string", "Its model, a .vvx of the game."),
     ("hp", "integer", "The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none."),
     ("fixed", "boolean", "It stays exactly where it is put, in the air too (a kind without a behavior)."),
     ("solid", "boolean", "It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.\nOnly for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside."),
-    ("persistent", "boolean", "Its things a level's file sets down stay as left for the whole run, in any level: taken out, where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player."),
+    ("persistent", "boolean", "Its things a level's file sets down stay as left for the whole run, in any level: removed ones stay removed, the others where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player."),
     ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
     ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),
@@ -1119,33 +1272,92 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("swing", "table<string, number>", "A figure of parts: the parts that swing as it walks, degrees forward first: swing = { leg_left = 30, leg_right = -30 }."),
 ];
 
-/// Words for a behavior's keys its kit's library says too little of, or
-/// leaves out (it sets only what its kinds need): the kit, the behavior,
-/// the key, its LuaLS type, its default ("": unset) and what it is.
+/// The words of every key of a kit's behaviors, each a sentence that stands
+/// alone (HELP and the editors' hover show one key at a time): the kit, the
+/// behavior, the key, its LuaLS type, its default ("": the library's, or
+/// unset for a key it leaves out) and what it is. The library's own
+/// comments (`kit.toml`) are notes to the maker who copies it and run on
+/// over several lines; they are not used here.
 const KIT_WORDS: &[(&str, &str, &str, &str, &str, &str)] = &[
-    ("shooter", "soldier", "weapon", "string", "", "The weapon he fires, a name of c.weapons."),
-    ("shooter", "soldier", "speed", "number", "", "Running once he knows of the player, voxels a second."),
-    ("shooter", "soldier", "idle_speed", "number", "", "Walking about before that, voxels a second."),
-    ("shooter", "soldier", "accel", "number", "", "How quickly he gets to either, voxels a second per second."),
-    ("shooter", "soldier", "sight", "number", "", "How far he sees the player, voxels; a comrade falling he notices as far."),
-    ("shooter", "soldier", "blast_hearing", "number", "", "How far he hears an explosion, voxels."),
-    ("shooter", "soldier", "range", "number", "", "How far he shoots, voxels."),
-    ("shooter", "soldier", "muzzle", "number[]", "", "Where his shots leave the gun, { ahead, up } of his feet in voxels (unset: from his height)."),
-    ("shooter", "soldier", "stride", "number", "", "A puff of dust every this many voxels he walks (unset: half his height) ..."),
-    ("shooter", "spawner", "spawns", "string", "", "The kind of thing it sends, a name of c.things."),
-    ("shooter", "spawner", "count", "number", "", "How many it sends in all."),
-    ("shooter", "spawner", "first", "number", "", "Ticks after the player comes within range before the first comes out."),
-    ("shooter", "spawner", "every", "number", "", "Ticks between one and the next."),
-    ("shooter", "spawner", "range", "number", "", "It sends them while the player is this near, voxels."),
-    ("shooter", "spawner", "ahead", "number[]", "", "Only while it lies this way of the player, { x, y } (x east, y north), by more than ahead_by; unset: on any side."),
-    ("shooter", "spawner", "ahead_by", "number", "", "How far that way it must lie, voxels (unset: the player's height)."),
-    ("shooter", "captive", "speed", "number", "", "Running off once freed, voxels a second."),
-    ("shooter", "captive", "accel", "number", "", "How quickly it gets to that speed."),
-    ("shooter", "gunship", "weapon", "string", "", "Its gun, a name of c.weapons."),
-    ("shooter", "gunship", "rockets", "string", "", "Its rockets, a name of c.weapons."),
-    ("shooter", "gunship", "speed", "number", "", "Flying, voxels a second."),
-    ("shooter", "gunship", "crash_blast", "number", "", "The crater where it crashes, as a weapon's blast."),
-    ("shooter", "pickup", "bob", "number", "", "It bobs up this many voxels and down again (0: it lies still; unset: a fifth of its model's height)."),
+    ("platformer", "hero", "speed", "number", "", "Its running speed, in voxels a second."),
+    ("platformer", "hero", "accel", "number", "", "How quickly it gets up to running speed while it stands on something, in voxels a second per second. In the air air_accel applies."),
+    ("platformer", "hero", "air_accel", "number", "", "How quickly it gets up to running speed while it is in the air, in voxels a second per second. On the ground accel applies."),
+    ("platformer", "hero", "jump", "number", "", "How high a full jump goes, in voxels: the jump button held until the top."),
+    ("platformer", "hero", "jump_cut", "number", "", "How much of its upward speed it keeps when the jump button is let go while it still rises: 0.5 keeps half, so a short press makes a low jump."),
+    ("platformer", "hero", "coyote", "integer", "", "Ticks after it ran off a ledge in which a jump still works."),
+    ("platformer", "hero", "buffer", "integer", "", "Ticks a jump pressed just before landing waits for the ground and then happens."),
+    ("platformer", "hero", "climb", "number", "", "Its speed on a ladder, up and down, in voxels a second. Without left or right it moves to the ladder's middle; it stands on a ladder's top, and down climbs down from there."),
+    ("platformer", "hero", "invulnerable", "integer", "", "Ticks after a hit during which nothing hurts it."),
+    ("platformer", "hero", "blink", "integer", "", "While nothing hurts it, it blinks: it is shown this many ticks, then hidden as many ticks. 0: it does not blink."),
+    ("platformer", "hero", "knockback", "number[]", "", "How a hit throws it, { back, up } in voxels a second: back away from what hit it, and up."),
+    ("platformer", "hero", "fall_gravity", "number", "", "Gravity is multiplied by this while it falls, so a fall is snappy, not floaty. 1: as strong as on the way up."),
+    ("platformer", "hero", "hang", "number", "", "Gravity is multiplied by this near the top of a jump while the jump button is held: below 1 it floats there a moment. \"Near the top\" is hang_speed."),
+    ("platformer", "hero", "hang_speed", "number", "", "In voxels a second: while it rises or falls more slowly than this it is at the top of a jump, for hang. It catches a ledge (grab) only while it rises more slowly than this too."),
+    ("platformer", "hero", "corner", "integer", "", "A head that hits the edge of a ceiling by up to this many voxels slips past it, so a jump is not stopped by a corner. 0: no such help."),
+    ("platformer", "hero", "look_ahead", "number", "", "How far the camera leads ahead of the hero in the way it runs, in voxels. 0: the camera stays centered on it."),
+    ("platformer", "hero", "look_ahead_speed", "number", "", "How fast the camera swings over to lead the other way when the hero turns round, in voxels a second."),
+    ("platformer", "hero", "grab", "number", "", "How far above its head its hands reach for the edge of a ledge, in voxels. 0: it catches no ledges."),
+    ("platformer", "hero", "grab_ahead", "number", "", "How far ahead of its body it finds a ledge's edge to catch, in voxels. Only when grab is above 0."),
+    ("platformer", "hero", "hang_below", "number", "", "How far under a ledge's edge its head hangs while it holds on, in voxels. A ledge lower than that above its head it pulls itself onto at once. Only when grab is above 0."),
+    ("platformer", "hero", "pull", "integer", "", "How many ticks it takes to pull itself up onto the ledge it hangs from. Up or jump pulls up; down lets go. Only when grab is above 0."),
+    ("platformer", "hero", "face_ladder", "boolean", "", "While it climbs a ladder it turns to the ladder, its back to the camera. false: it keeps the way it faced."),
+    ("platformer", "hero", "air_jumps", "integer", "", "How many more jumps it may make in the air before it lands: 0 none, 1 a double jump."),
+    ("platformer", "hero", "air_jump", "number", "", "How high each jump in the air goes, in voxels, from where the hero is when it makes it. Only when air_jumps is above 0."),
+    ("platformer", "walker", "speed", "number", "", "Its walking speed, in voxels a second."),
+    ("platformer", "walker", "ledges", "boolean", "", "true: it turns round at a ledge as at a wall. false: it walks off the ledge."),
+    ("platformer", "hopper", "every", "integer", "", "Ticks between one hop and the next. It hops left and right in turn."),
+    ("platformer", "hopper", "hop", "number[]", "", "How a hop goes, { across, up } in voxels a second."),
+    ("platformer", "flyer", "range", "number", "", "How far it hovers up and down from where it is placed, in voxels."),
+    ("platformer", "flyer", "period", "integer", "", "Ticks for one trip up and down."),
+    ("platformer", "flyer", "face_hero", "boolean", "", "true: it turns to face the hero. false: it keeps looking the way it was placed."),
+    ("platformer", "platform", "travel", "number[]", "", "How far it goes from where it is placed and then back, { across, up } in voxels."),
+    ("platformer", "platform", "speed", "number", "", "Its speed, in voxels a second."),
+    ("platformer", "platform", "pause", "integer", "", "Ticks it waits at each end of its way."),
+    ("platformer", "platform", "crushes", "boolean", "", "true: coming down onto the hero it hurts it and goes on (a trap). false: it waits above it."),
+    ("platformer", "prop", "stands", "boolean", "", "true: it stands on the floor below where it is placed (a door, spikes). false: it stays where it is placed, in the air too (a torch on a wall)."),
+    ("platformer", "crate", "push", "number", "", "The fastest the hero pushes it, in voxels a second."),
+    ("shooter", "soldier", "weapon", "string", "", "The weapon he fires or throws: a name of c.weapons."),
+    ("shooter", "soldier", "speed", "number", "", "His running speed once he knows of the player, in voxels a second."),
+    ("shooter", "soldier", "idle_speed", "number", "", "His walking speed while he does not know of the player, in voxels a second."),
+    ("shooter", "soldier", "accel", "number", "", "How quickly he gets up to speed, running or walking, in voxels a second per second."),
+    ("shooter", "soldier", "sight", "number", "", "How far he sees the player, in voxels. A comrade falling he notices as far."),
+    ("shooter", "soldier", "hearing", "number", "", "How far he hears gunfire, in voxels; rounds hitting near him count as half that."),
+    ("shooter", "soldier", "blast_hearing", "number", "", "How far he hears an explosion, in voxels."),
+    ("shooter", "soldier", "active", "number", "", "While the player is further from him than this, in voxels, he waits where he is."),
+    ("shooter", "soldier", "range", "number", "", "How far he shoots, in voxels."),
+    ("shooter", "soldier", "distance", "number", "", "The distance he keeps from the player, in voxels."),
+    ("shooter", "soldier", "step_dust", "integer", "", "How many specks of dust each puff of his steps has (see stride). 0: no dust."),
+    ("shooter", "soldier", "landing", "number", "", "Landing from higher than this, in voxels, raises a puff of dust."),
+    ("shooter", "soldier", "landing_dust", "integer", "", "How many specks of dust a landing puff has (see landing)."),
+    ("shooter", "soldier", "muzzle", "number[]", "", "Where his shots leave the gun, { ahead, up } from his feet in voxels. Unset: just in front of him at half his height."),
+    ("shooter", "soldier", "stride", "number", "", "A puff of dust rises every this many voxels he walks. Unset: half his height."),
+    ("shooter", "spawner", "spawns", "string", "", "The kind of thing it sends out: a name of c.things, a kind with the behavior \"soldier\"."),
+    ("shooter", "spawner", "count", "integer", "", "How many it sends out in all."),
+    ("shooter", "spawner", "first", "integer", "", "Ticks after the player comes within range before the first one comes out."),
+    ("shooter", "spawner", "every", "integer", "", "Ticks between one coming out and the next."),
+    ("shooter", "spawner", "range", "number", "", "It sends them out only while the player is this near, in voxels."),
+    ("shooter", "spawner", "ahead", "number[]", "", "A way { x, y } (x east, y north): it sends them out only while it lies this way of the player, by more than ahead_by. Unset: on any side."),
+    ("shooter", "spawner", "not_near", "number", "", "Nobody comes out while the player is nearer than this, in voxels."),
+    ("shooter", "spawner", "ahead_by", "number", "", "How far it must lie in the way of ahead, in voxels. Unset: the player's height."),
+    ("shooter", "captive", "speed", "number", "", "Its running speed once it is freed, in voxels a second."),
+    ("shooter", "captive", "accel", "number", "", "How quickly it gets up to that speed, in voxels a second per second."),
+    ("shooter", "captive", "flee", "string|number[]", "", "Where it runs once it is freed. \"away\": away from the player. A way { x, y }, x east and y north (so { 0, -1 } runs south). Or a place's name: it runs there (in a level without that place: away)."),
+    ("shooter", "gunship", "weapon", "string", "", "Its gun: a name of c.weapons."),
+    ("shooter", "gunship", "rockets", "string", "", "Its rockets: a name of c.weapons."),
+    ("shooter", "gunship", "speed", "number", "", "Its flying speed, in voxels a second."),
+    ("shooter", "gunship", "altitude", "number", "", "How high it flies over the pad it took off from, in voxels."),
+    ("shooter", "gunship", "clearance", "number", "", "It flies at least this high over what stands below it, in voxels."),
+    ("shooter", "gunship", "offset", "number[]", "", "Where it holds from the player, { x, y } in voxels (x east, y north)."),
+    ("shooter", "gunship", "wake", "number", "", "It lifts off when the player comes this close, in voxels."),
+    ("shooter", "gunship", "size", "number[]", "", "Its hit box in voxels: { across, along, high }."),
+    ("shooter", "gunship", "gun", "number[]", "", "Where its guns' muzzles are in its model, { across, along, up } in voxels; the gun on the other side is mirrored across."),
+    ("shooter", "gunship", "pods", "number[]", "", "Where the fronts of its rocket pods are in its model, { across, along, up } in voxels; the pod on the other side is mirrored across."),
+    ("shooter", "gunship", "side_on", "boolean", "", "true: it turns its side to the player and the gun on that side fires. false: it faces the player and its guns take turns."),
+    ("shooter", "gunship", "crash_blast", "number", "", "The crater where it crashes, in voxels, as a weapon's blast."),
+    ("shooter", "gunship", "crash_damage", "integer", "", "The hits it does to everything near where it crashes."),
+    ("shooter", "pickup", "frame", "integer", "", "Which frame of its model it shows, from 0."),
+    ("shooter", "pickup", "bob_ticks", "integer", "", "How many ticks it takes to bob up, and as many to bob down again."),
+    ("shooter", "pickup", "bob", "integer", "", "How many voxels it bobs up and down. 0: it lies still. Unset: a fifth of its model's height."),
 ];
 
 /// The kits whose behaviors' keys the reference lists: their name as
@@ -1210,7 +1422,7 @@ pub fn kind_keys() -> Vec<KindKey> {
     }
     for (kit, behavior, key, ty, default, doc) in KIT_WORDS {
         match out.iter_mut().find(|k| k.kit == *kit && k.behavior == *behavior && k.key == *key) {
-            Some(k) => k.doc = doc.to_string(),
+            Some(k) => (k.ty, k.doc) = (ty.to_string(), doc.to_string()),
             None => {
                 let at = out.iter().rposition(|k| k.kit == *kit && k.behavior == *behavior).map_or(out.len(), |i| i + 1);
                 out.insert(at, KindKey { kit, behavior: behavior.to_string(), key: key.to_string(), ty: ty.to_string(), default: default.to_string(), doc: doc.to_string() });
@@ -1343,8 +1555,13 @@ pub struct ConfKey {
 /// The fields of `pub struct NAME` in `config.rs` that `conf.lua` sets
 /// (not `#[serde(skip)]`, `flatten` or retired ones), in their order.
 pub fn conf_keys(name: &str) -> Vec<ConfKey> {
-    let Some(start) = CONFIG_RS.find(&format!("\npub struct {name} {{")) else { return Vec::new() };
-    let body = &CONFIG_RS[start..];
+    keys_in(CONFIG_RS, name)
+}
+
+/// The fields of `pub struct NAME` in a source (`conf_keys` for `config.rs`).
+fn keys_in(source: &str, name: &str) -> Vec<ConfKey> {
+    let Some(start) = source.find(&format!("\npub struct {name} {{")) else { return Vec::new() };
+    let body = &source[start..];
     let body = &body[..body.find("\n}").unwrap_or(body.len())];
     let (mut out, mut doc, mut left_out) = (Vec::new(), Vec::<&str>::new(), false);
     for line in body.lines().skip(1).map(str::trim) {
@@ -1391,7 +1608,7 @@ fn inner_struct(rust: &str) -> Option<(&str, bool)> {
 
 /// A Rust type of a setting as LuaLS writes it.
 fn lua_of(rust: &str) -> String {
-    let rust = rust.trim();
+    let rust = rust.trim().trim_start_matches("std::collections::");
     if let Some(inner) = rust.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
         return lua_of(inner);
     }
@@ -1410,6 +1627,7 @@ fn lua_of(rust: &str) -> String {
         "bool" => "boolean".into(),
         "String" => "string".into(),
         "SeatKinds" | "Songs" => "string|string[]".into(),
+        r if r.starts_with("crate::color::") => "Color".into(),
         r if r.starts_with('(') => "any[]".into(),
         r if r.contains("Table") || r.contains("Bindings") => "table".into(),
         r if !conf_keys(r).is_empty() => "table".into(),
@@ -1431,7 +1649,28 @@ fn conf_classes() -> String {
         }
         out += &conf_field(&k, &format!("Conf.{}", k.key), &settings, &mut classes);
     }
-    out + &classes + &kind_classes()
+    out += "---@field weapons Conf.weapons The shooter kit's weapons (c.kit = \"shooter\"): aim_assist, and each weapon by its name, c.weapons.NAME = { ... }.\n";
+    out + &classes + &weapon_classes() + &kind_classes()
+}
+
+/// A kit's key as a class field: its words, and its default where it has one.
+fn kit_field(s: &Setting, prefix: &str) -> String {
+    let default = if s.default.is_empty() { String::new() } else { format!(" ({} unless set)", s.default) };
+    format!("---@field {}? {} {} (c.kit = \"{}\"){default}\n", s.path.strip_prefix(prefix).unwrap_or(&s.path), s.ty, s.doc, s.kit)
+}
+
+/// `c.weapons` and a weapon as classes for LuaLS.
+fn weapon_classes() -> String {
+    let all = kit_settings();
+    let mut out = String::from("\n---@class Conf.weapons\n");
+    if let Some(a) = all.iter().find(|s| s.path == "weapons.aim_assist") {
+        out += &kit_field(a, "weapons.");
+    }
+    out += "---@field [string] Weapon\n\n---@class Weapon A weapon of the shooter kit (c.weapons.NAME = { ... }, c.kit = \"shooter\"): what one attack does.\n";
+    for s in all.iter().filter(|s| s.path.starts_with("weapons.NAME.")) {
+        out += &kit_field(s, "weapons.NAME.");
+    }
+    out
 }
 
 /// A key's line in its class; a key whose type is a struct of its own
@@ -1443,13 +1682,19 @@ fn conf_field(k: &ConfKey, class: &str, settings: &[Setting], classes: &mut Stri
         // Its range, as the reference says it (`settings`).
         let path = class.strip_prefix("Conf.").unwrap_or(class);
         let range = settings.iter().find(|s| s.path.replace("[]", "") == path).map(|s| s.range.as_str()).filter(|r| !r.is_empty()).map_or(String::new(), |r| format!(" ({r})"));
-        return format!("---@field {} {}{doc}{range}\n", k.key, lua_of(&k.rust));
+        return format!("---@field {} {}{doc}{range}\n", k.key, ty_of(path, &k.rust));
     };
     // A section the ready-made rules add to (c.player.knife) stays open.
     let open = if name == "PlayerConfig" { "---@field [string] any\n" } else { "" };
     let mut body = format!("\n---@class {class}\n{open}");
     for inner in conf_keys(name) {
         body += &conf_field(&inner, &format!("{class}.{}", inner.key), settings, classes);
+    }
+    // The shooter kit's own keys of c.player.
+    if name == "PlayerConfig" {
+        for s in settings.iter().filter(|s| s.kit == "shooter" && s.path.starts_with("player.")) {
+            body += &kit_field(s, "player.");
+        }
     }
     *classes += &body;
     format!("---@field {} {class}{}{doc}\n", k.key, if list { "[]" } else { "" })
@@ -1638,14 +1883,14 @@ mod tests {
             ("view_width", "c.camera.view_width: number = 200 (above 0, up to 65536)"),
             ("c.camera.fov", "c.camera.fov: number = 40 (from 10 to 100)"),
             ("light.sun", "c.light.sun: number[] = { 0.45, 0.6, -1 } (each from -1000 to 1000; [3] from -1000 to below 0)"),
-            ("air_jumps", "c.things.NAME.air_jumps: number = 0 (behavior = \"hero\", c.kit = \"platformer\")"),
+            ("air_jumps", "c.things.NAME.air_jumps: integer = 0 (behavior = \"hero\", c.kit = \"platformer\")"),
             ("fixed", "c.things.NAME.fixed: boolean"),
         ] {
             assert!(found(asked).contains(shows), "{asked}: {}", found(asked));
         }
         assert!(!found("thing:walk").contains("world.state"));
         let e = lookup(Some("wlak")).unwrap_err();
-        assert!(e.starts_with("no name of the API, setting or kind's key is called wlak (did you mean walk?)"), "{e}");
+        assert!(e.starts_with("no name of the API, setting, kind's key or type is called wlak (did you mean walk?)"), "{e}");
         assert!(lookup(Some("zzzzzzzz")).is_err());
         let all = lookup(None).unwrap();
         assert!(all.contains("== SETTINGS") && all.contains("== KINDS") && all.contains("level:spawn("));
@@ -1755,6 +2000,145 @@ mod tests {
             assert!(body.contains(&format!("---@field {key} ")), "{class} lacks {key}");
         }
         assert!(!defs.contains("---@field markers"), "the retired c.markers is offered");
+    }
+
+    /// The shooter kit's settings in the reference are what it reads:
+    /// the keys serde takes for a weapon and for the shooter's part of
+    /// `c.player`, as it lists them when given one it does not know, are
+    /// the keys the register lists (a key the structs gain without the
+    /// register fails here), each with words, and `voxcade api c.weapons`
+    /// finds them.
+    #[test]
+    fn the_shooters_settings_are_what_it_reads() {
+        fn taken<T: serde::de::DeserializeOwned>() -> Vec<String> {
+            let e = toml::from_str::<T>("not_a_key = 0").err().map(|e| e.message().to_string()).unwrap_or_default();
+            let (_, list) = e.split_once("expected ").unwrap_or_else(|| panic!("{e}"));
+            let mut keys: Vec<String> = list.trim_start_matches("one of ").replace("` or `", "`, `").split(", ").map(|k| k.trim_matches('`').to_string()).collect();
+            keys.sort();
+            keys
+        }
+        let all = kit_settings();
+        let listed = |prefix: &str| {
+            let mut keys: Vec<String> = all.iter().filter_map(|s| s.path.strip_prefix(prefix)).filter(|k| *k != "like" && *k != "aim_assist").map(str::to_string).collect();
+            keys.sort();
+            keys
+        };
+        assert_eq!(listed("weapons.NAME."), taken::<crate::shooter::kinds::WeaponRules>(), "the keys of a weapon");
+        assert_eq!(listed("player."), taken::<crate::shooter::config::PlayerConfig>(), "the shooter's keys of c.player");
+        for s in &all {
+            assert!(!s.doc.is_empty(), "c.{}: no words", s.path);
+            assert_eq!(s.kit, "shooter");
+        }
+        // Defaults are the structs' own.
+        let find = |path: &str| all.iter().find(|s| s.path == path).unwrap_or_else(|| panic!("{path}"));
+        assert_eq!((find("weapons.NAME.burst").default.as_str(), find("weapons.NAME.auto").default.as_str(), find("player.blink").default.as_str()), ("1", "true", "4"));
+        // They are in the reference's text and in the editors' definitions.
+        let shown = lookup(Some("c.weapons")).unwrap();
+        assert!(shown.contains("c.weapons.NAME.cooldown: integer = 0 (c.kit = \"shooter\")") && shown.contains("c.weapons.aim_assist: boolean = true"), "{shown}");
+        assert!(lookup(Some("c.player.attacks")).unwrap().contains("c.player.attacks: table<string, string[]>"));
+        let defs = definitions();
+        assert!(defs.contains("---@class Weapon ") && defs.contains("---@field cooldown? integer") && defs.contains("---@field attacks? table<string, string[]>"));
+        assert!(defs.contains("---@field weapons Conf.weapons "));
+        // The settings list has them in their sections, among the engine's.
+        let paths: Vec<String> = settings().into_iter().map(|s| s.path).collect();
+        let (player, weapons) = (paths.iter().position(|p| p == "player.attacks").unwrap(), paths.iter().position(|p| p == "weapons.NAME.cooldown").unwrap());
+        assert!(paths.iter().position(|p| p == "player.jump").unwrap() < player && player < weapons);
+    }
+
+    /// Every type the register's signatures and fields name is one it
+    /// defines, `voxcade api` prints each of them with its fields, one by
+    /// name (`voxcade api Light`), and every field has words.
+    #[test]
+    fn every_type_the_api_names_is_listed_and_printed() {
+        let defined: Vec<String> = types().into_iter().map(|t| t.name).chain(OBJECTS.iter().map(|o| o.class.to_string())).chain(["Conf".to_string(), "Item".to_string()]).collect();
+        let mut named: Vec<String> = Vec::new();
+        let mut take = |ty: &str| named.extend(ty.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|w| w.starts_with(|c: char| c.is_uppercase())).map(str::to_string));
+        for i in API {
+            match &i.what {
+                Field { ty, .. } => take(ty),
+                Method { params, returns } | Callback { params, returns } | Function { params, returns } => {
+                    params.iter().for_each(|(_, t)| take(t));
+                    take(returns);
+                }
+            }
+        }
+        for t in types() {
+            for (_, ty, _) in &t.fields {
+                take(ty);
+            }
+        }
+        for n in named {
+            assert!(defined.contains(&n), "{n} is named by the register and defined by none (TYPES)");
+        }
+        let all = lookup(None).unwrap();
+        assert!(all.contains("== TYPES"));
+        for t in types() {
+            assert!(all.contains(&format!("\n{}: {}\n", t.name, t.ty)), "{} is not printed", t.name);
+            for (name, _, doc) in &t.fields {
+                assert!(!doc.is_empty(), "{}.{name}: no words", t.name);
+            }
+        }
+        let light = lookup(Some("Light")).unwrap();
+        assert!(light.contains("== TYPES") && light.contains("- radius: number (needed). How far it reaches") && !light.contains("frame:light("), "{light}");
+        let place = lookup(Some("Place")).unwrap();
+        assert!(place.contains("- facing: Way.") && place.contains("- name: string."), "{place}");
+        // A name in small letters still finds the names that hold it, the type too.
+        assert!(lookup(Some("light")).unwrap().contains("Light: table"));
+    }
+
+    /// An object's names stand together in the register (the reference
+    /// lists them under one heading), the handlers and the engine's
+    /// functions stand apart from them, and the top of `voxcade api` says
+    /// what a mistake is, the conventions and the order of a tick.
+    #[test]
+    fn the_register_is_ordered_and_says_how_to_read_it() {
+        let mut seen: Vec<&str> = Vec::new();
+        let mut last = "";
+        for i in API.iter().filter(|i| !i.of.is_empty()) {
+            if i.of != last {
+                assert!(!seen.contains(&i.of), "the names of {} are not together (at {})", i.of, i.name);
+                seen.push(i.of);
+                last = i.of;
+            }
+        }
+        let all = lookup(None).unwrap();
+        let (handlers, functions, world) = (all.find("== HANDLERS").unwrap(), all.find("== FUNCTIONS").unwrap(), all.find("== world:").unwrap());
+        let require = all.find("\nrequire(name: string) -> any\n").unwrap();
+        assert!(handlers < functions && functions < require && require < world, "require is a handler no more");
+        assert!(all.starts_with("== READING THE ENTRIES"));
+        for says in ["the game does not start", "the game halts at that tick", "A warning is said but does not stop the game", "x east, y north, z up", "A tick runs in this order"] {
+            assert!(all.contains(says), "{says}");
+        }
+        // The controls are one part.
+        let controls = all.find("\n== controls:").unwrap();
+        let (device, key, area) = (all.find("\ncontrols.device: ").unwrap(), all.find("\ncontrols:key(").unwrap(), all.find("\n== area:").unwrap());
+        assert!(controls < device && device < key && key < area, "controls.device and controls:key are apart");
+        // What the filter finds is unchanged: a method as written.
+        assert!(lookup(Some("controls:key")).unwrap().contains("controls:key(action: string) -> string"));
+    }
+
+    /// Every entry stands alone: HELP and the editors show one at a time,
+    /// so no key's words run on into the next one ("..."), a kit's keys
+    /// begin as sentences, and nothing sends a reader to the repository's
+    /// documents or names the engine's own code.
+    #[test]
+    fn every_entry_stands_alone() {
+        for k in kind_keys() {
+            assert!(!k.doc.contains("..."), "c.things.NAME.{} runs on: {}", k.key, k.doc);
+            if !k.kit.is_empty() {
+                assert!((k.doc.starts_with(|c: char| c.is_uppercase()) || k.doc.starts_with("true") || k.doc.starts_with("false")) && k.doc.ends_with(['.', ')']), "c.things.NAME.{} of {} is no sentence: {}", k.key, k.behavior, k.doc);
+            }
+        }
+        let mut docs: Vec<(String, String)> = API.iter().map(|i| (written(i), i.doc.to_string())).collect();
+        docs.extend(settings().into_iter().map(|s| (format!("c.{}", s.path), s.doc)));
+        docs.extend(kind_keys().into_iter().map(|k| (format!("c.things.NAME.{}", k.key), k.doc)));
+        docs.extend(types().into_iter().flat_map(|t| t.fields.into_iter().map(move |(n, _, d)| (format!("{}.{n}", t.name), d))));
+        for (name, doc) in docs {
+            for bad in ["docs/", "game-model", "::", "src/"] {
+                assert!(!doc.contains(bad), "{name} says \"{bad}\": {doc}");
+            }
+            assert!(!doc.trim_end().ends_with("..."), "{name} runs on: {doc}");
+        }
     }
 
     /// `lua/voxcade.lua` is the register as it stands (`voxcade api --lua

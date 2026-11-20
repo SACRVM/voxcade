@@ -23,6 +23,12 @@ pub fn intern(name: &str) -> &'static str {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Name(pub &'static str);
 
+impl serde::Serialize for Name {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.0)
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for Name {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let name = String::deserialize(d)?;

@@ -323,7 +323,7 @@ impl<G: Game> Session<G> {
         lines
             .into_iter()
             .enumerate()
-            .map(|(i, l)| (l, t.logo_colors.get(i).map_or([240, 230, 204, 255], |c| crate::ui::hex_color(c))))
+            .map(|(i, l)| (l, t.logo_colors.get(i).map_or([240, 230, 204, 255], |c| c.0.bytes())))
             .collect()
     }
 

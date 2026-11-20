@@ -397,7 +397,9 @@ held, as dialogue and shops always were; light is the picture's, so
   simulation does not see it, replays need nothing. A game whose code
   names `daylight` has every face a sun above the horizon can light in its
   meshes (others keep only what their one sun and the camera can hit).
-  Colours as the other frame calls take them (`{ r, g, b }`, 0 to 255);
+  Colors as every call takes them (`"#rrggbb"` or `{ r, g, b }` from 0
+  to 255, the type `Color`; a fourth value only where a color can be
+  see-through: a cube, the HUD's text, boxes and bars, an icon's letter);
   HELP's DAY AND NIGHT shows a day of 40 seconds.
 - **Fog.** `frame:fog{ density =, color =, anisotropy =, glow = }` in
   `on_draw`: this picture's fog, what it leaves out `c.light`'s
@@ -1219,8 +1221,10 @@ It brings no light (refused, plainly: a light alone does that), and
 blocks only with `solid = true` as well. Only the picture: nothing of
 it is in the hash. A level's file may have its own
 daylight, `[light]` with `c.light`'s words (`sun`, `sun_color`,
-`ambient`, `shadow`, `sky`; colours `"#rrggbb"` or three numbers from 0
-to 1, as in `c.light`, which takes both too): over the game's for
+`ambient`, `shadow`, `sky`; colors `"#rrggbb"` or three numbers from 0
+to 255, as in `c.light` and everywhere; before Voxcade 0.7.0 these
+and `c.light`'s were from 0 to 1, and `voxcade upgrade` rewrites them,
+step "colors from 0 to 255"): over the game's for
 that level, under `frame:daylight` in `on_draw`, the picture only (no
 hash); the meshes keep the faces every level's sun lights (`Game::suns`).
 A level's file may turn the camera, `[camera]` with `yaw` (2026-11-20,

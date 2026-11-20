@@ -202,8 +202,13 @@ nearest; its replay `tests/two_ships`);
   setting (type, default, range), what a script has of Lua's own library
   (`api::LUA`: every `math` name, test
   `the_reference_lists_the_maths_a_script_has`) and every key of a kind (the engine's,
-  each kit's behaviors' from its `kit.toml`, `api::KIT_WORDS` where that
-  says too little); NAME as printed (`thing:walk`, `world.state`,
+  each kit's behaviors' from its `kit.toml`, `api::KIT_WORDS`: the words of
+  every kit key, each a sentence that stands alone), the shooter kit's
+  `c.weapons` and keys of `c.player` (read from the structs that read them,
+  `api::kit_settings`, test `the_shooters_settings_are_what_it_reads`), the
+  types the API names (`voxcade api Light`, from `api::TYPES`), and at the
+  top what a mistake is, the conventions and the order of a tick
+  (`api::MISTAKES`, `CONVENTIONS`, `A_TICK`, which HELP shows too); NAME as printed (`thing:walk`, `world.state`,
   `c.camera.fov`), in part, any case; an unknown one exits 1 naming the
   nearest. A number of `conf.lua` has its range in `config::RANGES` (or
   is one of `config::FREE`), checked as `conf.lua` is read (test

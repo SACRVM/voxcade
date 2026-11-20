@@ -82,12 +82,6 @@ pub fn voxel(out: &mut Vec<Instance>, x: f32, y: f32, z: f32, color: [u8; 4]) {
     out.push(Instance { pos_size: [x + 0.5, y + 0.5, z + 0.5, 1.0], color, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
 }
 
-/// Parses "#rrggbb" (or gives white).
-pub fn hex_color(s: &str) -> [u8; 4] {
-    let h = s.trim_start_matches('#');
-    let v = u32::from_str_radix(h, 16).unwrap_or(0xffffff);
-    [(v >> 16) as u8, (v >> 8) as u8, v as u8, 255]
-}
 
 
 #[cfg(test)]

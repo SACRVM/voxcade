@@ -98,7 +98,7 @@ fn a_game_sets_its_daylight() {
         ("frame:daylight{ sun = { 1, 0, 1 } }", "z below 0"),
         ("frame:daylight{ ambient = 2 }", "ambient is a number from 0 to 1"),
         ("frame:daylight{ moon = 1 }", "no 'moon'"),
-        ("frame:daylight{ sky = \"blue\" }", "sky is a color"),
+        ("frame:daylight{ sky = \"blue\" }", "sky: \"blue\" is no color: a color is"),
     ] {
         let mut g = game_in(&code_world("daylight-bad", &format!("function on_draw(frame) {bad} end\n"), &[]));
         steps(&mut g, 1);

@@ -139,8 +139,11 @@ its pose (HELP's A DOOR THAT OPENS). A piece's
 `at` is its pivot cell and `thing.x` reads `at + 0.5`: a cube beside it
 goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
 in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,
-`ambient`, `shadow`, `sky`; a colour `"#rrggbb"` or three numbers from 0
-to 1 there and in `c.light`/`c.effects` alike), `frame:daylight` still the last word. `level.areas.NAME:holds(thing
+`ambient`, `shadow`, `sky`; a color `"#rrggbb"` or three numbers from 0
+to 255 there, in `c.light`/`c.effects` and in every Lua call alike; a
+fourth value, `"#rrggbbaa"` or `{ r, g, b, a }`, only where a color can be
+see-through: `frame:cube`, `text`, `box`, `bar`, `drop_in`, an icon's
+letter), `frame:daylight` still the last word. `level.areas.NAME:holds(thing
 or { x, y, z })`. Names in the file are `thing.name` (`level:thing("lamp")`).
 
 A level may hold a landscape, `[terrain]` (`docs/tiles.md`, "A terrain"):

@@ -320,7 +320,7 @@ mod tests {
         let dir = crate::lua::tests::levels_folder(&format!("kept-{name}"), main, &[("a", &[]), ("b", &[])]);
         std::fs::write(
             dir.join("conf.lua"),
-            "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 16, 16 }\n  c.light.fog_density = 0.03\n  c.light.ambient = 0.05\n  c.light.sun_color = { 0.05, 0.05, 0.05 }\n  c.camera.pitch = 60\n  c.camera.view_width = 40\nend\n",
+            "function conf(c)\n  c.world.blocks = { file = \"level.toml\" }\n  c.player.spawn = { 16, 16 }\n  c.light.fog_density = 0.03\n  c.light.ambient = 0.05\n  c.light.sun_color = { 12.75, 12.75, 12.75 }\n  c.camera.pitch = 60\n  c.camera.view_width = 40\nend\n",
         )
         .unwrap();
         for (room, wall) in [("a", 2), ("b", 5)] {

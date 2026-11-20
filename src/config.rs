@@ -53,7 +53,7 @@ pub struct GameConfig {
     /// (`like = "other"`) and says what differs; a level places them by
     /// name (`sim::things::defs`).
     pub things: BTreeMap<String, toml::Table>,
-    /// The building kit a Lua game plays with (`"shooter"`), if any.
+    /// The ready-made rules the game plays with: `"shooter"` or `"platformer"`. Without one your script moves everything; each kit brings behaviors for kinds of things (`c.things.NAME.behavior`) and its own settings. Takes effect after a restart (F5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kit: Option<String>,
     /// A Lua game's actions besides the four directions (a kit brings its
@@ -106,9 +106,10 @@ pub struct GameConfig {
     /// chose, the engine's menus speak it. None: English.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub languages: Vec<String>,
-    /// The seats the game has, how many play at once (`c.players = 4`;
-    /// `docs/game-model.md`, "Several players"): 1, a game of one, unless
-    /// set.
+    /// The seats the game has, how many players can play at once
+    /// (`c.players = 4`): 1, a game of one, unless set. Each seat is a
+    /// player (`world.players[n]`); players take a seat with START on a pad
+    /// or Return at the keyboard, or join over the network.
     #[serde(skip_serializing_if = "is_one")]
     pub players: u32,
     /// The high score table takes the run as one line, every seat's score
@@ -274,8 +275,8 @@ impl StateConfig {
 pub struct IconConfig {
     /// Its rows from the top, a letter a colour of `colors`, `.` empty.
     pub rows: Vec<String>,
-    /// A letter's colour: red, green, blue (and alpha), 0 to 255.
-    pub colors: BTreeMap<String, Vec<u8>>,
+    /// A letter's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255, a fourth value see-through.
+    pub colors: BTreeMap<String, crate::color::setting::SeeThrough>,
 }
 
 impl IconConfig {
@@ -284,8 +285,8 @@ impl IconConfig {
         let mut out = Vec::new();
         for (r, row) in self.rows.iter().enumerate() {
             for (c, ch) in row.chars().enumerate() {
-                if let Some(rgb) = self.colors.get(ch.to_string().as_str()) {
-                    out.push((c, r, [rgb[0], rgb[1], rgb[2], rgb.get(3).copied().unwrap_or(255)]));
+                if let Some(color) = self.colors.get(ch.to_string().as_str()) {
+                    out.push((c, r, color.0.bytes()));
                 }
             }
         }
@@ -297,12 +298,9 @@ impl IconConfig {
         if self.rows.is_empty() {
             return Err(format!("{what}.rows: the picture's rows from the top, one string each"));
         }
-        for (letter, rgb) in &self.colors {
+        for letter in self.colors.keys() {
             if letter.chars().count() != 1 || letter == "." {
                 return Err(format!("{what}.colors.{letter}: one letter names a color (\".\" is empty)"));
-            }
-            if !(3..=4).contains(&rgb.len()) {
-                return Err(format!("{what}.colors.{letter}: red, green, blue (and alpha), 0 to 255"));
             }
         }
         for (r, row) in self.rows.iter().enumerate() {
@@ -447,11 +445,11 @@ pub struct PlayerConfig {
     pub model: String,
     /// Start position on the ground (x, y). Negative means world centre.
     pub spawn: [f32; 2],
-    /// Running speed.
+    /// Running speed, in voxels a second.
     pub speed: f32,
-    /// How quickly it gets to running speed on the ground, and in the air.
+    /// How quickly it gets to running speed while it stands on something, in voxels per second per second. In the air `air_accel` applies instead.
     pub accel: f32,
-    /// How quickly it gets to running speed in the air.
+    /// How quickly it gets to running speed while it is in the air, in voxels per second per second (`accel` on the ground).
     pub air_accel: f32,
     /// Height of a full jump (holding the button); letting go early cuts it.
     pub jump: f32,
@@ -497,11 +495,11 @@ pub struct TitleScreenConfig {
     pub at: Option<[f32; 2]>,
     /// Voxels across the screen there (default: `c.camera.view_width`).
     pub view_width: Option<f32>,
-    /// The logo, a line each (default: the game's title), and their
-    /// colours as "#rrggbb".
+    /// The logo, a line each (default: the game's title); `logo_colors`
+    /// colors them.
     pub logo: Vec<String>,
-    /// Each logo line's colour, "#rrggbb".
-    pub logo_colors: Vec<String>,
+    /// Each logo line's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    pub logo_colors: Vec<crate::color::setting::Opaque>,
     /// How high each logo line's capitals are, in UI voxels.
     pub logo_heights: Vec<u32>,
     /// Which logo line drips (blood).
@@ -534,8 +532,7 @@ pub struct TitleScreenConfig {
     /// game's replays (`replays/`), as the arcade machines did; 0: never.
     pub attract_after: f32,
     /// The scene behind the menu is dark: its rows and hint in light
-    /// letters (default: dark ones, over bright ground like More Blood's
-    /// sand).
+    /// letters (default: dark ones, which read over bright ground).
     pub light_menu: bool,
     /// A level of the game as its own title (`c.title_screen.level = "title"`), a file in `levels/`, in place of the engine's title.
     /// The window opens in it; its code draws the menu and begins a run with `world:new_game()` or `world:load(slot)`.
@@ -677,16 +674,16 @@ pub const RANGES: &[Bound] = &[
     within("camera.aspect", 0.25, 4.0),
     within("light.sun[]", -1000.0, 1000.0),
     Bound { key: "light.sun[3]", low: -1000.0, high: 0.0, low_open: false, high_open: true },
-    within("light.sun_color[]", 0.0, 1.0),
+    within("light.sun_color[]", 0.0, 255.0),
     within("light.ambient", 0.0, 1.0),
     within("light.shadow", 0.0, 1.0),
-    within("light.sky[]", 0.0, 1.0),
-    within("light.reflection_horizon[]", 0.0, 1.0),
-    within("light.reflection[]", 0.0, 1.0),
+    within("light.sky[]", 0.0, 255.0),
+    within("light.reflection_horizon[]", 0.0, 255.0),
+    within("light.reflection[]", 0.0, 255.0),
     within("light.metal_sweep", 0.0, 10.0),
     within("light.edge_tolerance", 0.0, 16.0),
     within("light.fog_density", 0.0, 1.0),
-    within("light.fog_color[]", 0.0, 1.0),
+    within("light.fog_color[]", 0.0, 255.0),
     within("light.fog_anisotropy", -0.9, 0.9),
     within("light.fog_glow", 0.0, 20.0),
     within("debris.settle", 0.0, 1.0),
@@ -700,12 +697,12 @@ pub const RANGES: &[Bound] = &[
     within("effects.glow", 0.0, 10.0),
     within("effects.lights", 0.0, 10.0),
     within("effects.haze", 0.0, 1.0),
-    within("effects.haze_color[]", 0.0, 1.0),
+    within("effects.haze_color[]", 0.0, 255.0),
     within("effects.tilt_shift", 0.0, 1.0),
     within("effects.screen_flash", 0.0, 1.0),
     within("effects.hitstop", 0.0, 60.0),
     within("effects.outline", 0.0, 8.0),
-    within("effects.outline_color[]", 0.0, 1.0),
+    within("effects.outline_color[]", 0.0, 255.0),
     above("ui.height", 0.0, 4096.0),
     within("ui.depth", 1.0, 16.0),
     within("ui.slant", 0.0, 4.0),
@@ -724,7 +721,7 @@ pub const RANGES: &[Bound] = &[
 /// The numbers of `conf.lua` that may be any number of their type: a
 /// place on the ground (`player.spawn`: below 0 the world's middle), an
 /// order, a version, points, a quarter turn checked as it is read.
-pub const FREE: &[&str] = &["player.spawn[]", "title_screen.at[]", "title_screen.props[].at[]", "title_screen.props[].rotation", "items.*.order", "saves.version", "high_scores[][]", "icons.*.colors.*[]"];
+pub const FREE: &[&str] = &["player.spawn[]", "title_screen.at[]", "title_screen.props[].at[]", "title_screen.props[].rotation", "items.*.order", "saves.version", "high_scores[][]"];
 
 /// The range of the number at `path` (as `RANGES` writes it, `light.sun[3]`
 /// before `light.sun[]`), if it has one.
@@ -798,23 +795,29 @@ pub fn check_ranges(c: &toml::Value) -> std::result::Result<(), String> {
 /// The settings that are a colour (`color`), section and name.
 pub const COLORS: [(&str, &str); 7] = [("light", "sun_color"), ("light", "sky"), ("light", "reflection_horizon"), ("light", "reflection"), ("light", "fog_color"), ("effects", "haze_color"), ("effects", "outline_color")];
 
-/// What a colour must be, said when it is not.
-pub const COLOR_IS: &str = "a color is three numbers from 0 to 1, { 0.4, 0.6, 0.8 }, or \"#rrggbb\"";
+/// Why `c.light`'s and `c.effects`' colors take no fourth value.
+pub const OPAQUE: &str = "it cannot be see-through";
 
-/// A colour as three numbers from 0 to 1 (`{ 0.4, 0.6, 0.8 }`) or as
-/// text, `"#rrggbb"`, as a level's file writes it (`COLORS`).
+/// What a color setting held before Voxcade 0.7.0, said under the mistake
+/// of a table on that scale.
+pub const WAS_0_TO_1: &str = "conf.lua's colors were numbers from 0 to 1 before Voxcade 0.7.0; voxcade upgrade rewrites them";
+
+/// A color setting (`COLORS`) as `color::read` reads it ("#rrggbb" or
+/// { r, g, b } from 0 to 255; the mistakes said with the setting's name by
+/// `lua::conf` first), held from 0 to 1 as the picture takes it.
 fn color<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Written {
-        Numbers([f32; 3]),
-        Text(String),
-    }
-    let wrong = || serde::de::Error::custom(COLOR_IS);
-    match Written::deserialize(d).map_err(|_: D::Error| wrong())? {
-        Written::Numbers(c) => Ok(c),
-        Written::Text(t) => crate::grid::hex(&t).map(|c| c.map(|v| f32::from(v) / 255.0)).ok_or_else(wrong),
-    }
+    let v = toml::Value::deserialize(d)?;
+    crate::color::read(crate::color::written_toml(&v), crate::color::SeeThrough::No(OPAQUE)).map(|c| c.unit()).map_err(|e| serde::de::Error::custom(e.text))
+}
+
+/// A color setting written back (the defaults `conf(c)` is given, the
+/// settings as `kinds` prints them): on the scale of 0 to 255, each number
+/// the shortest that reads back to the same picture (`color::on_255`), as
+/// "#rrggbb" where they are whole.
+fn color_out<S: serde::Serializer>(c: &[f32; 3], s: S) -> Result<S::Ok, S::Error> {
+    let n = c.map(crate::color::on_255);
+    let color = crate::color::Color { rgba: [n[0], n[1], n[2], 255.0] };
+    if color.whole() { color.hex().serialize(s) } else { n.serialize(s) }
 }
 
 /// Degrees in quarter turns: 0, 90, 180, 270 (or another multiple of 90).
@@ -888,14 +891,14 @@ pub struct CameraConfig {
     pub follow_height: Option<FollowHeight>,
     /// The view stops at the edges of the stage (`World::stage`; the world
     /// without one) instead of showing the dark beyond: a side view's level,
-    /// or the ground a view from above shows (BunnyFarm's meadow).
+    /// or the ground a view from above shows (a farm seen from above).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub stop_at_edges: bool,
     /// How far apart the players in play may be, across and deep, in
     /// voxels (`{ 240, 150 }`; `{ 240 }` across only, a side view): a move
     /// that would take the two furthest apart further is cut short, as the
-    /// edge of an arcade machine's screen held them (`docs/game-model.md`,
-    /// "Several players"). The simulation's, never the window's.
+    /// edge of an arcade machine's screen held them. The game's
+    /// rules hold them apart, whatever the window's size.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<Vec<f32>>,
     /// How the game sets things down: on the grid in quarter turns (the
@@ -966,25 +969,25 @@ pub struct FollowHeight {
 pub struct LightConfig {
     /// Direction the sunlight travels (towards the ground).
     pub sun: [f32; 3],
-    /// The sunlight's color and strength, 0..1 per channel: white unless
-    /// set (warm at dusk, a pale blue for the moon). A game's
-    /// `frame:daylight` sets it for one picture.
-    #[serde(deserialize_with = "color")]
+    /// The sunlight's color, a Color: "#rrggbb" or { r, g, b } from 0 to
+    /// 255 (a darker one shines weaker); white unless set (warm at dusk, a
+    /// pale blue for the moon). `frame:daylight` sets it for one picture.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub sun_color: [f32; 3],
     /// Light that reaches every face, 0..1.
     pub ambient: f32,
     /// How much a shadow darkens sunlit faces, 0..1.
     pub shadow: f32,
-    /// Background color, 0..1 per channel.
-    #[serde(deserialize_with = "color")]
+    /// The background's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub sky: [f32; 3],
-    /// The sky metal mirrors: its color at the horizon and overhead, 0..1
-    /// per channel (below the horizon it mirrors the ground, in the haze's
-    /// color).
-    #[serde(deserialize_with = "color")]
+    /// The sky metal mirrors: its color at the horizon, a Color: "#rrggbb"
+    /// or { r, g, b } from 0 to 255 (below the horizon it mirrors the
+    /// ground, in the haze's color).
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub reflection_horizon: [f32; 3],
-    /// The sky metal mirrors overhead, 0..1 per channel.
-    #[serde(deserialize_with = "color")]
+    /// The sky metal mirrors overhead: its color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub reflection: [f32; 3],
     /// A streak of light sweeping over metal now and then, this bright
     /// (0: none): metal reads as metal even where the sun cannot glint in it.
@@ -1001,7 +1004,7 @@ pub struct LightConfig {
     /// their own light, so hard edges stay hard).
     pub model_shading: ModelShading,
     /// Models shaded otherwise, by file (relative to the game folder), e.g.
-    /// `{ ["huey.vvx"] = "faces" }` for a machine among smooth figures.
+    /// `{ ["tank.vvx"] = "faces" }` for a machine among smooth figures.
     pub model_shading_for: BTreeMap<String, ModelShading>,
     /// With "edges": how far, in voxels, a voxel's surroundings may stray
     /// from one smooth surface before it counts as an edge.
@@ -1021,8 +1024,8 @@ pub struct LightConfig {
     /// or what lies further fades to a dark veil. A game's `frame:fog` sets
     /// it for one picture.
     pub fog_density: f32,
-    /// The fog's own color where no lamp lights it, 0..1 per channel.
-    #[serde(deserialize_with = "color")]
+    /// The fog's own color where no lamp lights it, a Color: "#rrggbb" or { r, g, b } from 0 to 255. `frame:fog` sets it for one picture.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub fog_color: [f32; 3],
     /// How much the fog sends a lamp's light on ahead rather than back,
     /// -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp
@@ -1100,8 +1103,7 @@ impl Default for DebrisConfig {
 /// What makes the picture livelier than flat voxels: glow, light from
 /// flashes and explosions, haze, blur at the screen edges, a white flash on
 /// big blasts, and the game holding still for a moment when an enemy dies.
-/// How the picture goes from one level to the next (`docs/game-model.md`,
-/// "Leaving a level"): it fades out to a colour and in again, the
+/// How the picture goes from one level to the next: it fades out to a colour and in again, the
 /// picture's alone (no ticks run meanwhile, so replays do not see it; tools
 /// without a window skip it).
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -1109,8 +1111,8 @@ impl Default for DebrisConfig {
 pub struct TransitionConfig {
     /// Seconds out and seconds in; 0: a cut.
     pub fade: f32,
-    /// The colour faded through, "#rrggbb".
-    pub color: String,
+    /// The color faded through, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    pub color: crate::color::setting::Opaque,
     /// A length of its own for a reason the level is left (a puzzle
     /// game's quick restart: `restart = 0`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1128,7 +1130,7 @@ pub struct TransitionConfig {
 
 impl Default for TransitionConfig {
     fn default() -> Self {
-        Self { fade: 0.3, color: "#000000".into(), go_to: None, restart: None, won: None, lost: None }
+        Self { fade: 0.3, color: crate::color::setting::Opaque(crate::color::Color { rgba: [0.0, 0.0, 0.0, 255.0] }), go_to: None, restart: None, won: None, lost: None }
     }
 }
 
@@ -1145,11 +1147,9 @@ impl TransitionConfig {
         own.unwrap_or(self.fade).max(0.0)
     }
 
-    /// The colour as 0..1 (black when it is no "#rrggbb").
+    /// The color as 0 to 1, as the picture takes it.
     pub fn rgb(&self) -> [f32; 3] {
-        let hex = self.color.trim_start_matches('#');
-        let c = |i: usize| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(0) as f32 / 255.0;
-        if hex.len() == 6 { [c(0), c(2), c(4)] } else { [0.0; 3] }
+        self.color.0.unit()
     }
 }
 
@@ -1161,10 +1161,10 @@ pub struct EffectsConfig {
     pub glow: f32,
     /// How strongly flashes and explosions light up what is around them.
     pub lights: f32,
-    /// Haze towards the far edge of the view, 0..1, and its colour (0..1).
+    /// Haze towards the far edge of the view, 0 (none) to 1 (thick); `haze_color` is its color.
     pub haze: f32,
-    /// The haze's colour, 0..1 per channel.
-    #[serde(deserialize_with = "color")]
+    /// The haze's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub haze_color: [f32; 3],
     /// Blur at the top and bottom of the screen, a miniature look, 0..1.
     pub tilt_shift: f32,
@@ -1177,8 +1177,8 @@ pub struct EffectsConfig {
     /// and its colour (0..1). Hidden behind what stands in front, drawn
     /// where one part of a model stands before another too.
     pub outline: f32,
-    /// The outline's colour, 0..1 per channel.
-    #[serde(deserialize_with = "color")]
+    /// The outline's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub outline_color: [f32; 3],
     /// Models drawn from lists of their faces that can be seen, made once,
     /// instead of a cube a voxel: the same picture, quicker and in less of

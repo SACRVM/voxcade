@@ -553,10 +553,11 @@ pub(crate) fn parse(src: &str) -> Result<Document<&str>> {
     })
 }
 
-/// `#rrggbb` as three bytes.
+/// `#rrggbb` as three bytes (`color::hex`, without a fourth value: a
+/// file's colors are opaque, glass says how see-through).
 pub(crate) fn hex(text: &str) -> Option<[u8; 3]> {
-    let h = text.strip_prefix('#').filter(|h| h.len() == 6 && h.chars().all(|c| c.is_ascii_hexdigit()))?;
-    Some([0, 2, 4].map(|i| u8::from_str_radix(&h[i..i + 2], 16).expect("hex digits")))
+    let [r, g, b, _] = crate::color::hex(text).filter(|_| text.len() == 7)?;
+    Some([r, g, b])
 }
 
 /// The `i`-th sign given out (`SIGNS`), one character or two.

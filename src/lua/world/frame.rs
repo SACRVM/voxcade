@@ -48,6 +48,9 @@ fn radius_of(n: Option<f64>) -> mlua::Result<f32> {
 /// A light as `frame:light{ ... }` writes it: `at` and `radius` needed, the
 /// rest as a level's light takes them, each checked (a mistake names the
 /// word and what it wants).
+/// Why a light's color takes no fourth value.
+const LIGHT_OPAQUE: &str = "a light has no transparency";
+
 fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
     let fail = |what: String| mlua::Error::runtime(format!("frame:light: {what}"));
     let mut shape = crate::render::LightShape::default();
@@ -68,10 +71,7 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
         match key.as_str() {
             "at" => (at, of) = (Some(to_point(lua, &v, "frame:light")?), thing_key(lua, &v)?),
             "radius" => radius = Some(radius_of(number(&v))?),
-            "color" => {
-                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } with each a whole number from 0 to 255".into())) };
-                rgb = Some(color_of(&c, "color").map_err(fail)?);
-            }
+            "color" => rgb = Some(color_of(&v, "color", LIGHT_OPAQUE).map_err(fail)?),
             "falloff" => shape.falloff = ranged(&v)?,
             "cone" => shape.cone = Some(ranged(&v)?),
             "blend" => shape.blend = ranged(&v)?,
@@ -216,11 +216,11 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Model { file, thing, frame, turn, pose: posed });
             Ok(())
         });
-        m.add_method_mut("cube", |_, o, (x, y, z, rgba, glow): (f32, f32, f32, Option<Given>, Option<f32>)| {
-            o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba.as_deref(), [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
+        m.add_method_mut("cube", |_, o, (x, y, z, rgba, glow): (f32, f32, f32, Option<GivenValue>, Option<f32>)| {
+            o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba.as_ref().map(|g| &g.0), "frame:cube: color", [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
             Ok(())
         });
-        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb, more): (GivenValue, Option<f64>, Option<Given>, Option<GivenValue>)| {
+        m.add_method_mut("light", |lua, o, (GivenValue(at), radius, rgb, more): (GivenValue, Option<f64>, Option<GivenValue>, Option<GivenValue>)| {
             if more.is_some() {
                 return Err(mlua::Error::runtime("frame:light: a fourth argument is not taken; the rest of a light's words go in a table: frame:light{ at = player, radius = 30, color = { 255, 200, 120 }, cone = 30 }"));
             }
@@ -233,9 +233,9 @@ impl UserData for Frame {
                 (_, Some(radius)) => {
                     let radius = radius_of(Some(radius))?;
                     let (of, at) = (thing_key(lua, &at)?, to_point(lua, &at, "frame:light")?);
-                    let c = match rgb.as_deref() {
-                        Some(t) => color_of(t, "color").map_err(|e| mlua::Error::runtime(format!("frame:light: {e}")))?,
-                        None => [1.0; 3],
+                    let c = match rgb.as_ref().map(|g| &g.0) {
+                        None | Some(Value::Nil) => [1.0; 3],
+                        Some(v) => color_of(v, "color", LIGHT_OPAQUE).map_err(|e| mlua::Error::runtime(format!("frame:light: {e}")))?,
                     };
                     crate::render::Light { of, ..crate::render::Light::lamp(at, radius, c, &crate::render::LightShape::default(), |w| w) }
                 }
@@ -292,10 +292,10 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Camera(cam));
             Ok(())
         });
-        m.add_method_mut("text", |lua, o, (text, x, y, rgba, size): (String, f32, f32, Option<Given>, Option<i32>)| {
+        m.add_method_mut("text", |lua, o, (text, x, y, rgba, size): (String, f32, f32, Option<GivenValue>, Option<i32>)| {
             let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             let size = text_size(size, "frame:text")?;
-            o.cmds.push(Cmd::Text { text, x, y, color: color(rgba.as_deref(), crate::ui::TEXT)?, size });
+            o.cmds.push(Cmd::Text { text, x, y, color: color(rgba.as_ref().map(|g| &g.0), "frame:text: color", crate::ui::TEXT)?, size });
             Ok(())
         });
         // Where a point of the level shows, in the HUD's measure: a thing
@@ -323,19 +323,19 @@ impl UserData for Frame {
             let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             Ok(crate::ui::line_width(&text, text_size(size, "frame:text_width")?, o.font.as_deref()))
         });
-        m.add_method_mut("box", |_, o, (x, y, width, height, rgba): (f32, f32, f32, f32, Option<Given>)| {
-            o.cmds.push(Cmd::Box { x, y, width, height, color: color(rgba.as_deref(), crate::ui::TEXT)? });
+        m.add_method_mut("box", |_, o, (x, y, width, height, rgba): (f32, f32, f32, f32, Option<GivenValue>)| {
+            o.cmds.push(Cmd::Box { x, y, width, height, color: color(rgba.as_ref().map(|g| &g.0), "frame:box: color", crate::ui::TEXT)? });
             Ok(())
         });
-        m.add_method_mut("bar", |_, o, (x, y, width, height, fraction, rgba, back): (f32, f32, f32, f32, f32, Option<Given>, Option<Given>)| {
+        m.add_method_mut("bar", |_, o, (x, y, width, height, fraction, rgba, back): (f32, f32, f32, f32, f32, Option<GivenValue>, Option<GivenValue>)| {
             // The filled part, then the rest beside it (a voxel drawn first
             // keeps its cell).
             let filled = (fraction.clamp(0.0, 1.0) * width).ceil().min(width);
             if filled > 0.0 {
-                o.cmds.push(Cmd::Box { x, y, width: filled, height, color: color(rgba.as_deref(), crate::ui::RED)? });
+                o.cmds.push(Cmd::Box { x, y, width: filled, height, color: color(rgba.as_ref().map(|g| &g.0), "frame:bar: color", crate::ui::RED)? });
             }
             if filled < width {
-                o.cmds.push(Cmd::Box { x: x + filled, y, width: width - filled, height, color: color(back.as_deref(), BAR_BACK)? });
+                o.cmds.push(Cmd::Box { x: x + filled, y, width: width - filled, height, color: color(back.as_ref().map(|g| &g.0), "frame:bar: back", BAR_BACK)? });
             }
             Ok(())
         });
@@ -350,10 +350,10 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Icon { name, x, y });
             Ok(())
         });
-        m.add_method_mut("drop_in", |lua, o, (text, x, y, ticks, rgba, size): (String, f32, f32, f32, Option<Given>, Option<i32>)| {
+        m.add_method_mut("drop_in", |lua, o, (text, x, y, ticks, rgba, size): (String, f32, f32, f32, Option<GivenValue>, Option<i32>)| {
             let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             let size = text_size(size, "frame:drop_in")?;
-            o.cmds.push(Cmd::Drop { text, x, y, ticks, color: color(rgba.as_deref(), crate::ui::TEXT)?, size });
+            o.cmds.push(Cmd::Drop { text, x, y, ticks, color: color(rgba.as_ref().map(|g| &g.0), "frame:drop_in: color", crate::ui::TEXT)?, size });
             Ok(())
         });
     }

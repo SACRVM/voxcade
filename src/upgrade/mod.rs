@@ -46,6 +46,7 @@ const STEPS: &[Step] = &[
     Step { since: "0.6.0", name: "worlds and prefabs as text", plan: worlds::plan, apply: worlds::apply, left: Some(worlds::left) },
     Step { since: "0.6.0", name: "no list of models", plan: listed::plan, apply: listed::apply, left: Some(listed::left) },
     Step { since: "0.7.0", name: "lamps stopped by walls", plan: lamps::plan, apply: lamps::plan, left: None },
+    Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left) },
 ];
 
 impl Step {
@@ -431,6 +432,11 @@ mod recordings;
 /// (`shadows = "none"` on one, `c.light.lamp_shadows = "none"` for all); it
 /// changes nothing.
 mod lamps;
+
+/// Step 0.7.0: a color's numbers from 0 to 255 everywhere: conf.lua's
+/// `c.light` and `c.effects` colors and a level's `[light]` written on the
+/// new scale, exactly.
+mod colors;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

@@ -1764,12 +1764,20 @@ assert (vvx.read_level(sys.argv[2])["location"], vvx.read_level(sys.argv[2])["pe
         assert!(with("sun = [0, 0, 1]").contains("line 5: sun is the way its light travels"), "{}", with("sun = [0, 0, 1]"));
         assert!(with("ambient = 2").contains("ambient must be between 0 and 1"));
         assert!(with("moon = 1").contains("'moon' is no field of the level's [light]"));
-        assert!(with("sky = \"blue\"").contains("sky must be a color"));
-        assert!(with("sky = [1, 2, 0]").contains("sky must be a color \"#rrggbb\" or three numbers from 0 to 1"));
-        // A color as conf.lua writes it, three numbers from 0 to 1.
-        let numbers = GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", "\n\n[light]\nsky = [0.125, 0.1875, 0.29]\nsun_color = [1, 0.85, 0.63]\n\n[[thing]]", 1)).unwrap();
+        let rule = crate::color::RULE;
+        assert_eq!(with("sky = \"blue\""), format!("line 5: sky: \"blue\" is no color: {rule}"));
+        assert_eq!(with("sky = [1, 300, 0]"), "line 5: sky: { 1, 300, 0 }: each number is from 0 to 255, not 300");
+        assert_eq!(with("sky = \"#20304a80\""), format!("line 5: sky: \"#20304a80\": the daylight has no transparency, so no \"#rrggbbaa\": {rule}"));
+        assert_eq!(with("sky = [0.125, 0.1875, 0.29]"), "line 5: sky: { 0.125, 0.1875, 0.29 } reads as numbers from 0 to 1, but a color's are from 0 to 255: write { 31.875, 47.8125, 73.95 } or \"#20304a\" (a level's colors were numbers from 0 to 1 before Voxcade 0.7.0; voxcade upgrade rewrites them)");
+        // A color as conf.lua writes it, numbers from 0 to 255: kept as hex.
+        let numbers = GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", "\n\n[light]\nsky = [32, 48, 74]\nsun_color = [255, 216.75, 160.65]\n\n[[thing]]", 1)).unwrap();
         let day = numbers.daylight.as_ref().unwrap();
         assert_eq!((day.sky.as_deref(), day.sun_color.as_deref()), (Some("#20304a"), Some("#ffd9a1")));
+        // A thing's light takes numbers too.
+        let lamp = GridLevel::from_text(&PIECES.replace("color = \"#ffd9a0\"", "color = [255, 217, 160]")).unwrap();
+        assert_eq!(lamp.things.iter().find_map(|t| t.lights.first()).and_then(|l| l.color.clone()).as_deref(), Some("#ffd9a0"));
+        let e = format!("{:#}", GridLevel::from_text(&PIECES.replace("color = \"#ffd9a0\"", "color = [255, 217, 160, 9]")).unwrap_err());
+        assert!(e.contains("a light's color: { 255, 217, 160, 9 }: a light has no transparency, so no fourth number"), "{e}");
     }
 
     /// A level's own camera (`[camera] yaw`) reads, is written before what
@@ -1858,7 +1866,7 @@ assert (vvx.read_level(sys.argv[2])["location"], vvx.read_level(sys.argv[2])["pe
             ("facing = \"south\"", "facing = \"south\"\nrotation = 10", "line 9: a thing faces a way (facing = \"south\") or has a rotation (rotation = 30), not both"),
             ("facing = \"south\"", "turn = 10", "line 8: a thing: 'turn' is called 'rotation' now (voxcade upgrade renames it)"),
             ("radius = 60, ", "", "line 14: a light needs radius = N"),
-            ("color = \"#ffd9a0\"", "color = \"orange\"", "line 14: a light's color must be \"#rrggbb\""),
+            ("color = \"#ffd9a0\"", "color = \"orange\"", "line 14: a light's color: \"orange\" is no color: a color is"),
             ("kind = \"walker\"\n", "", "a thing needs kind = \"name\""),
             ("room/stove.vvx", "room/stove.vox", "a model is a .vvx file"),
             ("size = [40, 30, 40]", "size = [40, 30, 40]\n[[area]]\nname = \"by_the_stove\"\nat = [0, 0, 0]\nsize = [1, 1, 1]", "a second area called 'by_the_stove' (the first is on line 42)"),

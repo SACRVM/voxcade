@@ -104,47 +104,46 @@ pub fn piece_pose(v: &Value, model: Option<&str>, parts: &std::collections::BTre
 /// The empty part of `frame:bar`.
 pub(super) const BAR_BACK: [u8; 4] = [64, 46, 40, 255];
 
-pub(super) fn color(v: Option<&Table>, default: [u8; 4]) -> mlua::Result<[u8; 4]> {
-    let Some(t) = v else { return Ok(default) };
-    let c = |i: i64| -> mlua::Result<u8> { Ok(t.raw_get::<Option<u8>>(i)?.unwrap_or(255)) };
-    Ok([c(1)?, c(2)?, c(3)?, c(4)?])
+/// A color a script hands the engine, as `color::read` takes it: a string,
+/// or a table of numbers (its keys 1 to n).
+pub(super) fn written(v: &Value) -> crate::color::Written {
+    use crate::color::Written;
+    match v {
+        Value::String(s) => Written::Text(s.to_string_lossy()),
+        Value::Table(t) => {
+            let n = t.raw_len();
+            if t.pairs::<Value, Value>().count() != n {
+                return Written::Other("a table with named keys".into());
+            }
+            let mut numbers = Vec::with_capacity(n);
+            for i in 1..=n {
+                match t.raw_get::<Value>(i).unwrap_or(Value::Nil) {
+                    Value::Integer(v) => numbers.push(v as f64),
+                    Value::Number(v) => numbers.push(v),
+                    other => return Written::Other(format!("a table with {} in it", crate::color::a(other.type_name()))),
+                }
+            }
+            Written::Numbers(numbers)
+        }
+        other => Written::Other(crate::color::a(other.type_name())),
+    }
 }
 
-/// A color given to a light, the fog or the daylight, `{ r, g, b }` as
-/// whole numbers from 0 to 255, as 0 to 1 each. A mistake says what is
-/// wanted and what came (the usual slip is the scale 0 to 1); the caller
-/// puts the call in front. A missing number is 255, as `color` has it.
-pub(super) fn color_of(t: &Table, key: &str) -> Result<[f32; 3], String> {
-    let mut shown = Vec::new();
-    let mut rgb = [255.0f64; 3];
-    let mut ok = true;
-    for i in 1..=4usize {
-        match t.raw_get::<Value>(i as i64).unwrap_or(Value::Nil) {
-            Value::Nil => {}
-            Value::Integer(n) => {
-                shown.push(n.to_string());
-                ok &= (0..=255).contains(&n);
-                if i <= 3 {
-                    rgb[i - 1] = n as f64;
-                }
-            }
-            Value::Number(n) if n.is_finite() => {
-                shown.push(n.to_string());
-                ok &= (0.0..=255.0).contains(&n) && n.fract() == 0.0;
-                if i <= 3 {
-                    rgb[i - 1] = n;
-                }
-            }
-            other => {
-                shown.push(format!("a {}", other.type_name()));
-                ok = false;
-            }
-        }
+/// A color of the HUD or a cube: `default` where none is given, a fourth
+/// value its alpha; as bytes, fractions rounded. The mistake says the
+/// call and parameter (`what`: "frame:text: color").
+pub(super) fn color(v: Option<&Value>, what: &str, default: [u8; 4]) -> mlua::Result<[u8; 4]> {
+    match v {
+        None | Some(Value::Nil) => Ok(default),
+        Some(v) => crate::color::read(written(v), crate::color::SeeThrough::Yes).map(|c| c.bytes()).map_err(|e| mlua::Error::runtime(format!("{what}: {e}"))),
     }
-    match ok {
-        true => Ok(rgb.map(|v| v as f32 / 255.0)),
-        false => Err(format!("{key} is a color, {{ r, g, b }} with each a whole number from 0 to 255 (not from 0 to 1), not {{ {} }}", shown.join(", "))),
-    }
+}
+
+/// A color given to a light, the fog or the daylight: no fourth value
+/// (`why` says so), fractions kept, as 0 to 1 each. The mistake is the
+/// caller's to put the call in front of.
+pub(super) fn color_of(v: &Value, key: &str, why: &'static str) -> Result<[f32; 3], String> {
+    crate::color::read(written(v), crate::color::SeeThrough::No(why)).map(|c| c.unit()).map_err(|e| format!("{key}: {e}"))
 }
 
 /// `frame:camera{ look_at =, width =, height =, pitch =, fov = }`: what it
@@ -251,10 +250,7 @@ pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
             "density" => fog.density = Some(number(&v, "density", 0.0, 1.0)?),
             "anisotropy" => fog.anisotropy = Some(number(&v, "anisotropy", -0.9, 0.9)?),
             "glow" => fog.glow = Some(number(&v, "glow", 0.0, 20.0)?),
-            "color" => {
-                let Value::Table(c) = v else { return Err(fail("color is a color, { r, g, b } with each a whole number from 0 to 255".into())) };
-                fog.color = Some(color_of(&c, "color").map_err(fail)?);
-            }
+            "color" => fog.color = Some(color_of(&v, "color", "the fog's color has no transparency").map_err(fail)?),
             other => {
                 let near = crate::audio::words::near(other, WORDS.into_iter()).map_or(String::new(), |n| format!(" (did you mean `{n}`?)"));
                 return Err(fail(format!("no `{other}`{near}: it sets {}", WORDS.join(", "))));
@@ -269,10 +265,7 @@ pub(super) fn fog(t: &Table) -> mlua::Result<crate::session::FogSet> {
 pub(super) fn daylight(t: &Table) -> mlua::Result<crate::session::Daylight> {
     let fail = |what: String| mlua::Error::runtime(format!("frame:daylight: {what}"));
     let mut day = crate::session::Daylight::default();
-    let rgb = |v: Value, key: &str| -> mlua::Result<[f32; 3]> {
-        let Value::Table(c) = v else { return Err(fail(format!("{key} is a color, {{ r, g, b }} with each a whole number from 0 to 255"))) };
-        color_of(&c, key).map_err(fail)
-    };
+    let rgb = |v: Value, key: &str| -> mlua::Result<[f32; 3]> { color_of(&v, key, "the daylight has no transparency").map_err(fail) };
     let unit = |v: Value, key: &str| -> mlua::Result<f32> {
         match v {
             Value::Integer(n) if (0..=1).contains(&n) => Ok(n as f32),
