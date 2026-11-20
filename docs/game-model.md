@@ -81,8 +81,8 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world.players` | every seat (`c.players`, 1 unless set): `world.players[n]` is seat n's player, or `false` while nobody sits there |
 | `world.saves` | what lies in each save slot, `{ level, seconds, label }` (the level it was saved in, the play time, the label `world:save` was given or nil), nil for an empty one; `world.saves.newest` the slot saved last, nil while all are empty (read through a metatable: `pairs`, `ipairs` and `#` go over the numbered slots only); read-only |
 | `world.leaving` | nil, or why the level is about to be left (`"go_to"`, `"restart"`, `"load"`, `"won"`, `"lost"`, `"new_game"`): an ask is pending; nil again once the change is done (in `on_level_start`) |
-| `world:go_to(level, place?, options?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts; `{ fade = seconds }` this change's fade (below) |
-| `world:restart(place?, options?)` | enter this level afresh at the tick's end: at `place`, else at the checkpoint, else where it starts |
+| `world:go_to(level, place?, options?)` | leave this level for another (a name, or a number in `world.levels`) at the tick's end; arrive at `place`, or where the level starts; `{ fade = seconds }` this change's fade (below); `{ fresh = true }` the level as its file has it, what it kept forgotten ("Levels that remember") |
+| `world:restart(place?, options?)` | enter this level again at the tick's end, as it was entered this visit: at `place`, else at the checkpoint, else where it starts; `{ fresh = true }` as its file has it |
 | `world:win(options?)`, `world:lose(options?)` | the run ends at the tick's end (`on_world_end` says how) |
 | `world:hitstop(ticks)` | the whole game holds still for a few ticks, `on_tick` and the time too: the punch of a hit; 60 (a second) at most, more is cut to 60 |
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
@@ -98,8 +98,10 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 |---|---|
 | `level.name`, `level.number` | which one: its name, its place in `world.levels` |
 | `level.next` | the next level's name, nil after the last |
-| `level.state` | this visit's state: fresh each time the level is entered |
+| `level.state` | this visit's state: fresh each time the level is entered; the levels of one location share theirs ("Levels that remember") |
 | `level.kept` | what this level keeps across visits (a run long, saved): for things a game tracks by hand |
+| `level.location` | the location the level's file says it belongs to (`location = "station"`), nil for none |
+| `level.away` | the ticks since this level was left, where it comes back as it was left (a location's, a persistent level, things of a persistent kind); 0 on a first visit and where it kept nothing |
 | `level.visits` | how often it has been entered in this run, restarts included (1 on the first) |
 | `level.size` | its size in voxels |
 | `level.places` | its named places: `level.places.west` is `{ x, y, z, facing }`; `level.places.start` is always there, where the level starts |
@@ -491,7 +493,7 @@ held, as dialogue and shops always were; light is the picture's, so
 | State | Lives | Holds, among the game's own |
 |---|---|---|
 | `world.state` | the whole run | what the game knows across levels: quests, the story so far |
-| `level.state` | one visit of one level; fresh each time it is entered, a restart too | crates moved, enemies left, time in the level, a sequence's steps |
+| `level.state` | one visit of one level; fresh each time it is entered, a restart too; in a location the location's visit, shared by its levels | crates moved, enemies left, time in the level, a sequence's steps |
 | `level.kept` | the whole run, one per level | what this level keeps across visits that the game tracks itself |
 | `player.state` | the whole run, from level to level | `lives`, `score`, `hp`, `inventory`, `checkpoint`, abilities |
 | `thing.state` | as long as the thing lives | `hp`, a chest's or a trader's `inventory`, a piece's `light` (0 off to 1), a piece's `parts` (its figure's pose) |
@@ -540,16 +542,100 @@ held, as dialogue and shops always were; light is the picture's, so
 ## Things that stay gone
 
 Most games want a key taken to stay taken and a chest opened to stay
-open when the level is entered again. A game keeps them by hand: in
+open when the level is entered again. The engine keeps them for a kind
+that says `persistent = true` (`c.things.chest = { ..., persistent = true
+}`: its things a level's file sets down stay as left for the whole run, in
+any level), for a level whose file says `persistent = true` (everything it
+sets down and its voxels) and, while the player stays among them, for
+the levels of one location (below). A game keeps the rest by hand: in
 `level.kept` (a lever's position, a puzzle solved, which keys are taken),
-read in `on_level_start`; it lasts the run and goes into its saves. A
-`keep = true` on a kind (the engine keeping removed and changed placed
-things by their `thing.name`) is planned for 0.7: it is not built, and a
-kind that names it is refused like any unknown key.
+read in `on_level_start`; it lasts the run and goes into its saves.
 
 Everything else of the level is as its file has it on each visit and
 each restart (enemies back, crates where they started): the default
 stays a fresh level.
+
+## Levels that remember
+
+An adventure's place is a few rooms (a station: its forecourt, its hall,
+its platform). A level's file says where it belongs, `location =
+"station"`; the levels that say the same name are one location. Nothing
+else is switched on: it is so because the location is as one level (the
+owner's words). `lua::memory` builds it.
+
+- **While the player changes among a location's levels, each is as it
+  was left.** As a level is left, what it keeps is taken as a record;
+  as it is entered again it is built from its file as ever, the record
+  laid over it, then `on_level_start(how)` runs with the `how` it has
+  everywhere (`"go_to"`, `"restart"`, ...). A record holds, for each
+  thing the level's file set down, found again by its name (`thing.name`:
+  the file's, or the one the game gives it, `lever_2`): that it was taken
+  out (or died); where it stood and the way it faced; whether its
+  ready-made behavior was switched off (`thing:enable`); its `thing.state`
+  as the script sees it, the engine's keys among the game's own (`hp`, a
+  piece's `light`, a pose, a platform's goal); and the level's voxels and
+  colours that differ from its file. Not kept: things the script spawned
+  (it places them again, as after a load), what a ready-made behavior
+  counts inside itself (a lift's phase, a hopper's wait: it begins again),
+  rounds and grenades in flight. A thing kept in a `thing.state` comes
+  back as nil (keep its name).
+- **`level.state` is the location's.** Its levels share it: it goes on
+  through a change among them (things in it come back as nil, as across a
+  save) and is fresh when the location is entered from outside.
+  `level.kept` stays each level's. A hold (`level.state.held`) goes on
+  with it: a sequence that ends in `world:go_to` clears its step and its
+  hold before it asks, as it would before moving the player within one
+  level.
+- **Leaving the location forgets it** (a change to a level of another
+  location, or of none): the records of its levels go, but for what is
+  persistent. Coming back later the station is as its files have it,
+  and a chest of a persistent kind still open.
+- **`persistent`.** A level's `persistent = true` keeps everything it sets
+  down and its voxels as left for the whole run, in a location or not; a
+  kind's keeps its things a level's file sets down, in any level. Its
+  `level.state` stays one visit (outside a location). The thing that
+  becomes the player (the jump & run's first hero) has no name: a kind
+  with that behavior and `persistent` is a mistake as the game loads.
+- **No time passes in a level nobody is in** (as in every Sierra and
+  LucasArts room): its things do not tick. `level.away` is how many
+  ticks it was left: `world.tick` as it is entered less the tick its
+  record was taken at; 0 on a first visit, where it kept nothing, after
+  `{ fresh = true }` and after a load (no time passes in a save).
+  `on_level_start` makes up for what should have happened meanwhile (a
+  lamp's oil, a timer in a `thing.state` counted down by it).
+- **Starting over.** `world:restart()` gives the level as it was entered
+  this visit: its things with what it kept then (a key taken on an
+  earlier visit is not there twice) and, in a location, `level.state` as
+  it came in; `level.away` counts the visit too, its record being from
+  before it. A level file saved while playing (`"reload"`) is entered so,
+  the player where it stood. `{ fresh = true }` on `world:go_to` or
+  `world:restart` drops the level's record: as its file has it.
+- **`world:go_to` the same level** of a location keeps it as left (a
+  change within the place); outside one it is entered afresh as ever
+  (Sokovox's next puzzle).
+- **`player.state.checkpoint`** is still forgotten on every `go_to`, a
+  room of the same location too: it names a place or a thing of the level
+  it was reached in, and a restart is of the level being played.
+- **A level file changed since** (an update, the editor): a thing new in
+  the file is as the file has it; a record for a name the file no longer
+  has is dropped with a note in OUTPUT; a thing taken out stays out by its
+  name. A level whose size changed takes none of its voxels back.
+- **The game's own title** belongs to no location (a mistake as the game
+  loads): it is played in no run.
+- **One form.** A record is names and plain data, the same whether it
+  lies in memory during the run, in a save, in a scenario (`as_left`) or
+  in `inspect`'s JSON (`"records"`): `{ left = TICK, things = { door_1 = {
+  at = { x, y, z }, facing = { x, y }, state = { open = true } }, key_1 =
+  { removed = true } }, voxels = "..." }`.
+- **Replays and the hash.** The records are part of the game's state:
+  snapshots share them (fixed once made), the state hash takes each once
+  (in its part `levels`), and only in a game whose levels remember, so
+  every other game hashes as before. Several players change level
+  together, as always.
+- **Where:** levels of blocks and levels of pieces (`grid::text`); a map
+  or a world (`.vvx`) has no room for the words. The level editor's
+  LEVEL has LOCATION (the locations the game's levels say, or a new name)
+  and PERSISTENT.
 
 ## The flow of a run
 
@@ -690,7 +776,9 @@ end. `on_draw` runs for every picture and only looks.
      `level.state` what should outlive the visit into `world.state`,
      `player.state` or `level.kept` (those three are kept anyway).
   3. The level's things go (no `on_death` for them), its `level.state`
-     with them, and events still pending for the next tick are dropped.
+     with them (in a location it goes on), and events still pending for
+     the next tick are dropped; a level that remembers keeps its record
+     ("Levels that remember").
   4. The next level is built from its file and what it kept; the player
      stands at the place, its feet at the place's height (lifted out of
      anything there, else down onto what is below), facing its facing if
@@ -746,7 +834,8 @@ end. `on_draw` runs for every picture and only looks.
   keeps its own flag.
 - **Three ways on, all written in a few lines:**
   - *Start the level over:* `world:restart()`: everything of the level
-    from its file again, fresh `level.state`; the player
+    from its file again, fresh `level.state` (a level that remembers: as
+    it was entered this visit); the player
     at the checkpoint if there is one, else at the start.
   - *Back to a checkpoint:* the script sets `player.state.checkpoint` to
     a place's or a thing's name as the player passes it;
@@ -839,8 +928,8 @@ tick.
 | `world.state`, `player.state` | from `c.state` | kept | kept | from the save | kept |
 | `player.state.checkpoint` | none | forgotten | kept | from the save | kept |
 | `level.kept` | none | kept | kept | from the save | kept |
-| `level.state` | fresh | fresh | fresh | from the save | fresh |
-| the level's things and voxels | from its file | from its file | from its file | from its file and the save | from its file |
+| `level.state` | fresh | fresh (in a location: goes on) | fresh (in a location: as entered) | from the save | fresh (in a location: as entered) |
+| the level's things and voxels | from its file | from its file and what it kept | from its file and what it kept as entered | from its file and the save | from its file and what it kept as entered |
 | holds, switches, hit stop, shake | none | none | none | the level's from the save | none |
 | events pending for the next tick | none | dropped | dropped | dropped | dropped |
 | the player | at the level's start | at the place | at the place, the checkpoint or the start | where it stood | where it stood |
@@ -849,7 +938,8 @@ tick.
 | keys held | as held | as held (no new press) | as held | as held | as held |
 
 A test keeps this true: a level entered, left and entered again starts
-with the same things, voxels and `level.state` as the first time; a run
+with the same things, voxels and `level.state` as the first time (one
+that does not remember: "Levels that remember"); a run
 restarted twice plays as a fresh one. Saving `main.lua` while playing
 changes no state (the functions are swapped); either kind of reload marks
 the run as no longer starting from the files, so it is not kept as a
@@ -956,7 +1046,9 @@ touches there touches without `on_touch`.
   map, or a world (`.vvx`, `crate::scene`).
 - **Settings per level** (its title, its music, the player's behavior
   in it: a top-down overworld with jump & run dungeons, GB Studio's proven
-  cross) live in the level file, set in the level editor.
+  cross) live in the level file, set in the level editor; built so far:
+  its daylight, the location it belongs to and whether it is persistent
+  ("Levels that remember").
 - **Places.** A level holds named places, each with a facing if it
   wants one (else the player faces as its rules turn it), set in the
   level editor; `"start"` is every level's. (A named thing as a place,
@@ -1171,6 +1263,9 @@ yet: areas' events, setting a light's colour or radius in code.
   and `jump` move nothing. For kinds the script moves, so the ones
   without a behavior (and the same in a game with a kit); on a kind with
   a behavior it is a mistake, for its ready-made rules move it.
+- **`persistent = true`** (`c.things.NAME.persistent`): its things a
+  level's file sets down stay as left for the whole run, in any level
+  ("Levels that remember"); not on the hero that becomes the player.
 - **`like = "other"`** builds a kind on another, as today.
 - **Props are declared** with their type and default:
   `c.things.door = { props = { to = "01_hall", at = "start", locked = false } }`.
@@ -1216,6 +1311,11 @@ yet: areas' events, setting a light's colour or radius in code.
   generator. The level's file is read afresh when loaded, so saves survive
   updates of the game; what the level's file would not bring back (holes
   blown into it, colours a script added) is saved as the changed voxels.
+  In a game whose levels remember it holds the level played as it would
+  be kept were it left now (`here`), the other levels' records
+  (`records`: a location's, what lasts the run) and, in a location,
+  `level.state` as the level was entered (`entered`, what a restart gives
+  back); a save without them (an older Voxcade's) loads as before.
   It is TOML a person can read, the states in it written as Lua tables.
 - **Loading** asks like a level change (`why` and `how` are `"load"`):
   the level from its file and what it kept, `level.state` back, the player
@@ -1305,6 +1405,14 @@ says so).
   own: a game's helpers for scenarios); its globals are `main.lua`'s,
   frozen. A mistake halts the game with its line, as one in
   `on_level_start` does.
+- **Other levels as they were left:** a scenario's `as_left = { hall = {
+  key_1 = { removed = true }, door_1 = { state = { open = true } } } }`
+  gives levels other than the one the run begins in as if they had been
+  left so ("Levels that remember": the record's things, by name; what a
+  thing leaves out is as its file has it): laid over each as it is
+  entered, and forgotten as a record is. Each level and thing name is
+  checked as the scenario is read, a wrong one a mistake with the nearest
+  there is.
 - **Its words are the game's.** Plain state writes work, but a scenario
   reads and lasts best when the game gives it verbs (BunnyFarm's
   `setup.lua`: a day and an hour, the level, animals, a gap in a fence,
