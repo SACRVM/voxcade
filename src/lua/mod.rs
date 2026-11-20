@@ -660,6 +660,8 @@ impl<K: Kit> Game for LuaGame<K> {
     /// (`check_facings`, `check_names`).
     fn check_levels(&self, levels: &crate::levels::Levels) -> Result<()> {
         check_facings(levels, &self.stage.kinds)?;
+        let cfg = &self.stage.host.sim().cfg;
+        check_yaws(levels, with::<K>(cfg) && K::sees_from_the_side(cfg))?;
         check_names(levels, &self.stage.kinds)
     }
 

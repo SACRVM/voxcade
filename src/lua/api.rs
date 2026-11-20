@@ -442,6 +442,10 @@ pub const API: &[Item] = &[
     Item { of: "level.camera", name: "look_at", what: Method { params: &[("x", "number"), ("y", "number")], returns: "" },
         doc: "The camera rests over this point from now on, following nothing, whatever spawns (follow follows a thing again): a room, a \
             boss arena, a scene, a field that scrolls by itself." },
+    Item { of: "level.camera", name: "yaw", what: Field { ty: "number", set: false }, doc: "The way the camera looks in this level, degrees \
+            clockwise seen from above (0 north): the level file's [camera] yaw, else c.camera.yaw. Only to read.\nThe engine turns no keys \
+            for a game in Lua alone: input.dir and input.move are the keys as pressed, screen directions. Seen from behind (180), a game \
+            whose up walks north turns them: if level.camera.yaw == 180 then x, y = -x, -y end. The ready-made rules turn their own." },
     // player
     Item { of: "player", name: "state", what: Field { ty: "table", set: false }, doc: "The player's data for the whole run, from level to \
             level. It starts as c.state.player says. Plain data, no things; lives and the like are your game's own keys. A script reads and \
@@ -561,7 +565,8 @@ pub const API: &[Item] = &[
     Item { of: "input", name: "up", what: Field { ty: "boolean", set: false }, doc: "Held this tick (input:pressed(\"up\") whether it went down this tick)." },
     Item { of: "input", name: "down", what: Field { ty: "boolean", set: false }, doc: "Held this tick (input:pressed(\"down\") whether it \
             went down this tick)." },
-    Item { of: "input", name: "dir", what: Field { ty: "Way", set: false }, doc: "The directions held as a way: x and y each -1, 0 or 1." },
+    Item { of: "input", name: "dir", what: Field { ty: "Way", set: false }, doc: "The directions held as a way: x and y each -1, 0 or 1. \
+            The keys as pressed, whichever way the level's camera looks (level.camera.yaw)." },
     Item { of: "input", name: "move", what: Field { ty: "Stick", set: false }, doc: "Where the left stick leans, { x, y }: x right, y up, \
             each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, \
             about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering." },

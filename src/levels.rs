@@ -136,6 +136,9 @@ pub struct Made {
     /// Its own daylight (`[light]` in its file): what it sets of the
     /// picture's daylight over the game's `c.light`.
     pub daylight: crate::session::Daylight,
+    /// Its own camera (`[camera]` in its file), its yaw also its world's
+    /// (`World::yaw`).
+    pub camera: Option<crate::grid::LevelCamera>,
 }
 
 impl Made {
@@ -143,7 +146,7 @@ impl Made {
     /// down, no places, the game's daylight.
     pub fn world(world: World, markers: Vec<Marker>, files: Vec<PathBuf>) -> Self {
         let daylight = Default::default();
-        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), marker_props: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight }
+        Self { world, markers, files, places: Vec::new(), marker_names: Vec::new(), marker_facings: Vec::new(), marker_props: Vec::new(), pieces: Vec::new(), areas: Vec::new(), daylight, camera: None }
     }
 
     /// Each of its things' own props is one its kind declares, of its
@@ -601,7 +604,21 @@ fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> 
         let none = toml::Table::new();
         made.check_props(|kind| Some(kinds.get(kind)?.get("props").and_then(toml::Value::as_table).unwrap_or(&none)))?;
     }
+    if let Some(why) = made.camera.and_then(|c| quarter_mistake(&cfg.camera, c)) {
+        anyhow::bail!(why);
+    }
     Ok(made)
+}
+
+/// The mistake of a level's camera turned a quarter (90, 270) where the
+/// game sees its levels from the side (a jump & run's view, which turns by
+/// halves only so far, 0 or 180): None where it may turn so.
+pub fn quarter_mistake(cam: &crate::config::CameraConfig, c: crate::grid::LevelCamera) -> Option<String> {
+    let turned = crate::config::CameraConfig { yaw: c.yaw as f32, ..cam.clone() };
+    (c.yaw % 180 != 0 && !crate::camera::from_above(&turned)).then(|| {
+        let line = if c.line > 0 { format!("line {}: ", c.line) } else { String::new() };
+        format!("{line}[camera] yaw = {}: the game sees its levels from the side (c.camera.pitch {}), which turns by halves only so far: yaw = 0 or 180", c.yaw, cam.pitch)
+    })
 }
 
 fn stem(path: &Path) -> String {

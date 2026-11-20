@@ -444,6 +444,22 @@ impl PartialEq for Place {
     }
 }
 
+/// A level's own camera (`[camera]` in its file): its yaw, degrees
+/// clockwise seen from above as `c.camera.yaw`'s, over the game's; quarter
+/// turns only (0, 90, 180, 270; a view from the side 0 or 180). The line
+/// it is on, for a mistake (0: from no file).
+#[derive(Clone, Copy, Debug)]
+pub struct LevelCamera {
+    pub yaw: i32,
+    pub line: usize,
+}
+
+impl PartialEq for LevelCamera {
+    fn eq(&self, o: &Self) -> bool {
+        self.yaw == o.yaw
+    }
+}
+
 /// A level as its file holds it: blocks in a grid, things and pieces set
 /// down, places and areas. A level without a grid (`n` 0) is only its
 /// pieces, things, places and areas in a space `size` voxels big.
@@ -461,6 +477,8 @@ pub struct GridLevel {
     pub areas: Vec<Area>,
     /// Its own daylight (`[light]`), None where the game's `c.light` is all.
     pub daylight: Option<Daylight>,
+    /// Its own camera (`[camera]`), None where the game's `c.camera` is all.
+    pub camera: Option<LevelCamera>,
     /// Its landscape (`[terrain]`, `crate::terrain`).
     pub terrain: Option<crate::terrain::Terrain>,
 }
@@ -468,7 +486,7 @@ pub struct GridLevel {
 impl GridLevel {
     pub fn new(n: i32, size: IVec3) -> Self {
         let cells = if n > 0 { (size.x * size.y * size.z).max(0) as usize } else { 0 };
-        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, terrain: None }
+        Self { n, size, blocks: Vec::new(), cells: vec![Cell::default(); cells], things: Vec::new(), places: Vec::new(), areas: Vec::new(), daylight: None, camera: None, terrain: None }
     }
 
     /// Whether it has a grid of blocks (else only what is set down).
@@ -729,7 +747,8 @@ pub fn load_at(game: &Files, cfg: &BlocksConfig, path: &Path, names: &[&str], fr
         .collect();
     let areas = level.areas.iter().map(|a| crate::levels::Area { name: a.name.clone(), at: origin + IVec3::from(a.at), size: IVec3::from(a.size) }).collect();
     let daylight = level.daylight.as_ref().map(Daylight::picture).unwrap_or_default();
-    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight })
+    world.yaw = level.camera.map(|c| c.yaw as f32);
+    Ok(crate::levels::Made { world, markers, files, places, marker_names, marker_facings, marker_props, pieces, areas, daylight, camera: level.camera })
 }
 
 /// The mistake for the first thing, place or area of a level that lies
@@ -1740,6 +1759,46 @@ assert vvx.read_level(sys.argv[2])["things"][0]["group"] == "gates"
         let numbers = GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", "\n\n[light]\nsky = [0.125, 0.1875, 0.29]\nsun_color = [1, 0.85, 0.63]\n\n[[thing]]", 1)).unwrap();
         let day = numbers.daylight.as_ref().unwrap();
         assert_eq!((day.sky.as_deref(), day.sun_color.as_deref()), (Some("#20304a"), Some("#ffd9a1")));
+    }
+
+    /// A level's own camera (`[camera] yaw`) reads, is written before what
+    /// is set down (after the daylight), put in, changed and taken out
+    /// touching only its lines; a yaw that is no quarter turn and a word it
+    /// does not know are mistakes saying their line.
+    #[test]
+    fn a_level_has_its_own_camera() {
+        let src = commented();
+        let was = GridLevel::from_text(&src).unwrap();
+        let legend = Legend::default();
+        let mut now = was.clone();
+        now.camera = Some(LevelCamera { yaw: 180, line: 0 });
+        let out = text::rewrite(&src, &was, &now, &legend);
+        assert_eq!(GridLevel::from_text(&out).unwrap(), now, "{out}");
+        assert!(out.contains("[camera]              # this level's camera; what it leaves out is the game's c.camera\nyaw = 180\n"), "{out}");
+        assert!(out.find("[camera]") < out.find("[[thing]]"), "before the things: {out}");
+        let back = GridLevel::from_text(&out).unwrap();
+        let mut east = back.clone();
+        east.camera = Some(LevelCamera { yaw: 90, line: 0 });
+        assert_eq!(changed_lines(&out, &text::rewrite(&out, &back, &east, &legend)), ["yaw = 90"]);
+        let mut none = back.clone();
+        none.camera = None;
+        assert_eq!(text::rewrite(&out, &back, &none, &legend), src);
+        // With a daylight, after it; a level of blocks written whole.
+        let mut both = now.clone();
+        both.daylight = Some(Daylight { ambient: Some(0.3), ..Default::default() });
+        let written = both.to_text();
+        assert!(written.find("[light]") < written.find("[camera]"), "{written}");
+        assert_eq!(GridLevel::from_text(&written).unwrap(), both);
+        let mut blocks = level(4, IVec3::new(2, 1, 1), &[("rock", Kind::Solid)]);
+        blocks.camera = now.camera;
+        assert_eq!(GridLevel::from_text(&blocks.to_text()).unwrap(), blocks);
+        // Mistakes.
+        let with = |camera: &str| format!("{:#}", GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", &format!("\n\n[camera]\n{camera}\n\n[[thing]]"), 1)).unwrap_err());
+        assert!(with("yaw = 45").contains("line 5: yaw = 45: a level turns its camera by quarter turns"), "{}", with("yaw = 45"));
+        assert!(with("yaw = 360").contains("quarter turns"));
+        assert!(with("pitch = 30").contains("'pitch' is no field of the level's [camera]"), "{}", with("pitch = 30"));
+        assert!(with("").contains("[camera] needs yaw"), "{}", with(""));
+        assert_eq!(GridLevel::from_text(&PIECES.replacen("\n\n[[thing]]", "\n\n[camera]\nyaw = 270\n\n[[thing]]", 1)).unwrap().camera.map(|c| (c.yaw, c.line)), Some((270, 5)));
     }
 
     /// A level of blocks whose grid changed is written anew above its

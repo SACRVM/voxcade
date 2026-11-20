@@ -43,6 +43,14 @@ fn corners(cfg: &CameraConfig, aspect: f32) -> [Vec3; 4] {
     [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)].map(|(sx, sy)| (dir + right * h * sx + up * v * sy).normalize())
 }
 
+/// Whether the camera sees the level from above: every corner ray of its
+/// view points down (the window's shape does not change that; else it is a
+/// view from the side, a jump & run's). A level turns a view from above by
+/// quarter turns, one from the side by halves (`[camera] yaw`).
+pub fn from_above(cfg: &CameraConfig) -> bool {
+    corners(cfg, 1.0).iter().all(|ray| ray.z < -1e-3)
+}
+
 /// The eight corners of the box `lo` to `hi`.
 pub fn box_corners(lo: Vec3, hi: Vec3) -> [Vec3; 8] {
     std::array::from_fn(|i| {
@@ -163,6 +171,7 @@ pub fn light_view_proj(
     let mut hi = Vec3::splat(f32::MIN);
     let rays = corners(cfg, aspect);
     let from_above = rays.iter().all(|ray| ray.z < -1e-3);
+    let ahead = if view_dir(cfg).y < 0.0 { -1.0 } else { 1.0 };
     let (box_lo, box_hi) = if from_above { (Vec3::ZERO, world) } else { stage };
     for ray in rays {
         if from_above {
@@ -173,9 +182,10 @@ pub fn light_view_proj(
                 hi = hi.max(p);
             }
         } else {
-            // From the side: where the ray meets the stage's front and back.
+            // From the side: where the ray meets the stage's front and back
+            // (seen from behind, `yaw` 180, its back and front).
             for plane in [stage.0.y, stage.1.y] {
-                let t = if ray.y > 1e-3 { ((plane - eye.y) / ray.y).clamp(0.0, far) } else { far };
+                let t = if ray.y * ahead > 1e-3 { ((plane - eye.y) / ray.y).clamp(0.0, far) } else { far };
                 let p = view.transform_point3(eye + ray * t);
                 lo = lo.min(p);
                 hi = hi.max(p);

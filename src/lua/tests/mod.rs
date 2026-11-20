@@ -1,6 +1,7 @@
 //! The Lua door's rules, each tried on a small game in a temporary folder
 //! with a world made in code.
 
+mod camera;
 mod course;
 mod events;
 mod given;

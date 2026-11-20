@@ -7,8 +7,18 @@ use std::collections::HashSet;
 
 /// A game on open flat ground, without model files.
 fn flat_game(size: i32) -> Session<Shooter> {
-    game_on(crate::sim::tests::flat_world(IVec3::new(size, size, 16)), GameConfig::default())
+    turned_game(size, None)
 }
+
+/// `flat_game` in a level whose camera turns `yaw` (`[camera] yaw`).
+fn turned_game(size: i32, yaw: Option<f32>) -> Session<Shooter> {
+    let mut world = crate::sim::tests::flat_world(IVec3::new(size, size, 16));
+    world.yaw = yaw;
+    game_on(world, GameConfig::default())
+}
+
+/// The ways seen from the camera: at yaw 0, and seen from behind.
+const SEEN_FROM: [Option<f32>; 2] = [None, Some(180.0)];
 
 /// A game in `world` with `cfg`, without model files.
 fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
@@ -77,8 +87,8 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
 /// are rounded separately, the player flickers between two spots.
 #[test]
 fn running_player_keeps_still_on_screen() {
-    for run in [Input { left: true, ..Input::default() }, Input { up: true, left: true, ..Input::default() }] {
-        let mut game = flat_game(512);
+    for (run, yaw) in [Input { left: true, ..Input::default() }, Input { up: true, left: true, ..Input::default() }].into_iter().flat_map(|r| SEEN_FROM.map(|y| (r, y))) {
+        let mut game = turned_game(512, yaw);
         let mut offsets = Vec::new();
         for tick in 0..150 {
             game.game.step(&run);
@@ -91,7 +101,7 @@ fn running_player_keeps_still_on_screen() {
             }
         }
         let changes = offsets.windows(2).filter(|pair| pair[0] != pair[1]).count();
-        println!("{run:?}: player jumps against the camera {changes} times in {} frames", offsets.len());
+        println!("{run:?} at {yaw:?}: player jumps against the camera {changes} times in {} frames", offsets.len());
         assert!(changes <= 2, "player shivers against the camera {changes} times while running");
     }
 }
@@ -220,53 +230,76 @@ fn the_edge_changes_nothing() {
 /// steps afterwards, which read as hitches.
 #[test]
 fn stopping_stops_the_view() {
-    let mut game = flat_game(512);
-    for _ in 0..60 {
-        game.game.step(&Input { left: true, ..Input::default() });
-    }
-
-    let mut late_moves = 0;
-    let mut last = (game.player_origin(1.0), game.view_target(1.0));
-    let mut player_still_for = 0;
-    for _ in 0..60 {
-        game.game.step(&Input::default());
-        for alpha in [0.0, 0.3, 0.6, 0.9] {
-            let now = (game.player_origin(alpha), game.view_target(alpha));
-            if now.0 == last.0 {
-                player_still_for += 1;
-                if now.1 != last.1 {
-                    late_moves += 1;
-                }
-            } else {
-                player_still_for = 0;
-            }
-            last = now;
+    for yaw in SEEN_FROM {
+        let mut game = turned_game(512, yaw);
+        for _ in 0..60 {
+            game.game.step(&Input { left: true, ..Input::default() });
         }
+
+        let mut late_moves = 0;
+        let mut last = (game.player_origin(1.0), game.view_target(1.0));
+        let mut player_still_for = 0;
+        for _ in 0..60 {
+            game.game.step(&Input::default());
+            for alpha in [0.0, 0.3, 0.6, 0.9] {
+                let now = (game.player_origin(alpha), game.view_target(alpha));
+                if now.0 == last.0 {
+                    player_still_for += 1;
+                    if now.1 != last.1 {
+                        late_moves += 1;
+                    }
+                } else {
+                    player_still_for = 0;
+                }
+                last = now;
+            }
+        }
+        println!("view moves {late_moves} times after the player stood still");
+        assert!(player_still_for > 100, "the player should have come to rest");
+        assert_eq!(late_moves, 0, "the view keeps moving after the player stopped ({yaw:?})");
     }
-    println!("view moves {late_moves} times after the player stood still");
-    assert!(player_still_for > 100, "the player should have come to rest");
-    assert_eq!(late_moves, 0, "the view keeps moving after the player stopped");
 }
 
 /// Jumping in place must leave the view where it is: the camera height
 /// ignores jumps, so nothing may round it up and down while airborne.
 #[test]
 fn jumping_keeps_the_view_still() {
-    let mut game = flat_game(256);
-    for _ in 0..60 {
-        game.game.step(&Input::default());
-    }
-
-    let mut views = Vec::new();
-    for tick in 0..60 {
-        game.game.step(&Input { jump: tick < 20, ..Input::default() });
-        for alpha in [0.0, 0.3, 0.6, 0.9] {
-            views.push((game.view_target(alpha) * 1000.0).round().as_ivec3());
+    for yaw in SEEN_FROM {
+        let mut game = turned_game(256, yaw);
+        for _ in 0..60 {
+            game.game.step(&Input::default());
         }
+
+        let mut views = Vec::new();
+        for tick in 0..60 {
+            game.game.step(&Input { jump: tick < 20, ..Input::default() });
+            for alpha in [0.0, 0.3, 0.6, 0.9] {
+                views.push((game.view_target(alpha) * 1000.0).round().as_ivec3());
+            }
+        }
+        let changes = views.windows(2).filter(|pair| pair[0] != pair[1]).count();
+        println!("view moves {changes} times during a jump");
+        assert_eq!(changes, 0, "the view shakes while jumping ({yaw:?})");
     }
-    let changes = views.windows(2).filter(|pair| pair[0] != pair[1]).count();
-    println!("view moves {changes} times during a jump");
-    assert_eq!(changes, 0, "the view shakes while jumping");
+}
+
+/// Seen from behind (`[camera] yaw = 180`) the shooter's keys turn with
+/// the camera: up walks away from it (south), right to the screen's right
+/// (west); the player rests facing the camera (north), and the view looks
+/// at it from the other side.
+#[test]
+fn the_shooters_keys_turn_with_a_level_seen_from_behind() {
+    let mut game = turned_game(256, Some(180.0));
+    assert_eq!(game.game.player.body.facing, Vec3::Y, "facing the camera");
+    assert_eq!(game.camera().yaw, 180.0);
+    let from = game.game.player.body.pos;
+    for _ in 0..30 {
+        game.game.step(&Input { up: true, right: true, ..Input::default() });
+    }
+    let way = game.game.player.body.pos - from;
+    assert!(way.y < -10.0 && way.x < -10.0, "up and right walk south and west: {way}");
+    let eye = camera::eye(&game.camera(), game.view_target(1.0), 16.0 / 9.0);
+    assert!(eye.y > game.view_target(1.0).y, "the eye on the north side");
 }
 
 /// Stairs rising eastwards from x 130, a voxel every 4, seen from the
@@ -398,6 +431,10 @@ fn shadows_fit_the_view_from_above_and_from_the_side() {
     let big = Vec3::new(2000.0, 1000.0, 800.0);
     let (_, depth) = camera::light_view_proj(&side, Vec3::new(600.0, 132.0, 300.0), 16.0 / 9.0, sun, big, stage, 2048);
     assert!(depth < 1500.0, "the side view's shadow box is {depth} voxels deep");
+    // Seen from behind (`[camera] yaw = 180`), fitted to the stage alike.
+    let behind = crate::config::CameraConfig { yaw: 180.0, ..side.clone() };
+    let (_, back) = camera::light_view_proj(&behind, Vec3::new(600.0, 132.0, 300.0), 16.0 / 9.0, sun, big, stage, 2048);
+    assert!((back - depth).abs() < depth * 0.2, "seen from behind the shadow box is {back} voxels deep, from the front {depth}");
 }
 
 /// A game that moves its sun (BunnyFarm's day) has its faces remember

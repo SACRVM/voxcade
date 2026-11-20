@@ -79,6 +79,14 @@
 //! sky = "#20304a"
 //! ```
 //!
+//! A level may turn the camera, `[camera]` (its `yaw` over `c.camera.yaw`,
+//! a quarter turn: 0, 90, 180, 270; a view from the side 0 or 180):
+//!
+//! ```toml
+//! [camera]
+//! yaw = 180                 # seen from the other side
+//! ```
+//!
 //! The cells are layers of rows of signs, `.` empty, an empty line between
 //! layers; a row followed by ` *N` stands N times in all, a line `*N`
 //! after a layer's rows the layer N times (as in a `.vvx`). `view` says
@@ -113,6 +121,9 @@ pub fn write(level: &GridLevel, kept: &Legend) -> String {
         let mut out = format!("format = \"{FORMAT}\"\nsize = [{}, {}, {}]    # voxels: across (x), deep (y, 0 in front), up (z); no grid of blocks\n", s.x, s.y, s.z);
         if let Some(d) = &level.daylight {
             out += &format!("\n{}", daylight_text(d));
+        }
+        if let Some(c) = &level.camera {
+            out += &format!("\n{}", camera_text(c));
         }
         if let Some(t) = &level.terrain {
             out += &format!("\n{}", crate::terrain::text(t));
@@ -195,6 +206,9 @@ pub fn write(level: &GridLevel, kept: &Legend) -> String {
     out += &vvx::layers_text(&layers);
     if let Some(d) = &level.daylight {
         out += &format!("\n{}", daylight_text(d));
+    }
+    if let Some(c) = &level.camera {
+        out += &format!("\n{}", camera_text(c));
     }
     if let Some(t) = &level.terrain {
         out += &format!("\n{}", crate::terrain::text(t));
@@ -301,6 +315,11 @@ fn daylight_text(d: &Daylight) -> String {
         out += &format!("sky = {}\n", vvx::quoted(c));
     }
     out
+}
+
+/// A level's own camera as its table, `[camera]` and its line.
+fn camera_text(c: &LevelCamera) -> String {
+    format!("[camera]              # this level's camera; what it leaves out is the game's c.camera\nyaw = {}\n", c.yaw)
 }
 
 /// A place's facing as its line says it: the way's name where the file
@@ -485,45 +504,15 @@ fn over(src: &str, was: &GridLevel, now: &GridLevel, kept: &Legend) -> Option<St
         }
     }
 
-    // The level's own daylight: its table changed, put in before what
-    // is set down, or taken out (a grid written anew brought it along).
-    if was.daylight != now.daylight && (same_head || !now.has_grid()) {
-        let mut header = None;
-        let mut at = 0;
-        while at < head_end {
-            if src[at..line_end(at)].trim_start().starts_with("[light]") {
-                header = Some(at);
-                break;
-            }
-            at = line_end(at);
+    // The level's own daylight and camera: a table changed, put in
+    // before what is set down, or taken out (a grid written anew brought
+    // them along).
+    if same_head || !now.has_grid() {
+        if was.daylight != now.daylight {
+            head_table_edits(src, head_end, sections.is_empty(), "[light]", now.daylight.as_ref().map(daylight_text), &mut edits);
         }
-        match (header, &now.daylight) {
-            (Some(h), day) => {
-                // Its lines: to the next table, its blank lines last.
-                let mut end = line_end(h);
-                let mut body_end = end;
-                while end < head_end && !src[end..line_end(end)].trim_start().starts_with('[') {
-                    if !src[end..line_end(end)].trim().is_empty() {
-                        body_end = line_end(end);
-                    }
-                    end = line_end(end);
-                }
-                match day {
-                    Some(d) => edits.push((h..body_end, daylight_text(d))),
-                    None => {
-                        let mut start = h;
-                        if end >= src.len() {
-                            while start > 0 && src[line_begin(start - 1)..start].trim().is_empty() {
-                                start = line_begin(start - 1);
-                            }
-                        }
-                        edits.push((start..end, String::new()));
-                    }
-                }
-            }
-            (None, Some(d)) if sections.is_empty() => edits.push((src.len()..src.len(), format!("\n{}", daylight_text(d)))),
-            (None, Some(d)) => edits.push((head_end..head_end, format!("{}\n", daylight_text(d)))),
-            (None, None) => {}
+        if was.camera != now.camera {
+            head_table_edits(src, head_end, sections.is_empty(), "[camera]", now.camera.as_ref().map(camera_text), &mut edits);
         }
     }
 
@@ -618,6 +607,52 @@ fn over(src: &str, was: &GridLevel, now: &GridLevel, kept: &Legend) -> Option<St
         out.replace_range(range, &with);
     }
     Some(out)
+}
+
+/// The edits that make the level's own table `header` (`[light]`,
+/// `[camera]`, in the text before what is set down, `head_end`) say
+/// `text`: its lines written anew, the table put in before what is set
+/// down (at the end where nothing is, `alone`), or taken out (None).
+fn head_table_edits(src: &str, head_end: usize, alone: bool, header: &str, text: Option<String>, edits: &mut Vec<(std::ops::Range<usize>, String)>) {
+    let line_begin = |at: usize| src[..at].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = |at: usize| src[at.min(src.len())..].find('\n').map_or(src.len(), |i| at + i + 1);
+    let mut found = None;
+    let mut at = 0;
+    while at < head_end {
+        if src[at..line_end(at)].trim_start().starts_with(header) {
+            found = Some(at);
+            break;
+        }
+        at = line_end(at);
+    }
+    match (found, text) {
+        (Some(h), text) => {
+            // Its lines: to the next table, its blank lines last.
+            let mut end = line_end(h);
+            let mut body_end = end;
+            while end < head_end && !src[end..line_end(end)].trim_start().starts_with('[') {
+                if !src[end..line_end(end)].trim().is_empty() {
+                    body_end = line_end(end);
+                }
+                end = line_end(end);
+            }
+            match text {
+                Some(t) => edits.push((h..body_end, t)),
+                None => {
+                    let mut start = h;
+                    if end >= src.len() {
+                        while start > 0 && src[line_begin(start - 1)..start].trim().is_empty() {
+                            start = line_begin(start - 1);
+                        }
+                    }
+                    edits.push((start..end, String::new()));
+                }
+            }
+        }
+        (None, Some(t)) if alone => edits.push((src.len()..src.len(), format!("\n{t}"))),
+        (None, Some(t)) => edits.push((head_end..head_end, format!("{t}\n"))),
+        (None, None) => {}
+    }
 }
 
 /// The edits that make the file's `[terrain]` (in the text before
@@ -1026,8 +1061,9 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
     let r = Reader { src };
     let top = doc.as_table();
     vvx::check_format_of(&r, top, FORMAT_NAME, VERSION, "level")?;
-    r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "light", "terrain", "thing", "place", "area"], "a level")?;
+    r.only(top, &["format", "block", "size", "view", "blocks", "legend", "cells", "light", "camera", "terrain", "thing", "place", "area"], "a level")?;
     let daylight = top.get("light").map(|item| read_daylight(&r, item)).transpose()?;
+    let camera = top.get("camera").map(|item| read_camera(&r, item)).transpose()?;
     let whole = |item: &Item, what: &str| -> Result<i32> {
         let v = r.number(item, what)?;
         if v.fract() != 0.0 {
@@ -1051,7 +1087,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
             return Err(r.fail(size_item.span(), format!("the level of {why}")));
         }
         let mut level = GridLevel::new(0, size);
-        level.daylight = daylight;
+        (level.daylight, level.camera) = (daylight, camera);
         read_terrain(&r, top, &mut level)?;
         read_set_down(&r, top, &mut level)?;
         return Ok((level, Legend::default()));
@@ -1160,7 +1196,7 @@ pub fn read(src: &str) -> Result<(GridLevel, Legend)> {
             k += 1;
         }
     }
-    level.daylight = daylight;
+    (level.daylight, level.camera) = (daylight, camera);
     read_terrain(&r, top, &mut level)?;
     read_set_down(&r, top, &mut level)?;
     Ok((level, legend))
@@ -1217,6 +1253,18 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
 }
 
 /// A level's own daylight (`[light]`), each word checked.
+/// The level's own camera (`[camera]`): its yaw, a quarter turn.
+fn read_camera(r: &Reader, item: &Item) -> Result<LevelCamera> {
+    let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "camera must be a table: [camera] with yaw"))?;
+    r.only(t, &["yaw"], "the level's [camera]")?;
+    let Some(yaw) = t.get("yaw") else { return Err(r.fail(item.span(), "[camera] needs yaw = 0, 90, 180 or 270 (degrees clockwise seen from above, as c.camera.yaw)")) };
+    let v = r.number(yaw, "yaw")?;
+    if !matches!(v, 0.0 | 90.0 | 180.0 | 270.0) {
+        return Err(r.fail(yaw.span(), format!("yaw = {v}: a level turns its camera by quarter turns, 0, 90, 180 or 270 (degrees clockwise seen from above)")));
+    }
+    Ok(LevelCamera { yaw: v as i32, line: yaw.span().map_or(0, |s| vvx::line_of(r.src, s.start)) })
+}
+
 fn read_daylight(r: &Reader, item: &Item) -> Result<Daylight> {
     let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "light must be a table: [light] with sun, sun_color, ambient, shadow, sky"))?;
     r.only(t, &Daylight::WORDS, "the level's [light]")?;

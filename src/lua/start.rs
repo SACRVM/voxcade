@@ -20,6 +20,7 @@ impl<K: Kit> LuaGame<K> {
         Self::check_items(cfg)?;
         Self::check_kinds_sounds(cfg, &kinds)?;
         check_facings(&levels, &kinds)?;
+        check_yaws(&levels, with::<K>(cfg) && K::sees_from_the_side(cfg))?;
         check_names(&levels, &kinds)?;
         let host: Box<dyn Host> = if with::<K>(cfg) {
             Box::new(K::load(setup)?)

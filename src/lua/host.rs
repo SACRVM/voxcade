@@ -439,6 +439,13 @@ pub trait Kit: Game + Host + Clone {
         false
     }
 
+    /// Whether its rules move along the screen's width (a jump & run's):
+    /// a level turns their camera by halves only (`[camera] yaw` 0 or 180,
+    /// never 90 or 270).
+    fn sees_from_the_side(_cfg: &GameConfig) -> bool {
+        false
+    }
+
     /// A tick while the level is held (`level.state.held`): time goes on,
     /// nothing of its rules moves; whether a tick ran (not a hit stop).
     fn held(&mut self) -> bool;
@@ -1283,7 +1290,7 @@ impl Host for Plain {
             Some(z) => Vec3::new(x, y, z),
             None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), k.height, self.sim.half()),
         };
-        let id = self.things.spawn(kind, Body::new(at, k.height), k.hp, Walk::default());
+        let id = self.things.spawn(kind, self.sim.body(at, k.height), k.hp, Walk::default());
         if !self.looking {
             self.focus.get_or_insert(id);
         }
@@ -1746,6 +1753,10 @@ impl<A: Kit, B: Kit> Kit for Either<A, B> {
 
     fn plays_several(cfg: &GameConfig) -> bool {
         if Self::first(cfg) { A::plays_several(cfg) } else { B::plays_several(cfg) }
+    }
+
+    fn sees_from_the_side(cfg: &GameConfig) -> bool {
+        if Self::first(cfg) { A::sees_from_the_side(cfg) } else { B::sees_from_the_side(cfg) }
     }
 
     fn held(&mut self) -> bool {

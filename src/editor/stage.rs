@@ -92,7 +92,7 @@ fn top_bar(ui: &mut egui::Ui, ed: &Editor, view: &View, shown: &mut PanelsDrawn)
             if view.before_game.is_none() {
                 zones::background_button(ui, view.background(ed.scope), view.sky, shown);
             }
-            keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || (ed.pieces.chosen.is_none() && !ed.among_land())), "The level's size and daylight");
+            keyed(ui, shown, "LEVEL", Action::LevelSettings, Some(view.level_settings || (ed.pieces.chosen.is_none() && !ed.among_land())), "The level's size, camera and daylight");
             let lights: usize = ed.level.things.iter().map(|t| t.lights.len()).sum();
             let many = lights > crate::render::MOST_LIGHTS;
             let tip = if many { format!("The pieces' lights in this view. {lights} lights: the game shows the {} nearest the middle of its view", crate::render::MOST_LIGHTS) } else { "The pieces' lights in this view".to_string() };
@@ -843,7 +843,8 @@ fn piece_rows(ui: &mut egui::Ui, ed: &Editor, figures: &Figures, t: &crate::grid
     }
 }
 
-/// LEVEL: its size, its daylight (as the game's, or its own: the sun,
+/// LEVEL: its size, its camera's yaw (the game's or its own), its
+/// daylight (as the game's, or its own: the sun,
 /// its colour and the sky's, the light everywhere and the shadows).
 fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
     ui.label(RichText::new("LEVEL").color(TEXT)).on_hover_text(&ed.file);
@@ -870,6 +871,17 @@ fn level(ui: &mut egui::Ui, ed: &Editor, shown: &mut PanelsDrawn) {
             }
         });
     }
+    let yaw = ed.level.camera.map(|c| c.yaw);
+    row(ui, "YAW", "Which way the camera looks in this level, degrees clockwise seen from above: 0 north, 180 from the other side", |ui| {
+        if ui.add(egui::Button::new(RichText::new("GAME").small()).selected(yaw.is_none())).on_hover_text("As the game's camera (c.camera.yaw in conf.lua)").clicked() && yaw.is_some() {
+            shown.clicked.push(Action::LevelYaw(None));
+        }
+        for way in [0, 90, 180, 270] {
+            if ui.add(egui::Button::new(RichText::new(format!("{way}")).small()).selected(yaw == Some(way))).on_hover_text(format!("[camera] yaw = {way}")).clicked() && yaw != Some(way) {
+                shown.clicked.push(Action::LevelYaw(Some(way)));
+            }
+        }
+    });
     let own = ed.level.daylight.as_ref();
     row(ui, "DAYLIGHT", "The light of this level", |ui| {
         if ui.add(egui::Button::new("AS THE GAME").selected(own.is_none())).on_hover_text("The game's daylight (c.light in conf.lua)").clicked() && own.is_some() {

@@ -273,6 +273,9 @@ pub struct World {
     /// The cells its solid pieces fill (`Solids`); None without any, the
     /// cost of a lookup only where a level has them.
     pub pieces: Option<Arc<Solids>>,
+    /// The camera's own yaw in this level (`[camera] yaw` in its file,
+    /// quarter turns), over the game's `c.camera.yaw`; None: the game's.
+    pub yaw: Option<f32>,
     chunks: CellMap<Arc<Chunk>>,
     dirty: CellSet,
     /// Every voxel written since the world was made, as one number: each
@@ -284,7 +287,7 @@ pub struct World {
 
 impl World {
     pub fn new(size: IVec3, palette: [[u8; 4]; 256]) -> Self {
-        Self { size, palette, soft: [false; 256], oneway: [false; 256], stage: None, cells: None, pieces: None, chunks: CellMap::default(), dirty: CellSet::default(), changes: 0 }
+        Self { size, palette, soft: [false; 256], oneway: [false; 256], stage: None, cells: None, pieces: None, yaw: None, chunks: CellMap::default(), dirty: CellSet::default(), changes: 0 }
     }
 
     /// The palette index of a colour (opaque) that is solid, neither soft

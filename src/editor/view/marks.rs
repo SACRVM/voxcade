@@ -69,7 +69,7 @@ pub fn marks(ed: &Editor, view: &View, figures: &Figures, aspect: f32, inset: gl
                 let (lo, hi) = figures.piece_box(t);
                 (lo, hi, room::rotation_of(t), room::centre_in(size))
             } else {
-                let (lo, hi) = figures.bounds(&figures.key_in(t));
+                let (lo, hi) = figures.bounds(&figures.key_in(t, &ed.level));
                 (lo.as_vec3(), hi.as_vec3(), Quat::IDENTITY, Vec3::ZERO)
             };
             let hovered = item == view.over && tone != Tone::Chosen && item.is_some();

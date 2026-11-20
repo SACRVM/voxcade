@@ -179,10 +179,11 @@ impl<G: Game> Session<G> {
         let sim = self.game.sim();
         let listener = sim.cam_target;
         let volume = self.cfg.audio.volume.max(0.0) * gain;
+        let right = self.screen_right();
         for event in &sim.sounds {
             if let Some(samples) = self.sounds.get(event.name) {
                 // (A fixed height: as wide as a 16:9 window shows.)
-                let (gain, pan) = audio::place(event.at, listener, camera::shown_width(&self.cfg.camera, 16.0 / 9.0));
+                let (gain, pan) = audio::place(event.at, listener, camera::shown_width(&self.cfg.camera, 16.0 / 9.0), right);
                 mixer.play(event.name, samples, gain * event.volume * volume, pan);
             }
         }
@@ -198,7 +199,7 @@ impl<G: Game> Session<G> {
             return;
         }
         if let Some(samples) = self.sounds.get("rotor") {
-            let (g, pan) = audio::place(at, self.title_target(), self.title_camera().view_width);
+            let (g, pan) = audio::place(at, self.title_target(), self.title_camera().view_width, self.screen_right());
             mixer.play("rotor", samples, g * 0.8 * gain * self.cfg.audio.volume.max(0.0), pan);
         }
     }

@@ -1337,6 +1337,52 @@ end
 "##,
     },
     Topic {
+        title: "A LEVEL SEEN FROM BEHIND",
+        text: "[camera] with yaw = 180 in a level's file shows that level from its other side: the camera looks south, so the screen's right is the world's west. The level stays as it is; things the file and the game do not turn face the camera there, as they do everywhere. The keys stay the keys: input.dir.y is 1 with up held, whichever way the camera looks. A game whose up walks away from the camera turns them by level.camera.yaw, as here. A key held through a door into a level seen from behind means the way back there: take it once the player let go, if your game needs that. A quarter turn (90, 270) works for a game seen from above; a jump & run turns by halves (0 or 180).",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/yard.toml
+c.camera.pitch = 50"##,
+        files: &[
+            ("levels/yard.toml", r##"format = "voxcade level 1"
+size = [96, 64, 32]
+
+[camera]
+yaw = 180
+
+[[thing]]
+name = "floor"
+model = "yard/floor.vvx"
+at = [48, 32, 0]
+solid = true
+
+[[place]]
+name = "start"
+at = [48, 32, 1]
+"##),
+            ("yard/floor.vvx", "format = \"voxcade voxel 1\"\nsize = [96, 64, 1]\n\n[palette]\na = { color = \"#5a6e4a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *64\n\"\"\"\n"),
+        ],
+        code: r##"-- The way the camera looks in this level (levels/yard.toml says 180).
+local function on_screen(dir)
+  if level.camera.yaw == 180 then
+    return { x = -dir.x, y = -dir.y }
+  end
+  return dir
+end
+
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    -- up walks away from the camera, right to the screen's right
+    p:walk(on_screen(p.input.dir), 40)
+  end
+end
+
+function on_draw(frame)
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+end
+"##,
+    },
+    Topic {
         title: "A ROOM OF PIECES",
         text: "A level can be a file of pieces: models set down where they stand (on the floor, on a wall or in the air), facing a way, and lights. levels/room.toml says them, each a [[thing]] with its name, its model (or only a light), where it stands and the way it faces; [[place]] is where the player arrives, [[area]] a named box. A piece with solid = true holds the player up and stops it, as the floor and the stove here do; light = { ... } gives it a light, lights = [ ... ] several (the lamp's flame and its glow). The pieces stay where they are; level:thing(name) finds one, and thing.state.light is how bright its lights shine (0 off, 1 on). level.areas.NAME:holds(player) says whether the player stands in the area.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/room.toml

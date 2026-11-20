@@ -1892,11 +1892,34 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (the user: "the old figures were prettier"): a 5-voxel head has too few
   voxels to round, the rounding pays off on bigger models. Tests:
   `smooth_shading_keeps_hard_edges`, `more_blood_shades_its_figures_smooth`.
-- Camera yaw stays 0 unless the user asks for it. A turned camera needs the
-  actors turned with it: their cubes are drawn axis-aligned to the world and
-  their resting direction is world south, so with yaw they look skewed. Turn
-  the instance cubes and face actors relative to the camera before shipping
-  any yaw.
+- Camera yaw stays 0 unless the user asks for it: quarter turns only. A
+  level may turn it (the owner's, 2026-11-20: a level seen from its other
+  side): `[camera] yaw` in its file (`grid::LevelCamera`, read and written
+  by `grid::text`, a quarter turn, its line in a mistake; a view from the
+  side, `camera::from_above` false, or a kit whose rules walk across the
+  screen, `Kit::sees_from_the_side`, by halves only: 90 and 270 refused,
+  `levels::quarter_mistake`, `checks::check_yaws`), the level's world's
+  `World::yaw`, so the fingerprint (the level file), snapshots and every
+  machine have it; `Sim::yaw`, `yaw_sin_cos` (exact for a level's),
+  `Session::camera` (`c.camera` with it: the picture, `face_mask`, the
+  title, `look`), `level.camera.yaw`. The meshes' faces are the level's
+  (the window, `shot` and the IDE compare `face_mask` every picture and
+  build anew once on entering a level turned otherwise); the side view's
+  shadow fit looks the camera's way (`camera::light_view_proj`); sounds
+  pan by the screen's right (`Session::screen_right`); the title's flyby
+  crosses its screen. The shooter's keys turn by it, the jump & run's
+  left and right swap seen from behind (`read_keys`' `behind`), the hold
+  swaps across and deep at 90 and 270; `input` stays the keys, raw in
+  replays, a Lua game turns them itself (HELP's "A LEVEL SEEN FROM
+  BEHIND"). Ways stated stay the world's (a kind's `facing`, a file's
+  `rotation`, places, pieces: a piece without one faces south); a thing
+  whose way nothing states rests facing the camera (`Sim::rest_way`,
+  `Sim::body` at every spawn of the kits and the plain host; the level
+  editor's `Figures::key_in` alike; tests in `src/lua/tests/camera.rs`,
+  `the_shooters_keys_turn_with_a_level_seen_from_behind`, the stillness
+  tests at 180 too). The level editor's LEVEL has YAW, GAME VIEW looks
+  that way. Not built: a picture's own yaw (`frame:camera`), 90 and 270
+  from the side.
 - World voxels are palette indices (0 empty). Moving things are instanced
   cubes built in `Session::compose` and the game's `Game::draw` (through
   `session::Drawing`), on the voxel grid by default: one cell each,

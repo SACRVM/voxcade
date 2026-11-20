@@ -408,6 +408,12 @@ pub struct CameraView;
 impl UserData for CameraView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
         f.add_meta_field(MetaMethod::Type, "level.camera");
+        f.add_field_function_get("yaw", |lua, _| {
+            level_here(lua, "level.camera.yaw")?;
+            // (A whole number as a whole number: 180, not 180.0.)
+            let yaw = look(lua, |h| Ok(h.host.sim().yaw()))?;
+            Ok(if yaw.fract() == 0.0 { Value::Integer(yaw as i64) } else { Value::Number(yaw as f64) })
+        });
     }
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {

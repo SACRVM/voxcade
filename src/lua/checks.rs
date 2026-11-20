@@ -56,6 +56,18 @@ pub(super) fn check_facings(levels: &crate::levels::Levels, kinds: &[Kind]) -> R
     Ok(())
 }
 
+/// No level turns its camera a quarter (`[camera] yaw` 90 or 270) where
+/// the ready-made rules move along the screen's width (`side`: a jump &
+/// run's, `Kit::sees_from_the_side`): by halves only so far.
+pub(super) fn check_yaws(levels: &crate::levels::Levels, side: bool) -> Result<()> {
+    for level in levels.list.iter().filter(|_| side) {
+        if let Some(c) = level.camera.filter(|c| c.yaw % 180 != 0) {
+            anyhow::bail!("{}: line {}: [camera] yaw = {}: the jump & run's rules (c.kit) walk across the screen, which turns by halves only so far: yaw = 0 or 180", level.file, c.line, c.yaw);
+        }
+    }
+    Ok(())
+}
+
 /// The props a level's file gives its things are their kinds' still
 /// (`conf.lua` changed while the game runs; the files were checked as they
 /// loaded, `levels::Made::check_props`).

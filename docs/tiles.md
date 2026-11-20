@@ -334,7 +334,10 @@ facing = [0, -1]
   only cast it); one with only a light is a light alone. Optional, left
   out unless on: older files read as before (no format step); an older
   engine refuses the key by name, as any key it does not know. A level may have
-  its own daylight, `[light]` with `c.light`'s words. A `[[thing]]` may have a `name` (one thing's in the
+  its own daylight, `[light]` with `c.light`'s words, and its own
+  camera, `[camera]` with `yaw` (a quarter turn over `c.camera.yaw`, 180
+  the level seen from its other side; a side view's by halves only;
+  `docs/game-model.md`). A `[[thing]]` may have a `name` (one thing's in the
   level). `[[area]]` is a named box (`name`, `at` its low corner,
   `size`). A level without `block` has no grid: `size` is its voxels and
   it holds only what is set down (a stage of models). The editor opens

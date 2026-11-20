@@ -81,9 +81,10 @@ impl SoundBank {
 
 /// Gain and stereo pan (-1 left .. 1 right) of a sound at `at` heard from
 /// the middle of the view, `width` voxels across: full and centred in the
-/// middle, panned towards the screen edges, fainter further away.
-pub fn place(at: Vec3, listener: Vec3, width: f32) -> (f32, f32) {
-    let dx = at.x - listener.x;
+/// middle, panned towards the screen edges, fainter further away. `right`:
+/// the screen's right on the ground (+x, unless the camera turns).
+pub fn place(at: Vec3, listener: Vec3, width: f32, right: glam::Vec2) -> (f32, f32) {
+    let dx = (at - listener).truncate().dot(right);
     let distance = (at - listener).truncate().length() / width.max(1.0);
     let pan = (dx / (width * 0.5)).clamp(-1.0, 1.0) * 0.8;
     (1.0 / (1.0 + distance * distance * 3.0), pan)
@@ -547,17 +548,19 @@ mod tests {
         assert!(all.iter().fold(0.0f32, |m, s| m.max(s.abs())) > ceiling * 0.9, "it plays");
     }
 
-    /// A sound on the left of the view plays louder on the left.
+    /// A sound on the left of the view plays louder on the left; in a
+    /// level seen from behind, one at the world's west is on the right.
     #[test]
     fn sounds_are_placed_in_stereo() {
-        let (gain, pan) = place(Vec3::new(-50.0, 0.0, 0.0), Vec3::ZERO, 200.0);
+        let (gain, pan) = place(Vec3::new(-50.0, 0.0, 0.0), Vec3::ZERO, 200.0, glam::Vec2::X);
+        assert_eq!(place(Vec3::new(-50.0, 0.0, 0.0), Vec3::ZERO, 200.0, glam::Vec2::NEG_X), (gain, -pan), "seen from behind");
         let mut mixer = Mixer::default();
         mixer.play("shot", &Arc::from(vec![0.5f32; 100]), gain, pan);
         let mut out = vec![0.0; 200];
         mixer.mix(&mut out);
         let at = mixer.latency() * 2;
         assert!(out[at] > out[at + 1] * 1.5, "left {} right {}", out[at], out[at + 1]);
-        let (far, _) = place(Vec3::new(400.0, 0.0, 0.0), Vec3::ZERO, 200.0);
+        let (far, _) = place(Vec3::new(400.0, 0.0, 0.0), Vec3::ZERO, 200.0, glam::Vec2::X);
         assert!(far < gain * 0.3, "far away is not much quieter ({far} vs {gain})");
     }
 
