@@ -615,7 +615,7 @@ impl<K: Kit> Game for LuaGame<K> {
 
     fn location(&self) -> Option<crate::game::Location> {
         let name = self.stage.levels.list.get(self.stage.level)?.location.clone()?;
-        Some(crate::game::Location { name, levels: Arc::clone(&self.stage.levels), level: self.stage.level })
+        Some(crate::game::Location { name, levels: Arc::clone(&self.stage.levels), level: self.stage.level, masks: Vec::new() })
     }
 
     /// The models of the level being played's pieces.

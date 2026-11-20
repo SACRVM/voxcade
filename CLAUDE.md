@@ -1278,7 +1278,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   both. Tests `src/lua/tests/remember.rs`. The picture keeps a location's
   levels built (`src/render/kept.rs`, `docs/engine.md` "Levels kept
   built"): `Renderer::update_level` in place of `update_chunks` in the
-  window, the IDE's PLAY and `headless`, `Game::location`; meshes, lamps'
+  window, the IDE's PLAY and `headless`, `Session::location` (each
+  level's faces by its own yaw, a level taken up only with its own); meshes, lamps'
   walls and memory put aside and swapped back, what changed since built
   anew, the location's other levels meshed ahead on a thread, the sun's
   faces' memory emptied at such a change, `KEPT_BYTES` said once when

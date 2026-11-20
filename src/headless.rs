@@ -149,10 +149,8 @@ impl Canvas {
     /// Rebuilds the chunks the last tick changed and sends them to the GPU,
     /// as the game does every frame; how many.
     pub(crate) fn remesh<G: Game>(&mut self, game: &mut Session<G>) -> usize {
-        if game.face_mask() != self.mask {
-            self.mesh_all(game);
-        }
-        let location = game.game.location();
+        self.mask = game.face_mask();
+        let location = game.location();
         let dirty = self.renderer.update_level(&self.device, &self.queue, game.world_mut(), &self.mask, location);
         // Held back, the uploads of all ticks pile up in GPU memory.
         self.queue.submit([]);

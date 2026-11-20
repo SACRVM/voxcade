@@ -68,6 +68,8 @@ impl Key {
 struct Aside {
     level: usize,
     world: World,
+    /// The faces its meshes hold (its own camera's yaw).
+    mask: FaceMask,
     meshes: CellMap<ChunkMesh>,
     lamps: Option<LampsKept>,
     bytes: u64,
@@ -78,6 +80,7 @@ struct Aside {
 struct Ahead {
     level: usize,
     world: World,
+    mask: FaceMask,
     job: Option<std::thread::JoinHandle<Vec<Meshed>>>,
     meshed: VecDeque<Meshed>,
     meshes: CellMap<ChunkMesh>,
@@ -97,11 +100,13 @@ pub(super) struct Kept {
     full: bool,
     /// The most bytes kept (`KEPT_BYTES`; the tests' less).
     most: u64,
+    /// The faces the meshes of the level shown hold, once built.
+    pub(super) mask: Option<FaceMask>,
 }
 
 impl Default for Kept {
     fn default() -> Self {
-        Self { now: None, shown: None, aside: Vec::new(), ahead: None, full: false, most: KEPT_BYTES }
+        Self { now: None, shown: None, aside: Vec::new(), ahead: None, full: false, most: KEPT_BYTES, mask: None }
     }
 }
 
@@ -131,27 +136,42 @@ impl Renderer {
     /// and lamps' walls from those put aside (or built ahead), what changed
     /// since built anew; the one left is put aside. The levels of the
     /// location not built yet are meshed ahead meanwhile. How many chunks
-    /// were built for `world`.
+    /// were built for `world`. `mask`: the faces of the level shown (its
+    /// own camera's yaw); meshes of other faces are built anew whole, a
+    /// level put aside is taken up only with its own.
     pub fn update_level(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &mut World, mask: &FaceMask, location: Option<Location>) -> usize {
+        let location_masks = location.as_ref().map(|l| l.masks.clone());
         let key = location.map(|l| Key { name: l.name, levels: l.levels, level: l.level });
         let same = match (&key, &self.kept.now) {
             (Some(a), Some(b)) => a.same_location(b) && a.level == b.level,
             (None, None) => true,
             _ => false,
         };
+        let masks = location_masks.unwrap_or_default();
         if !same {
-            self.change_level(device, queue, key, world);
+            self.change_level(device, queue, key, world, mask);
         }
-        let built = self.update_chunks(device, queue, world, mask);
+        let mut built = 0;
+        if self.kept.mask != Some(*mask) {
+            // Built for other faces (a level turned another way, a picture
+            // at another pitch): this level's meshes anew whole.
+            self.meshes.clear();
+            world.take_dirty();
+            let chunks = world.chunk_keys();
+            built = chunks.len();
+            self.remesh_all(device, queue, world, &chunks, mask);
+            self.kept.mask = Some(*mask);
+        }
+        built += self.update_chunks(device, queue, world, mask);
         if self.kept.now.is_some() && (built > 0 || self.kept.shown.is_none()) {
             self.kept.shown = Some(world.clone());
         }
-        self.build_ahead(device, queue, mask);
+        self.build_ahead(device, queue, &masks);
         built
     }
 
     /// The picture's world became level `key` (None: one of no location).
-    fn change_level(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, key: Option<Key>, world: &mut World) {
+    fn change_level(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, key: Option<Key>, world: &mut World, mask: &FaceMask) {
         let (old, shown) = (self.kept.now.take(), self.kept.shown.take());
         let same_location = matches!((&old, &key), (Some(a), Some(b)) if a.same_location(b));
         if !same_location {
@@ -160,18 +180,24 @@ impl Renderer {
             self.kept.full = false;
         }
         let mut put_aside = false;
-        if let (true, Some(old), Some(shown)) = (same_location, &old, shown) {
+        if let (true, Some(old), Some(shown), Some(built)) = (same_location, &old, shown, self.kept.mask) {
             let meshes = std::mem::take(&mut self.meshes);
             let lamps = self.lamps.put_aside();
             let bytes = mesh_bytes(&meshes) + lamps.bytes();
             self.kept.aside.retain(|a| a.level != old.level);
-            self.kept.aside.push(Aside { level: old.level, world: shown, meshes, lamps: Some(lamps), bytes });
+            self.kept.aside.push(Aside { level: old.level, world: shown, mask: built, meshes, lamps: Some(lamps), bytes });
             put_aside = true;
         }
-        let taken = key.as_ref().and_then(|k| self.kept.aside.iter().position(|a| a.level == k.level)).map(|i| self.kept.aside.remove(i));
+        // Taken up only with the faces it is shown with now (else built
+        // anew, as it is entered).
+        let taken = key.as_ref().and_then(|k| self.kept.aside.iter().position(|a| a.level == k.level)).map(|i| self.kept.aside.remove(i)).filter(|a| a.mask == *mask);
+        if put_aside {
+            // (The meshes are empty: `world` has every chunk to build.)
+            self.kept.mask = Some(*mask);
+        }
         match taken {
             Some(a) => {
-                self.meshes = a.meshes;
+                (self.meshes, self.kept.mask) = (a.meshes, Some(a.mask));
                 // What changed since it was put aside, its neighbours too.
                 world.take_dirty();
                 world.mark_changed_since(&a.world);
@@ -205,7 +231,7 @@ impl Renderer {
 
     /// A level of the location not built yet meshed ahead on a thread of its
     /// own, then sent a few chunks a picture and put aside.
-    fn build_ahead(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, mask: &FaceMask) {
+    fn build_ahead(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, masks: &[FaceMask]) {
         let Some(key) = self.kept.now.clone() else { return };
         if let Some(ahead) = &mut self.kept.ahead {
             if ahead.job.as_ref().is_some_and(|j| !j.is_finished()) {
@@ -221,10 +247,10 @@ impl Renderer {
             if !ahead.meshed.is_empty() {
                 return;
             }
-            let Ahead { level, world, meshes, .. } = self.kept.ahead.take().expect("there");
+            let Ahead { level, world, mask, meshes, .. } = self.kept.ahead.take().expect("there");
             if level != key.level && !self.kept.aside.iter().any(|a| a.level == level) {
                 let bytes = mesh_bytes(&meshes);
-                self.kept.aside.insert(0, Aside { level, world, meshes, lamps: None, bytes });
+                self.kept.aside.insert(0, Aside { level, world, mask, meshes, lamps: None, bytes });
                 self.keep_to_budget();
             }
             return;
@@ -235,9 +261,11 @@ impl Renderer {
         let levels = &key.levels;
         let next = levels.list.iter().enumerate().find(|(i, l)| *i != key.level && l.location.as_deref() == Some(key.name.as_str()) && !self.kept.aside.iter().any(|a| a.level == *i));
         let Some((level, l)) = next else { return };
+        // Its own faces (its own camera's yaw).
+        let Some(&mask) = masks.get(level) else { return };
         let mut world = l.world.clone();
         world.take_dirty();
-        let (shared, mask) = (world.clone(), *mask);
+        let shared = world.clone();
         let job = std::thread::Builder::new().name("level ahead".into()).spawn(move || {
             shared
                 .chunk_keys()
@@ -251,7 +279,7 @@ impl Renderer {
         });
         // (Without a thread it is built as it is entered.)
         if let Ok(job) = job {
-            self.kept.ahead = Some(Ahead { level, world, job: Some(job), meshed: VecDeque::new(), meshes: CellMap::default() });
+            self.kept.ahead = Some(Ahead { level, world, mask, job: Some(job), meshed: VecDeque::new(), meshes: CellMap::default() });
         }
     }
 
@@ -286,8 +314,8 @@ mod tests {
 
     /// A station of two rooms of blocks (32 by 32 by 12 voxels, a floor
     /// and a wall each, the walls on either side of a lamp at the same
-    /// place in both), fog, this `main.lua`.
-    fn station(name: &str, main: &str) -> crate::scratch::Scratch {
+    /// place in both), fog, this `main.lua`; room b's camera turned `yaw`.
+    fn station(name: &str, main: &str, yaw: Option<i32>) -> crate::scratch::Scratch {
         use crate::grid::{Cell, GridLevel};
         let dir = crate::lua::tests::levels_folder(&format!("kept-{name}"), main, &[("a", &[]), ("b", &[])]);
         std::fs::write(
@@ -309,6 +337,9 @@ mod tests {
                 }
             }
             level.location = Some("station".into());
+            if room == "b" {
+                level.camera = yaw.map(|yaw| crate::grid::LevelCamera { yaw, line: 0 });
+            }
             level.save(&path).unwrap();
             let text = std::fs::read_to_string(&path).unwrap();
             std::fs::write(&path, text + "\n[[thing]]\nname = \"lamp\"\nat = [15, 16, 6]\nlight = { radius = 18, shadows = \"static\" }\n").unwrap();
@@ -349,7 +380,7 @@ end
     /// lets what was kept go.
     #[test]
     fn a_level_taken_up_again_draws_as_a_fresh_renderer_draws_it() {
-        let dir = station("swap", MAIN);
+        let dir = station("swap", MAIN, None);
         let mut game = Session::<crate::Voxcade>::load(&dir).unwrap();
         let mut canvas = crate::headless::Canvas::new(320, 180, false).unwrap();
         canvas.mesh_all(&mut game);
@@ -375,11 +406,39 @@ end
         assert_eq!(canvas.renderer.kept_levels().0, 0, "the levels read anew are built anew");
     }
 
+    /// On the GPU: two rooms of a location seen from either side (room b's
+    /// `[camera] yaw = 180`) keep each its own faces: a change between them
+    /// swaps without building a chunk, and draws as a fresh renderer does.
+    #[test]
+    fn rooms_turned_different_ways_keep_their_own_faces() {
+        let main = "function on_level_start() level.camera:look_at(16, 16) end\nfunction on_tick()\n  if world.tick % 3 == 0 then world:go_to(level.name == 'a' and 'b' or 'a', { fade = 0 }) end\nend\n";
+        let dir = station("yaw", main, Some(180));
+        let mut game = Session::<crate::Voxcade>::load(&dir).unwrap();
+        let mut canvas = crate::headless::Canvas::new(320, 180, false).unwrap();
+        canvas.mesh_all(&mut game);
+        let mut built = Vec::new();
+        for _ in 0..13 {
+            game.step(&crate::input::Input::default());
+            let (name, mask) = (game.game.inspect()["at"]["name"].as_str().unwrap_or_default().to_string(), game.face_mask());
+            built.push((name, mask, canvas.remesh(&mut game)));
+            pictures(&game, &mut canvas, 1);
+        }
+        assert_eq!(game.game.halted(), None);
+        let mask_of = |room: &str| built.iter().find(|(n, ..)| n == room).map(|b| b.1);
+        assert_ne!(mask_of("a"), mask_of("b"), "room b has faces of its own: {built:?}");
+        // From the second change between them on, nothing is built.
+        assert!(built.iter().skip(7).all(|b| b.2 == 0), "{built:?}");
+        let swapped = pictures(&game, &mut canvas, 3);
+        let mut fresh = crate::headless::Canvas::new(320, 180, false).unwrap();
+        fresh.mesh_all(&mut game);
+        assert!(swapped == pictures(&game, &mut fresh, 3), "the picture after the swap is a fresh renderer's");
+    }
+
     /// The levels put aside past the budget: the one taken up longest ago
     /// let go, said once.
     #[test]
     fn levels_past_the_budget_are_let_go_and_said() {
-        let dir = station("budget", MAIN);
+        let dir = station("budget", MAIN, None);
         let mut game = Session::<crate::Voxcade>::load(&dir).unwrap();
         let mut canvas = crate::headless::Canvas::new(320, 180, false).unwrap();
         canvas.renderer.keep_at_most(1);

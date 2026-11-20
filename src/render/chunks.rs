@@ -44,7 +44,7 @@ impl Renderer {
     /// built at once: after a blast at 16-bit scale some fifty change in a
     /// tick), each core taking the next one not yet taken. They go to the
     /// GPU in the order given, so every run builds the same.
-    fn remesh_all(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &World, chunks: &[IVec3], mask: &FaceMask) {
+    pub(super) fn remesh_all(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &World, chunks: &[IVec3], mask: &FaceMask) {
         let threads = crate::par::cores().min(chunks.len() / MIN_CHUNKS_A_THREAD);
         if threads <= 1 {
             for &cc in chunks {
@@ -94,6 +94,7 @@ impl Renderer {
     /// kept built (`kept`) were built so and go too.
     pub fn rebuild_all(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &mut World, mask: &FaceMask) {
         self.kept.forget();
+        self.kept.mask = Some(*mask);
         self.meshes.clear();
         world.take_dirty();
         let chunks = world.chunk_keys();

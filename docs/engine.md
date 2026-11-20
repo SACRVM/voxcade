@@ -800,6 +800,14 @@ the game's, `shot`, `check` and `inspect` as before):
   change: another level's never shows (test
   `a_level_taken_up_again_draws_as_a_fresh_renderer_draws_it`, byte for
   byte a fresh renderer's picture).
+- Each level is kept with the faces of its own camera (`[camera] yaw`,
+  `Session::location` gives each level's): a change between rooms turned
+  different ways swaps without building a chunk (test
+  `rooms_turned_different_ways_keep_their_own_faces`); a level put aside
+  is taken up only with the faces it is shown with now, else built anew,
+  and meshes of other faces than the level shown needs are built anew
+  whole by `update_level` itself (the callers pass `Session::face_mask`).
+  A solid thing (a kind's `solid`) is no voxel and changes no mesh.
 - The levels of the location not built yet are meshed ahead on a thread
   of their own from their files' worlds and sent 96 chunks a picture.
   The lamps' walls and thin things need the picture's lights and pieces,

@@ -647,4 +647,7 @@ pub struct Location {
     pub name: String,
     pub levels: std::sync::Arc<crate::levels::Levels>,
     pub level: usize,
+    /// The faces each level's meshes hold, by its place (its own camera's
+    /// yaw: `Session::location` fills them in; none of a level elsewhere).
+    pub masks: Vec<crate::mesh::FaceMask>,
 }
