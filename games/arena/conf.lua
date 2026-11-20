@@ -61,7 +61,7 @@ function conf(c)
   c.light.sun = { 0.45, 0.6, -1.0 } -- direction the sunlight travels
   c.light.ambient = 0.45
   c.light.shadow = 0.55
-  c.light.sky = { 15.3, 17.85, 25.5 }
+  c.light.sky = "#0f121a"
 
   c.debris.settle = 0.85           -- chance a landed debris voxel rejoins the world
   c.debris.max_particles = 30000

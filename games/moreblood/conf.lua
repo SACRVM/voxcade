@@ -307,7 +307,7 @@ function conf(c)
   c.light.sun = { 0.35, 0.5, -1.0 }
   c.light.ambient = 0.5
   c.light.shadow = 0.5
-  c.light.sky = { 22.95, 17.85, 15.3 }
+  c.light.sky = "#17120f"
   c.light.shadow_style = "voxel"  -- "smooth": soft edges; "voxel": every voxel lit or shaded; "voxel_soft": with a half step
   c.light.metal_sweep = 0.45      -- a streak of light running over metal (the title's dog tags) now and then
   c.light.model_shading = "edges" -- figures shade softly like pixel art, their hard edges stay hard
@@ -316,7 +316,7 @@ function conf(c)
   c.effects.glow = 1.0              -- how strongly flashes, fire and tracers glow
   c.effects.lights = 1.0            -- how strongly flashes and explosions light up their surroundings
   c.effects.haze = 0.35             -- heat haze towards the top of the screen
-  c.effects.haze_color = { 219.3, 198.9, 158.1 }
+  c.effects.haze_color = "#dbc79e"
   c.effects.tilt_shift = 0.45       -- blur at the very top and bottom of the screen
   c.effects.screen_flash = 1.0      -- white flash on big explosions
   c.effects.hitstop = 2             -- ticks the game holds still when an enemy dies

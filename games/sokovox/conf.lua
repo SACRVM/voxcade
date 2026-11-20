@@ -25,7 +25,7 @@ function conf(c)
   c.light.sun = { 0.35, 0.55, -1.0 }
   c.light.ambient = 0.55
   c.light.shadow = 0.5
-  c.light.sky = { 12.75, 12.75, 17.85 }
+  c.light.sky = "#0d0d12"
   c.light.shadow_style = "voxel"
   c.light.model_shading = "faces"
   c.effects.tilt_shift = 0.0

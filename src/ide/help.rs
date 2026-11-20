@@ -1044,10 +1044,10 @@ end
         conf: r##"c.player.kind = "hero"
 c.things.hero = {}
 c.light.ambient = 0.15
-c.light.sun_color = { 76.5, 89.25, 127.5 }
+c.light.sun_color = "#4d5980"
 c.light.fog_density = 0.004
 c.light.fog_glow = 3
-c.light.fog_color = { 10.2, 10.2, 15.3 }"##,
+c.light.fog_color = "#0a0a0f""##,
         files: &[],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 1, "#3a3a44")
@@ -1076,7 +1076,7 @@ c.light.ambient = 0.2
 c.light.sun_color = { 63.75, 71.4, 102 }
 c.light.fog_density = 0.004
 c.light.fog_glow = 3
-c.light.fog_color = { 10.2, 10.2, 15.3 }"##,
+c.light.fog_color = "#0a0a0f""##,
         files: &[
             ("levels/hall.toml", r##"format = "voxcade level 1"
 size = [96, 64, 32]

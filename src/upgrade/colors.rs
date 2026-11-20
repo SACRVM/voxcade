@@ -1,9 +1,9 @@
 //! "colors from 0 to 255" (0.7.0): a color is "#rrggbb" or { r, g, b }
 //! with numbers from 0 to 255 everywhere (`color::read`). `conf.lua`'s
 //! colors of `c.light` and `c.effects` and a level's `[light]` were three
-//! numbers from 0 to 1: each such table is written on the new scale, so
-//! that the picture stays the same to the bit (`color::on_255`), as
-//! "#rrggbb" where its numbers come out whole. A fade's or a logo's color
+//! numbers from 0 to 1: each such table is written as "#rrggbb", its
+//! numbers rounded to whole ones (the owner, 2026-11-20: "hex gerundet";
+//! a color may so move by half a step of 255). A fade's or a logo's color
 //! written without its `#` gets it (they were taken so, and are refused
 //! now). A color worked out in code is named, not changed: the step cannot
 //! know its numbers.
@@ -15,7 +15,7 @@ use super::*;
 use crate::lua::lex::Kind;
 
 /// What the step says once, before its lines.
-const NOW: &str = "a color's numbers are from 0 to 255 since Voxcade 0.7.0 (c.light's and c.effects' colors and a level's [light] were from 0 to 1): written on the new scale so the picture stays the same, as \"#rrggbb\" where the numbers are whole";
+const NOW: &str = "a color's numbers are from 0 to 255 since Voxcade 0.7.0 (c.light's and c.effects' colors and a level's [light] were from 0 to 1): written as \"#rrggbb\", each number the nearest whole one";
 
 /// The new text of a color table on the scale from 0 to 1 (`numbers` as
 /// written), or None when it is no such table.
@@ -23,11 +23,8 @@ fn rewritten(numbers: &[f64]) -> Option<String> {
     if numbers.len() != 3 || !crate::color::old_scale(numbers) {
         return None;
     }
-    // As the settings held them: each number as an f32, read on the new
-    // scale back to that f32 (`color::on_255`).
-    let n: Vec<f64> = numbers.iter().map(|v| crate::color::on_255(*v as f32)).collect();
-    let color = crate::color::Color { rgba: [n[0], n[1], n[2], 255.0] };
-    Some(if color.whole() { format!("\"{}\"", color.hex()) } else { format!("{{ {}, {}, {} }}", n[0], n[1], n[2]) })
+    let color = crate::color::Color { rgba: [numbers[0] * 255.0, numbers[1] * 255.0, numbers[2] * 255.0, 255.0] };
+    Some(format!("\"{}\"", color.hex()))
 }
 
 /// A six-digit hex color without its `#` (`"000000"`), quotes included:
@@ -190,21 +187,16 @@ pub fn apply(dir: &Path) -> Result<Vec<String>> {
 mod tests {
     use super::*;
 
-    /// A table on the scale from 0 to 1 is written so it reads back to
-    /// the same f32 as it was: hex where whole, the fewest decimals else.
+    /// A table on the scale from 0 to 1 is written as hex, each number the
+    /// nearest whole one.
     #[test]
-    fn a_table_from_0_to_1_is_written_to_read_back_the_same() {
-        assert_eq!(rewritten(&[0.06, 0.07, 0.1]).unwrap(), "{ 15.3, 17.85, 25.5 }");
+    fn a_table_from_0_to_1_is_written_as_hex_rounded() {
+        assert_eq!(rewritten(&[0.06, 0.07, 0.1]).unwrap(), "\"#0f121a\"");
+        assert_eq!(rewritten(&[0.45, 0.62, 0.85]).unwrap(), "\"#739ed9\"");
         assert_eq!(rewritten(&[1.0, 1.0, 1.0]).unwrap(), "\"#ffffff\"");
         assert_eq!(rewritten(&[0.2, 0.4, 1.0]).unwrap(), "\"#3366ff\"");
         assert_eq!(rewritten(&[0.0, 0.0, 0.0]), None, "black is black either way");
         assert_eq!(rewritten(&[15.3, 17.85, 25.5]), None, "on the new scale already");
-        for numbers in [[0.06, 0.07, 0.1], [0.45, 0.62, 0.85], [0.86, 0.78, 0.62], [0.3, 0.32, 0.42], [0.01, 0.01, 0.03]] {
-            let text = rewritten(&numbers).unwrap();
-            let read: Vec<f64> = text.trim_matches(['{', '}', ' ']).split(',').map(|n| n.trim().parse().unwrap()).collect();
-            let unit: Vec<f32> = read.iter().map(|v| crate::color::unit(*v)).collect();
-            assert_eq!(unit, numbers.map(|v| v as f32), "{text}");
-        }
         assert_eq!(with_hash("\"000000\"").unwrap(), "\"#000000\"");
         assert_eq!(with_hash("'#000000'"), None);
         assert_eq!(with_hash("\"orange\""), None);
@@ -225,12 +217,12 @@ mod tests {
         let e = opens(&dir).unwrap_err().to_string();
         assert!(e.contains("colors from 0 to 255") && e.contains("voxcade upgrade"), "{e}");
         let dry = upgrade(&dir, true).unwrap().join("\n");
-        assert!(dry.contains("conf.lua:3 becomes: c.light.sky = { 15.3, 17.85, 25.5 }   -- night"), "{dry}");
+        assert!(dry.contains("conf.lua:3 becomes: c.light.sky = \"#0f121a\"   -- night"), "{dry}");
         assert!(dry.contains("conf.lua:5 is left as it is: c.effects.outline_color is set from code"), "{dry}");
         upgrade(&dir, false).unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.join("conf.lua")).unwrap(),
-            "function conf(c)\n  c.voxcade = \"0.7.0\"\n  c.light.sky = { 15.3, 17.85, 25.5 }   -- night\n  c.light = { sun_color = \"#ffffff\", fog_color = { 0, 0, 0 } }\n  c.effects.outline_color = DARK\n  c.title_screen.logo_colors = { \"#f0e8d0\", \"#c8181a\" }\n  c.icons.heart = { rows = { \"R\" }, colors = { R = { 214, 36, 44 } } }\nend\n"
+            "function conf(c)\n  c.voxcade = \"0.7.0\"\n  c.light.sky = \"#0f121a\"   -- night\n  c.light = { sun_color = \"#ffffff\", fog_color = { 0, 0, 0 } }\n  c.effects.outline_color = DARK\n  c.title_screen.logo_colors = { \"#f0e8d0\", \"#c8181a\" }\n  c.icons.heart = { rows = { \"R\" }, colors = { R = { 214, 36, 44 } } }\nend\n"
         );
         assert_eq!(std::fs::read_to_string(dir.join("levels/hall.toml")).unwrap(), "format = \"voxcade level 1\"\nsize = [32, 32, 16]\n\n[light]\nsky = \"#20304a\"   # dusk\nsun_color = [0, 0, 0]\n");
         // What is left is only said: the game opens once nothing else is.
