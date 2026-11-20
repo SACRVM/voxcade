@@ -634,6 +634,10 @@ owner's words). `lua::memory` builds it.
   (in its part `levels`), and only in a game whose levels remember, so
   every other game hashes as before. Several players change level
   together, as always.
+- **No hitch:** the picture keeps a location's levels built while the
+  player stays among them and builds the others ahead, so a change among
+  them is a swap (`docs/engine.md`, "Levels kept built"; nothing a script
+  sees).
 - **Where:** levels of blocks and levels of pieces (`grid::text`); a map
   or a world (`.vvx`) has no room for the words. The level editor's
   LEVEL has LOCATION (the locations the game's levels say, or a new name)

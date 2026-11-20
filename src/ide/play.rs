@@ -405,7 +405,9 @@ impl<G: Game> Play<G> {
     /// Draws the game as it stands into its texture, `size` pixels big;
     /// its name to egui.
     pub fn draw(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer, size: [u32; 2]) -> egui::TextureId {
-        self.renderer.update_chunks(device, queue, self.game.world_mut(), &self.mask);
+        self.mask = self.game.face_mask();
+        let location = self.game.location();
+        self.renderer.update_level(device, queue, self.game.world_mut(), &self.mask, location);
         if self.target.as_ref().is_none_or(|t| t.size != size) {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("play"),

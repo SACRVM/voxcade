@@ -466,6 +466,7 @@ impl Renderer {
             lamps: super::lamps::Lamps::new(device),
             fog: None,
             format,
+            kept: Default::default(),
         }
     }
 
@@ -620,7 +621,7 @@ impl Renderer {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("voxcade shader, remembering"), source: wgpu::ShaderSource::Wgsl(SHADER.as_str().into()) });
         let layout = main_layout(device, true);
         let scene = scene_pipelines(device, &module, &layout, &self.actor_layout);
-        let faces = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faces' shadows"), size: super::limits::MEMORY_BYTES, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
+        let faces = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faces' shadows"), size: super::limits::MEMORY_BYTES, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         let bind = Self::memory_bind(device, &layout, &self.globals, &self.shadow_view, &self.shadow_sampler, &faces);
         let failed = [pollster::block_on(validation.pop()), pollster::block_on(internal.pop())];
         match failed.into_iter().flatten().next() {

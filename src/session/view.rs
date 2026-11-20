@@ -36,11 +36,20 @@ impl<G: Game> Session<G> {
     /// another pitch or field of view adds the faces its rays can hit, from
     /// that picture on (`seen_faces`; the meshes are built anew once).
     pub fn face_mask(&self) -> FaceMask {
+        self.face_mask_for(self.game.sim().world.yaw)
+    }
+
+    /// The faces of a level turned `yaw` (its `[camera] yaw`, none: the
+    /// game's) as `face_mask` has them.
+    fn face_mask_for(&self, yaw: Option<f32>) -> FaceMask {
         // (A picture of its own shape: as wide as that; a wider window
         // adds its faces when drawn, `seen_faces`. A level turned another
         // way than the last has faces of its own: the meshes are built
-        // anew as it is entered.)
-        let cam = self.camera();
+        // anew as it is entered, or kept so, `render::kept`.)
+        let cam = match yaw {
+            Some(yaw) => std::borrow::Cow::Owned(crate::config::CameraConfig { yaw, ..self.cfg.camera.clone() }),
+            None => std::borrow::Cow::Borrowed(&self.cfg.camera),
+        };
         let rays = camera::corner_rays(&cam, cam.aspect.unwrap_or(camera::WIDEST_KEPT));
         let mut mask = if self.game.moves_sun() {
             mesh::face_mask_any_sun(&rays)
@@ -58,6 +67,14 @@ impl<G: Game> Session<G> {
             *m |= o;
         }
         mask
+    }
+
+    /// The location the level played belongs to, for the picture
+    /// (`Game::location`), with the faces each of its levels' meshes hold.
+    pub fn location(&self) -> Option<crate::game::Location> {
+        let mut l = self.game.location()?;
+        l.masks = l.levels.list.iter().map(|lv| if lv.location.as_deref() == Some(l.name.as_str()) { self.face_mask_for(lv.world.yaw) } else { [false; 6] }).collect();
+        Some(l)
     }
 
     /// Where a body's feet are drawn, `alpha` of the way into the tick.

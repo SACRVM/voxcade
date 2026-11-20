@@ -456,6 +456,13 @@ pub trait Game: Sized + 'static {
         self.sim_mut().replace_world(world);
     }
 
+    /// The location the level being played belongs to, for the picture
+    /// only (`render::kept`: its levels kept built while the player stays
+    /// among them, the others built ahead): None for a level of none.
+    fn location(&self) -> Option<Location> {
+        None
+    }
+
     /// The level being played as a mark that moves on whenever a level is
     /// entered, the same one again too (a restart): a level's models are
     /// seen to then (`level_models`). From the game's state, so a state
@@ -629,4 +636,18 @@ pub trait Game: Sized + 'static {
 
     /// What lies in its save slots now, and the saves (after a save).
     fn set_slots(&mut self, _slots: Vec<Option<crate::saves::SlotInfo>>, _texts: std::collections::BTreeMap<u32, std::sync::Arc<str>>) {}
+}
+
+/// The location a level belongs to as the picture sees it (`Game::location`,
+/// `docs/game-model.md`, "Levels that remember"): its name, the game's
+/// levels as read (a level file read anew makes another `Levels`) and the
+/// place among them of the level being played.
+#[derive(Clone)]
+pub struct Location {
+    pub name: String,
+    pub levels: std::sync::Arc<crate::levels::Levels>,
+    pub level: usize,
+    /// The faces each level's meshes hold, by its place (its own camera's
+    /// yaw: `Session::location` fills them in; none of a level elsewhere).
+    pub masks: Vec<crate::mesh::FaceMask>,
 }
