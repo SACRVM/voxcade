@@ -1100,7 +1100,22 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn numbers(&self) -> Vec<String> {
-        self.kit().map(|k| k.numbers()).unwrap_or_default()
+        let mut lines = self.kit().map(|k| k.numbers()).unwrap_or_default();
+        // The script's kinds that stand (`fixed`) and stop bodies (`solid`):
+        // said on the ready-made rules' line of the kind, or a line of its
+        // own.
+        for k in self.stage.kinds.iter().filter(|k| k.fixed && k.name != crate::grid::PIECE) {
+            let solid = if k.solid { ", solid = true" } else { "" };
+            let head = format!("c.things.{} = {{ ", k.name);
+            match lines.iter_mut().find(|l| l.starts_with(&head) && l.ends_with(" }")) {
+                Some(line) => line.insert_str(line.len() - 2, &format!(", fixed = true{solid}")),
+                None => {
+                    let model = k.model.as_deref().map(|m| format!("model = \"{m}\", ")).unwrap_or_default();
+                    lines.push(format!("{head}{model}height = {}, fixed = true{solid} }}", k.height));
+                }
+            }
+        }
+        lines
     }
 
     fn report(&self) -> Vec<String> {
@@ -1206,6 +1221,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.frames = Arc::new(models.frame_counts());
         self.stage.heights = Arc::new(models.heights());
         self.stage.bursts = Arc::new(bursts(&kinds, models));
+        self.stage.solids = Arc::new(host::solid_cells(&kinds, models));
         self.stage.parts = Arc::new(models.part_names());
         match self.kit_mut() {
             Some(kit) => kit.reshape(models),

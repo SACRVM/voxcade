@@ -1383,6 +1383,33 @@ end
 "##,
     },
     Topic {
+        title: "A THING THAT STOPS YOU",
+        text: "solid = true on a kind makes its things stop bodies, as a wall does: the player walks into the statue here and stops, and so do the ready-made rules' figures and their rounds. Only a thing that stands can be solid: give the kind fixed = true and a model, and no behavior. What stops is its model, where it stands and the way it faces, not its box. thing:place moves it (and what it stood on is free again), thing:remove takes it away; a player it is put onto is pushed aside.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.things.statue = { model = "statue.vvx", fixed = true, solid = true }"##,
+        files: &[],
+        code: r##"function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  level.state.statue = level:spawn("statue", player.x, player.y + 30)
+end
+
+function on_tick()
+  player:walk(input.dir, 40)
+  -- every four seconds the statue steps aside, and back
+  if world.tick % 240 == 0 then
+    local s = level.state.statue
+    s:place(s.x + (world.tick % 480 == 0 and -20 or 20), s.y, s.z)
+  end
+end
+
+function on_draw(frame)
+  frame:model("hero.vvx", player)
+  frame:model("statue.vvx", level.state.statue)
+end
+"##,
+    },
+    Topic {
         title: "A ROOM OF PIECES",
         text: "A level can be a file of pieces: models set down where they stand (on the floor, on a wall or in the air), facing a way, and lights. levels/room.toml says them, each a [[thing]] with its name, its model (or only a light), where it stands and the way it faces; [[place]] is where the player arrives, [[area]] a named box. A piece with solid = true holds the player up and stops it, as the floor and the stove here do; light = { ... } gives it a light, lights = [ ... ] several (the lamp's flame and its glow). The pieces stay where they are; level:thing(name) finds one, and thing.state.light is how bright its lights shine (0 off, 1 on). level.areas.NAME:holds(player) says whether the player stands in the area.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/room.toml

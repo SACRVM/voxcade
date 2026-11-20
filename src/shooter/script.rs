@@ -48,6 +48,18 @@ impl Host for Shooter {
         })
     }
 
+    /// Any of its bodies, whatever moves it (`Host::shove`).
+    fn shove(&mut self, id: Id, by: Vec3) -> bool {
+        let Some(t) = self.things.get_mut(id) else { return false };
+        (t.body.pos, t.body.prev) = (t.body.pos + by, t.body.prev + by);
+        true
+    }
+
+    fn shove_player(&mut self, by: Vec3) {
+        let b = &mut self.player.body;
+        (b.pos, b.prev) = (b.pos + by, b.prev + by);
+    }
+
     /// The script's kinds at (x, y) (on the ground unless `z` is given); the
     /// kit's where a marker there would place them.
     fn spawn(&mut self, kind: usize, x: f32, y: f32, z: Option<f32>) -> Result<Id, String> {

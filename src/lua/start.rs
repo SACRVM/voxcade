@@ -12,6 +12,7 @@ impl<K: Kit> LuaGame<K> {
         let (cfg, files, models) = (setup.cfg, setup.files, setup.models);
         let kinds = Arc::new(Self::kinds(cfg, |_, model| model.and_then(|m| models.shape(m)).map_or(1.0, |s| s.height()))?);
         let kinds_bursting = Arc::new(bursts(&kinds, models));
+        let kinds_solid = Arc::new(host::solid_cells(&kinds, models));
         let levels = setup.levels.clone();
         let (setup_slots, setup_texts, setup_replayed) = (setup.slots.clone(), setup.slot_texts.clone(), setup.replayed.clone());
         let (songs, begin_at) = (setup.songs.clone(), setup.place.clone());
@@ -90,6 +91,7 @@ impl<K: Kit> LuaGame<K> {
                 frames: Arc::new(models.frame_counts()),
                 heights: Arc::new(models.heights()),
                 bursts: kinds_bursting,
+                solids: kinds_solid,
                 parts: Arc::new(models.part_names()),
                 hud: host::HudState::new(cfg),
                 songs: Arc::new(songs),
@@ -140,6 +142,7 @@ impl<K: Kit> LuaGame<K> {
         }
         game.spawn_pieces();
         game.stage.name_things();
+        game.stage.settle_solids();
         // The run's start (`c.state`), a game without code too; the start
         // handlers begin from it again.
         game.start_states()?;
@@ -303,7 +306,7 @@ impl<K: Kit> LuaGame<K> {
                 let height = height(&d.name, d.model.as_deref());
                 let sound = d.sound.map(|s| crate::names::intern(&s));
                 let figure = figures.contains(&d.name);
-                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behavior.is_some() || figure, scripted: d.behavior.is_none() && !figure, player: d.behavior.as_deref() == Some(things::PLAYER_BEHAVIOR), props: d.props, names: d.names, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, frames: d.frames, swing: d.swing }
+                Kind { name: d.name, model: d.model, height, hp: d.hp.unwrap_or(0), has_hp: d.hp.is_some() || d.behavior.is_some() || figure, scripted: d.behavior.is_none() && !figure, player: d.behavior.as_deref() == Some(things::PLAYER_BEHAVIOR), props: d.props, names: d.names, families: d.families, effect: d.effect, sound, reach: d.reach, team: d.team, free_turn: d.free_turn, spin: d.spin, fixed: d.fixed, solid: d.solid, frames: d.frames, swing: d.swing }
             })
             .collect())
     }

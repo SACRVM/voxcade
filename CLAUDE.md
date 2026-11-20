@@ -1584,6 +1584,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   palette is untouched), a blast leaves them, `thing:remove` frees them at
   the tick's end. Tests: `a_solid_piece_holds_bodies_up_and_stops_them`,
   `the_hero_stands_on_a_solid_piece`, `rounds_stop_at_a_solid_piece`.
+  A kind's `solid = true` (the owner's, 2026-11-20; only `fixed` and
+  without a behavior, with a model) means the same for its things: their
+  cells in `Solids` by id (`World::put_solid_thing`, `ThingCells`: its
+  pivot's cell and quarter turn), set, moved and freed at the tick's end
+  and as a level begins (`Stage::settle_solids`, the kinds' cells
+  `host::solid_cells`), a body set into one pushed out sideways
+  (`host::free_beside`, `Host::shove`), a place or a moving thing the
+  file sets inside one a mistake (`levels::check_solid_things`); in the
+  hash only where a game has them. Tests `src/lua/tests/solid.rs`.
 - Strafing aims the way the player's model looks, along it, never
   diagonally (the user: shots went off at a slant after running
   diagonally). Test: `strafing_fires_the_way_the_model_looks`.

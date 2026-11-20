@@ -396,7 +396,7 @@ pub const API: &[Item] = &[
             0 empties it. A level made in code (c.world.size) is built this way." },
     Item { of: "level", name: "solid", what: Method { params: &[("x", "integer"), ("y", "integer"), ("z", "integer")], returns: "boolean" },
         doc: "Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the \
-            level's file)." },
+            level's file), or a solid thing's (c.things.NAME.solid)." },
     Item { of: "level", name: "ground", what: Method { params: &[("x", "integer"), ("y", "integer")], returns: "integer" },
         doc: "The height of the ground at x, y: the cell above the column's top voxel." },
     Item { of: "level", name: "spawn", what: Method { params: &[("kind", "string"), ("x", "number"), ("y", "number"), ("options?", "SpawnOptions")], returns: "Thing" },
@@ -1083,6 +1083,7 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("model", "string", "Its model, a .vvx of the game."),
     ("hp", "integer", "The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none."),
     ("fixed", "boolean", "It stays exactly where it is put, in the air too (a kind without a behavior)."),
+    ("solid", "boolean", "It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.\nOnly for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside."),
     ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
     ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),
@@ -1641,7 +1642,7 @@ mod tests {
     fn the_kinds_keys_are_what_a_kind_takes() {
         let keys = kind_keys();
         let engine: Vec<&str> = keys.iter().filter(|k| k.kit.is_empty()).map(|k| k.key.as_str()).collect();
-        let mut taken: Vec<&str> = ["like", "behavior", "model", "hp", "fixed", "width", "height", "facing"].into_iter().chain(crate::sim::things::COMMON).collect();
+        let mut taken: Vec<&str> = ["like", "behavior", "model", "hp", "fixed", "solid", "width", "height", "facing"].into_iter().chain(crate::sim::things::COMMON).collect();
         taken.sort();
         let mut ours = engine.clone();
         ours.sort();

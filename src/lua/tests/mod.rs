@@ -17,6 +17,7 @@ mod pieces;
 mod props;
 mod runs;
 mod sandbox;
+mod solid;
 mod saves;
 mod scenarios;
 mod seats;

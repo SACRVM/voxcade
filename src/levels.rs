@@ -607,7 +607,45 @@ fn one(game: &Files, cfg: &GameConfig, kind: Kind, path: &Path) -> Result<Made> 
     if let Some(why) = made.camera.and_then(|c| quarter_mistake(&cfg.camera, c)) {
         anyhow::bail!(why);
     }
+    if says_level(game, path) || kind == Kind::Blocks {
+        check_solid_things(game, cfg, path)?;
+    }
     Ok(made)
+}
+
+/// No place of a level, and no thing of a kind that moves (not `fixed`),
+/// lies inside the cells of one of its things of a solid kind
+/// (`c.things.NAME.solid`) as its file sets them down: a mistake naming
+/// the line. Read only in a game with such a kind.
+fn check_solid_things(game: &Files, cfg: &GameConfig, path: &Path) -> Result<()> {
+    let solid = |t: &toml::Table| t.get("solid").and_then(toml::Value::as_bool) == Some(true);
+    if !cfg.things.values().any(solid) && !cfg.things.values().any(|t| t.contains_key("like")) {
+        return Ok(());
+    }
+    let kinds = crate::config::resolve_like("things", &cfg.things)?;
+    let solids: BTreeMap<&String, &str> = kinds.iter().filter(|(_, t)| solid(t)).filter_map(|(k, t)| Some((k, t.get("model")?.as_str()?))).collect();
+    if solids.is_empty() {
+        return Ok(());
+    }
+    let level = crate::grid::GridLevel::read_in(game, path)?;
+    // A thing without a way faces the camera (`Sim::rest_way`): south,
+    // or as the level turns it.
+    let rest = level.camera.map_or(180, |c| (c.yaw + 180) % 360);
+    for t in level.things.iter().filter(|t| !t.is_piece()) {
+        let Some(model) = solids.get(&t.kind) else { continue };
+        let m = crate::vox::load_model_in(game, &game.dir().join(model))?;
+        let turn = t.facing.map_or(rest, |f| crate::grid::Way::nearest(f.bearing()).bearing() as i32);
+        let cells: crate::world::CellSet = crate::session::piece_cells(&m, [turn, 0, 0]).expect("quarter turns").into_iter().map(|c| c + IVec3::from(t.at)).collect();
+        let inside = |at: [i32; 3]| cells.contains(&IVec3::from(at));
+        if let Some(p) = level.places.iter().find(|p| inside(p.at)) {
+            anyhow::bail!("line {}: the place '{}' lies inside the solid thing {} (c.things.{}.solid): nobody stands there", p.line, p.name, t.called(), t.kind);
+        }
+        let moves = |kind: &str| kinds.get(kind).is_some_and(|k| k.get("fixed").and_then(toml::Value::as_bool) != Some(true));
+        if let Some(o) = level.things.iter().find(|o| !o.is_piece() && moves(&o.kind) && inside(o.at)) {
+            anyhow::bail!("line {}: the {} at {:?} stands inside the solid thing {} (c.things.{}.solid)", o.line, o.kind, o.at, t.called(), t.kind);
+        }
+    }
+    Ok(())
 }
 
 /// The mistake of a level's camera turned a quarter (90, 270) where the

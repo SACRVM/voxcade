@@ -157,6 +157,8 @@ impl<K: Kit> LuaGame<K> {
         self.stage.here = host::Here::default();
         self.spawn_pieces();
         self.stage.name_things();
+        // (The solid things' cells as the file sets them, for on_level_start.)
+        self.stage.settle_solids();
         // A save's lights as they were, by the pieces' names.
         if let Some(l) = &loaded {
             for (name, brightness) in &l.lights {

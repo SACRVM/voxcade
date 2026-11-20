@@ -337,7 +337,10 @@ facing = [0, -1]
   its own daylight, `[light]` with `c.light`'s words, and its own
   camera, `[camera]` with `yaw` (a quarter turn over `c.camera.yaw`, 180
   the level seen from its other side; a side view's by halves only;
-  `docs/game-model.md`). A `[[thing]]` may have a `name` (one thing's in the
+  `docs/game-model.md`). A thing of a kind with `solid = true` (fixed,
+  no behavior) stops bodies in its model's cells as a solid piece does;
+  a place or a moving thing set inside one is a mistake with its line.
+  A `[[thing]]` may have a `name` (one thing's in the
   level). `[[area]]` is a named box (`name`, `at` its low corner,
   `size`). A level without `block` has no grid: `size` is its voxels and
   it holds only what is set down (a stage of models). The editor opens

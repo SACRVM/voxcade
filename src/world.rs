@@ -186,15 +186,30 @@ pub enum Hold {
 /// them, and the world's palette stays the game's). By each piece's place
 /// among the level's pieces; a piece the game takes away (`thing:remove`)
 /// is lifted at the tick's end, its cells free again. A blast does not
-/// blow them away, and they hold up no voxels of the world.
+/// blow them away, and they hold up no voxels of the world. The things of
+/// a solid kind (`c.things.NAME.solid`) alike, by their ids: set as they
+/// come in, moved where they are placed and freed as they go, each at the
+/// tick's end.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Solids {
-    /// Every cell a piece fills, and how many pieces fill it.
+    /// Every cell a piece or a thing fills, and how many fill it.
     cells: CellMap<u16>,
     /// Each solid piece's cells, by its place among the level's pieces.
     of: std::collections::BTreeMap<usize, Arc<Vec<IVec3>>>,
     /// The pieces taken away, by their places.
     lifted: std::collections::BTreeSet<usize>,
+    /// Each solid thing's cells, by its id, with what they were made
+    /// from: its pivot's cell and its quarter turn (0 north, clockwise).
+    things: std::collections::BTreeMap<u32, ThingCells>,
+}
+
+/// Where a solid thing stands as its cells were made for it, and those
+/// cells (`Solids`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThingCells {
+    pub at: IVec3,
+    pub quarter: u8,
+    pub cells: Arc<Vec<IVec3>>,
 }
 
 impl Solids {
@@ -228,6 +243,33 @@ impl Solids {
 
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty()
+    }
+
+    /// The solid things as they stand, by their ids in order: each one's
+    /// pivot's cell and quarter turn (for the state hash).
+    pub fn things(&self) -> impl Iterator<Item = (u32, &ThingCells)> + '_ {
+        self.things.iter().map(|(id, t)| (*id, t))
+    }
+
+    /// The cells of thing `id` as `now` has them, its old ones free (where
+    /// nothing else fills them); None takes it away.
+    fn put_thing(&mut self, id: u32, now: Option<ThingCells>) {
+        if let Some(old) = self.things.remove(&id) {
+            for c in old.cells.iter() {
+                if let Some(n) = self.cells.get_mut(c) {
+                    *n -= 1;
+                    if *n == 0 {
+                        self.cells.remove(c);
+                    }
+                }
+            }
+        }
+        if let Some(now) = now {
+            for c in now.cells.iter() {
+                *self.cells.entry(*c).or_insert(0) += 1;
+            }
+            self.things.insert(id, now);
+        }
     }
 
     /// Takes the piece at place `i` away: its cells are free where no other
@@ -368,6 +410,27 @@ impl World {
             Some(s) if s.of.contains_key(&i) && !s.lifted.contains(&i) => Arc::make_mut(s).lift(i),
             _ => false,
         }
+    }
+
+    /// Where the solid thing `id` stands as its cells were made, if it has
+    /// cells (`Solids::things`).
+    pub fn thing_cells(&self, id: u32) -> Option<&ThingCells> {
+        self.pieces.as_ref()?.things.get(&id)
+    }
+
+    /// The solid things' ids, in order.
+    pub fn solid_things(&self) -> Vec<u32> {
+        self.pieces.as_ref().map_or(Vec::new(), |s| s.things.keys().copied().collect())
+    }
+
+    /// Sets the cells of the solid thing `id` (a thing of a kind with
+    /// `solid = true`), its old ones free; None frees them (it went).
+    pub fn put_solid_thing(&mut self, id: u32, now: Option<ThingCells>) {
+        if now.is_none() && self.thing_cells(id).is_none() {
+            return;
+        }
+        let solids = self.pieces.get_or_insert_with(Default::default);
+        Arc::make_mut(solids).put_thing(id, now);
     }
 
     /// Solid for anything that moves: the ground below the world and its

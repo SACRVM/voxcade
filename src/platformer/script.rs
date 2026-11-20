@@ -43,6 +43,13 @@ impl Host for Platformer {
         })
     }
 
+    /// Any of its bodies, whatever moves it (`Host::shove`).
+    fn shove(&mut self, id: Id, by: Vec3) -> bool {
+        let Some(t) = self.things.get_mut(id) else { return false };
+        (t.body.pos, t.body.prev) = (t.body.pos + by, t.body.prev + by);
+        true
+    }
+
     /// The script's kinds at (x, y) (on the ground unless `z` is given),
     /// the kit's as a marker there would place them.
     fn spawn(&mut self, kind: usize, x: f32, y: f32, z: Option<f32>) -> Result<Id, String> {

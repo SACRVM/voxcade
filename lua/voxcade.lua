@@ -271,7 +271,7 @@ function Level:set_voxel(x, y, z, voxel) end
 ---@param voxel integer|string|nil
 function Level:fill(x0, y0, z0, x1, y1, z1, voxel) end
 
----Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file).
+---Whether the cell stops bodies: a voxel there (soft voxels, grass and shrubs, do not), or a solid piece's (solid = true in the level's file), or a solid thing's (c.things.NAME.solid).
 ---@param x integer
 ---@param y integer
 ---@param z integer
@@ -1054,6 +1054,8 @@ function on_pickup(thing, item) end
 ---@field model? string Its model, a .vvx of the game.
 ---@field hp? integer The hits it takes: thing.state.hp at the start, on_death at 0. Without it, it takes none.
 ---@field fixed? boolean It stays exactly where it is put, in the air too (a kind without a behavior).
+---@field solid? boolean It stops bodies as a wall does, in the cells its model is drawn in, where it stands and as it faces in quarter turns: level:solid says so, thing:walk, the ready-made rules, rounds and grenades stop there.
+Only for a kind that stands: fixed = true, no behavior, a model. thing:place moves its cells and thing:remove frees them at the tick's end. A body it is set onto is pushed aside.
 ---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
 ---@field height? number Its body's height, in voxels (its model's unless set).
 ---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north).
