@@ -764,6 +764,53 @@ Measured (2026-10-15, 1920 x 1080):
   new blocks of GPU memory. It now sends them every tick, as the game does
   every frame.
 
+### Levels kept built
+
+A level change used to build the new level's picture whole: its chunks'
+meshes, the lamps' walls (`render::volume`) and the fog's thin things,
+the lamps' memory found anew. Measured (2026-11-20, 1280 x 720) on a
+location of three levels of 512 x 512 x 48 voxels, 300 pieces, a dozen
+lamps whose walls stop them and fog (`docs/game-model.md`, "Levels that
+remember"):
+
+| a change | all cores | four cores | the 610M, all cores |
+|---|---|---|---|
+| before (meshes, walls, thin things, first pictures) | 35 to 48 ms (9, 6, 15) | 58 to 72 ms (18, 8, 34) | 60 to 86 ms |
+| a level taken up again | 3 to 4 ms | 3 to 4 ms | 31 to 42 ms |
+| a level's first visit, its meshes built ahead | 21 ms | 71 ms | 51 ms |
+
+A Voxkeep room changes in 3 to 8 ms (meshes 1.5, walls 1), the model
+bank's rebuild where a level's pieces are other models in 0.7: neither is
+worth keeping. So, the picture's side only (`render::kept`, nothing of
+the game's, `shot`, `check` and `inspect` as before):
+
+- While the level played belongs to a location (`Game::location`), the
+  levels of that location are kept built as they are left: their meshes,
+  the lamps' walls with their thin things and the lamps' memory with the
+  state its answers were found in. A change among them swaps them
+  (`Renderer::update_level`, which the window, the IDE's PLAY and
+  `headless` call in place of `update_chunks`); what changed since one
+  was put aside (the voxels its record laid, a blast in the tick that
+  left it) is built anew by `World::mark_changed_since` against the world
+  its meshes show. The faces' memory of a moving sun is emptied at such a
+  change: another level's never shows (test
+  `a_level_taken_up_again_draws_as_a_fresh_renderer_draws_it`, byte for
+  byte a fresh renderer's picture).
+- The levels of the location not built yet are meshed ahead on a thread
+  of their own from their files' worlds and sent 96 chunks a picture.
+  The lamps' walls and thin things need the picture's lights and pieces,
+  which only a picture of the level has: they are made on its first
+  visit.
+- `render::kept::KEPT_BYTES` (384 MB) holds them on the GPU; past it the
+  level taken up longest ago is let go, said once (test
+  `levels_past_the_budget_are_let_go_and_said`), and nothing more is built
+  ahead in that location. Leaving the location, a level file read anew,
+  or meshes built anew with other faces (`rebuild_all`) let it all go. A
+  level of no location is built as it is entered, as before.
+- Not found yet: on the 610M the first picture after a change still costs
+  some 40 ms of the GPU more than the next, a level taken up again or
+  built alike (without fog 8, without lamps none).
+
 ## Light in the grid
 
 Built for 0.7 (the owner's names: `falloff`, `cone`, `blend`, `rotation`,

@@ -1275,7 +1275,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   yet). In the hash (part `levels`) only where a game has records, so
   every other game's replays stay. The level editor's LEVEL: LOCATION and
   PERSISTENT (`edit --location NAME --persistent`); tools/vvx.py writes
-  both. Tests `src/lua/tests/remember.rs`.
+  both. Tests `src/lua/tests/remember.rs`. The picture keeps a location's
+  levels built (`src/render/kept.rs`, `docs/engine.md` "Levels kept
+  built"): `Renderer::update_level` in place of `update_chunks` in the
+  window, the IDE's PLAY and `headless`, `Game::location`; meshes, lamps'
+  walls and memory put aside and swapped back, what changed since built
+  anew, the location's other levels meshed ahead on a thread, the sun's
+  faces' memory emptied at such a change, `KEPT_BYTES` said once when
+  passed; a level of no location as before.
 - The simulation only reports sounds (`Sim::sounds`: events by name); the
   engine turns them into audio (`Session::play_sounds`) so the simulation
   stays deterministic. A sound is a file of the game (the owner,
