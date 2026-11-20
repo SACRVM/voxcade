@@ -674,16 +674,16 @@ pub const RANGES: &[Bound] = &[
     within("camera.aspect", 0.25, 4.0),
     within("light.sun[]", -1000.0, 1000.0),
     Bound { key: "light.sun[3]", low: -1000.0, high: 0.0, low_open: false, high_open: true },
-    within("light.sun_color[]", 0.0, 1.0),
+    within("light.sun_color[]", 0.0, 255.0),
     within("light.ambient", 0.0, 1.0),
     within("light.shadow", 0.0, 1.0),
-    within("light.sky[]", 0.0, 1.0),
-    within("light.reflection_horizon[]", 0.0, 1.0),
-    within("light.reflection[]", 0.0, 1.0),
+    within("light.sky[]", 0.0, 255.0),
+    within("light.reflection_horizon[]", 0.0, 255.0),
+    within("light.reflection[]", 0.0, 255.0),
     within("light.metal_sweep", 0.0, 10.0),
     within("light.edge_tolerance", 0.0, 16.0),
     within("light.fog_density", 0.0, 1.0),
-    within("light.fog_color[]", 0.0, 1.0),
+    within("light.fog_color[]", 0.0, 255.0),
     within("light.fog_anisotropy", -0.9, 0.9),
     within("light.fog_glow", 0.0, 20.0),
     within("debris.settle", 0.0, 1.0),
@@ -697,12 +697,12 @@ pub const RANGES: &[Bound] = &[
     within("effects.glow", 0.0, 10.0),
     within("effects.lights", 0.0, 10.0),
     within("effects.haze", 0.0, 1.0),
-    within("effects.haze_color[]", 0.0, 1.0),
+    within("effects.haze_color[]", 0.0, 255.0),
     within("effects.tilt_shift", 0.0, 1.0),
     within("effects.screen_flash", 0.0, 1.0),
     within("effects.hitstop", 0.0, 60.0),
     within("effects.outline", 0.0, 8.0),
-    within("effects.outline_color[]", 0.0, 1.0),
+    within("effects.outline_color[]", 0.0, 255.0),
     above("ui.height", 0.0, 4096.0),
     within("ui.depth", 1.0, 16.0),
     within("ui.slant", 0.0, 4.0),
@@ -795,23 +795,29 @@ pub fn check_ranges(c: &toml::Value) -> std::result::Result<(), String> {
 /// The settings that are a colour (`color`), section and name.
 pub const COLORS: [(&str, &str); 7] = [("light", "sun_color"), ("light", "sky"), ("light", "reflection_horizon"), ("light", "reflection"), ("light", "fog_color"), ("effects", "haze_color"), ("effects", "outline_color")];
 
-/// What a colour must be, said when it is not.
-pub const COLOR_IS: &str = "a color is three numbers from 0 to 1, { 0.4, 0.6, 0.8 }, or \"#rrggbb\"";
+/// Why `c.light`'s and `c.effects`' colors take no fourth value.
+pub const OPAQUE: &str = "it cannot be see-through";
 
-/// A colour as three numbers from 0 to 1 (`{ 0.4, 0.6, 0.8 }`) or as
-/// text, `"#rrggbb"`, as a level's file writes it (`COLORS`).
+/// What a color setting held before Voxcade 0.7.0, said under the mistake
+/// of a table on that scale.
+pub const WAS_0_TO_1: &str = "conf.lua's colors were numbers from 0 to 1 before Voxcade 0.7.0; voxcade upgrade rewrites them";
+
+/// A color setting (`COLORS`) as `color::read` reads it ("#rrggbb" or
+/// { r, g, b } from 0 to 255; the mistakes said with the setting's name by
+/// `lua::conf` first), held from 0 to 1 as the picture takes it.
 fn color<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Written {
-        Numbers([f32; 3]),
-        Text(String),
-    }
-    let wrong = || serde::de::Error::custom(COLOR_IS);
-    match Written::deserialize(d).map_err(|_: D::Error| wrong())? {
-        Written::Numbers(c) => Ok(c),
-        Written::Text(t) => crate::color::hex(&t).filter(|_| t.len() == 7).map(|[r, g, b, _]| [r, g, b].map(|v| f32::from(v) / 255.0)).ok_or_else(wrong),
-    }
+    let v = toml::Value::deserialize(d)?;
+    crate::color::read(crate::color::written_toml(&v), crate::color::SeeThrough::No(OPAQUE)).map(|c| c.unit()).map_err(|e| serde::de::Error::custom(e.text))
+}
+
+/// A color setting written back (the defaults `conf(c)` is given, the
+/// settings as `kinds` prints them): on the scale of 0 to 255, each number
+/// the shortest that reads back to the same picture (`color::on_255`), as
+/// "#rrggbb" where they are whole.
+fn color_out<S: serde::Serializer>(c: &[f32; 3], s: S) -> Result<S::Ok, S::Error> {
+    let n = c.map(crate::color::on_255);
+    let color = crate::color::Color { rgba: [n[0], n[1], n[2], 255.0] };
+    if color.whole() { color.hex().serialize(s) } else { n.serialize(s) }
 }
 
 /// Degrees in quarter turns: 0, 90, 180, 270 (or another multiple of 90).
@@ -963,25 +969,25 @@ pub struct FollowHeight {
 pub struct LightConfig {
     /// Direction the sunlight travels (towards the ground).
     pub sun: [f32; 3],
-    /// The sunlight's color, three numbers from 0 to 1 or "#rrggbb" (a
-    /// darker one shines weaker): white unless set (warm at dusk, a pale
-    /// blue for the moon). `frame:daylight` sets it for one picture.
-    #[serde(deserialize_with = "color")]
+    /// The sunlight's color, a Color: "#rrggbb" or { r, g, b } from 0 to
+    /// 255 (a darker one shines weaker); white unless set (warm at dusk, a
+    /// pale blue for the moon). `frame:daylight` sets it for one picture.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub sun_color: [f32; 3],
     /// Light that reaches every face, 0..1.
     pub ambient: f32,
     /// How much a shadow darkens sunlit faces, 0..1.
     pub shadow: f32,
-    /// The background's color, three numbers from 0 to 1 or "#rrggbb".
-    #[serde(deserialize_with = "color")]
+    /// The background's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub sky: [f32; 3],
-    /// The sky metal mirrors: its color at the horizon, three numbers from
-    /// 0 to 1 or "#rrggbb" (below the horizon it mirrors the ground, in the
-    /// haze's color).
-    #[serde(deserialize_with = "color")]
+    /// The sky metal mirrors: its color at the horizon, a Color: "#rrggbb"
+    /// or { r, g, b } from 0 to 255 (below the horizon it mirrors the
+    /// ground, in the haze's color).
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub reflection_horizon: [f32; 3],
-    /// The sky metal mirrors overhead: its color, three numbers from 0 to 1 or "#rrggbb".
-    #[serde(deserialize_with = "color")]
+    /// The sky metal mirrors overhead: its color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub reflection: [f32; 3],
     /// A streak of light sweeping over metal now and then, this bright
     /// (0: none): metal reads as metal even where the sun cannot glint in it.
@@ -1018,8 +1024,8 @@ pub struct LightConfig {
     /// or what lies further fades to a dark veil. A game's `frame:fog` sets
     /// it for one picture.
     pub fog_density: f32,
-    /// The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". `frame:fog` sets it for one picture.
-    #[serde(deserialize_with = "color")]
+    /// The fog's own color where no lamp lights it, a Color: "#rrggbb" or { r, g, b } from 0 to 255. `frame:fog` sets it for one picture.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub fog_color: [f32; 3],
     /// How much the fog sends a lamp's light on ahead rather than back,
     /// -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp
@@ -1157,8 +1163,8 @@ pub struct EffectsConfig {
     pub lights: f32,
     /// Haze towards the far edge of the view, 0 (none) to 1 (thick); `haze_color` is its color.
     pub haze: f32,
-    /// The haze's color, three numbers from 0 to 1 or "#rrggbb".
-    #[serde(deserialize_with = "color")]
+    /// The haze's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub haze_color: [f32; 3],
     /// Blur at the top and bottom of the screen, a miniature look, 0..1.
     pub tilt_shift: f32,
@@ -1171,8 +1177,8 @@ pub struct EffectsConfig {
     /// and its colour (0..1). Hidden behind what stands in front, drawn
     /// where one part of a model stands before another too.
     pub outline: f32,
-    /// The outline's color, three numbers from 0 to 1 or "#rrggbb".
-    #[serde(deserialize_with = "color")]
+    /// The outline's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
+    #[serde(deserialize_with = "color", serialize_with = "color_out")]
     pub outline_color: [f32; 3],
     /// Models drawn from lists of their faces that can be seen, made once,
     /// instead of a cube a voxel: the same picture, quicker and in less of

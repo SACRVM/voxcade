@@ -372,7 +372,7 @@ fn levels_maps_and_worlds_become_text() {
     std::fs::write(dir.join("conf.lua"), conf).unwrap();
     std::fs::write(dir.join("main.lua"), "function on_world_start() end\n").unwrap();
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["maps as text", "worlds and prefabs as text", "lamps stopped by walls"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["maps as text", "worlds and prefabs as text", "lamps stopped by walls", "colors from 0 to 255"]);
     let e = opens(&dir).unwrap_err().to_string();
     assert!(e.contains("made for Voxcade 0.6.0") && !e.contains("earlier"), "{e}");
     let done = upgrade(&dir, false).unwrap().join("\n");

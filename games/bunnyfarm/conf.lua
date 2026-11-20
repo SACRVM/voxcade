@@ -113,7 +113,7 @@ function conf(c)
   c.light.sun = { 0.35, 0.6, -1.0 }
   c.light.ambient = 0.5
   c.light.shadow = 0.45
-  c.light.sky = { 0.45, 0.62, 0.85 }
+  c.light.sky = { 114.75, 158.1, 216.75 }
   c.light.shadow_style = "voxel"
   c.effects.lights = 1.5
 

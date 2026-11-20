@@ -341,7 +341,7 @@ fn every_letter_reads_as_it_did() {
     std::fs::copy(root().join("games/moreblood/ui/display_font.png"), game.join("ui/display_font.png")).unwrap();
     std::fs::write(
         game.join("conf.lua"),
-        "function conf(c)\n  c.voxcade = \"VERSION\"\n  c.title = \"Letters\"\n  c.world.size = { 16, 16, 8 }\n  c.ui.display_font = \"ui/display_font.png\"\n  c.light.sky = { 0.1, 0.12, 0.2 }\nend\n".replace("VERSION", env!("CARGO_PKG_VERSION")),
+        "function conf(c)\n  c.voxcade = \"VERSION\"\n  c.title = \"Letters\"\n  c.world.size = { 16, 16, 8 }\n  c.ui.display_font = \"ui/display_font.png\"\n  c.light.sky = { 25.5, 30.6, 51 }\nend\n".replace("VERSION", env!("CARGO_PKG_VERSION")),
     )
     .unwrap();
     // (a brace is written doubled: one alone names an action's key)

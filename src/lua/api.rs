@@ -75,7 +75,7 @@ const TYPES: &str = "\
 ---@field done boolean Enter was pressed.
 ---@field cancel boolean Escape was pressed.
 
----@alias Color string|number[] A color: \"#rrggbb\", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, \"#rrggbbaa\" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. (Until the upgrade of Voxcade 0.7, c.light's and c.effects' colors are three numbers from 0 to 1, or \"#rrggbb\".)
+---@alias Color string|number[] A color: \"#rrggbb\", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, \"#rrggbbaa\" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. conf.lua's colors (c.light, c.effects, c.transition.color, c.title_screen.logo_colors, an icon's letters) and a level's file take the same.
 
 ---@class Place A named place of a level (level.places.NAME, level.arrived): where a player arrives, or a thing is put with thing:place.
 ---@field x number Across, east, in voxels.
@@ -935,7 +935,7 @@ Space: x east, y north, z up, in voxels. A voxel at cell x, y, z fills from x to
 Angles are degrees. rotation turns clockwise seen from above, north (+y) 0, east 90; the camera's yaw is a rotation (0 looks north). pitch tips a model's nose or a light's spot up above 0; the camera's pitch (c.camera.pitch, frame:camera) is degrees below the horizon, so 90 looks straight down.
 Time: a tick is 1/60 of a second (world.tick counts them). Speeds are voxels a second, accelerations voxels a second per second; fades, a round's life and the like are seconds, and whatever is counted in ticks says so.
 The HUD (frame:text, frame:box ...) is measured in UI voxels from the top left of the screen; c.ui.height of them make the screen's height.
-Colors: one rule everywhere (the type Color): \"#rrggbb\", or { r, g, b } with numbers from 0 to 255; a fourth value (\"#rrggbbaa\", { r, g, b, a }) only where a color can be see-through: frame:cube, text, box, bar, drop_in and an icon's letters. Until the upgrade of Voxcade 0.7, c.light's and c.effects' colors are three numbers from 0 to 1 (or \"#rrggbb\").
+Colors: one rule everywhere (the type Color): \"#rrggbb\", or { r, g, b } with numbers from 0 to 255; a fourth value (\"#rrggbbaa\", { r, g, b, a }) only where a color can be see-through: frame:cube, text, box, bar, drop_in and an icon's letters. conf.lua and a level's file take colors the same way.
 Levels, places, items, kinds and families are named by strings (world:go_to(\"hall\", \"door\"), thing:take(\"key\"), level:spawn(\"bat\", x, y)). A name that does not exist is a mistake, found as the game loads where its files allow it (a level's prop that names a place), else at the call. level:thing(name) is the one that answers nil for a name that is not there.";
 
 /// The order of a tick, as the engine runs it (`LuaGame::step`).
@@ -1174,11 +1174,10 @@ pub fn settings() -> Vec<Setting> {
     out
 }
 
-/// A setting's LuaLS type: its Rust type's, but for a color that may also
-/// be written as text.
+/// A setting's LuaLS type: its Rust type's, but `Color` for a color.
 fn ty_of(path: &str, rust: &str) -> String {
     match path.split_once('.') {
-        Some((section, key)) if crate::config::COLORS.contains(&(section, key)) => "number[]|string".into(),
+        Some((section, key)) if crate::config::COLORS.contains(&(section, key)) => "Color".into(),
         _ => lua_of(rust),
     }
 }

@@ -1858,7 +1858,7 @@ mod tests {
     fn a_picture_of_its_own_shape_has_bars() {
         let game = |name: &str, aspect: &str| {
             let dir = crate::scratch::Scratch::new(name);
-            std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 64, 64, 8 }}\n  c.light.sky = {{ 0.3, 0.4, 0.6 }}\n  {aspect}\nend\n")).unwrap();
+            std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 64, 64, 8 }}\n  c.light.sky = {{ 76.5, 102, 153 }}\n  {aspect}\nend\n")).unwrap();
             std::fs::write(dir.join("main.lua"), "function on_level_start() level:fill(0, 0, 0, 63, 63, 0, '#5a6e4a') end\nfunction on_draw(frame) frame:box(0, 0, frame.width, 4, { 255, 255, 255 }) end\n").unwrap();
             dir
         };

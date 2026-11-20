@@ -187,9 +187,9 @@ fn colors(c: &toml::Value) -> Result<()> {
     use crate::color::SeeThrough;
     for (section, name) in crate::config::COLORS {
         let Some(v) = c.get(section).and_then(|t| t.get(name)) else { continue };
-        let numbers = v.as_array().is_some_and(|a| a.len() == 3 && a.iter().all(|n| n.is_float() || n.is_integer()));
-        if !numbers && !v.as_str().is_some_and(|t| crate::vvx::hex(t).is_some()) {
-            bail!("conf.lua: c.{section}.{name}: {}", crate::config::COLOR_IS);
+        if let Err(e) = crate::color::read(crate::color::written_toml(v), SeeThrough::No(crate::config::OPAQUE)) {
+            let was = if e.old_scale { format!(" ({})", crate::config::WAS_0_TO_1) } else { String::new() };
+            bail!("conf.lua: c.{section}.{name}: {e}{was}");
         }
     }
     let read = |v: &toml::Value, name: &str, see: SeeThrough| -> Result<()> {
@@ -300,7 +300,7 @@ mod tests {
     /// default; numbers keep their kind (an integer stays one).
     #[test]
     fn conf_fills_the_engine_config() {
-        let cfg = conf("function conf(c)\n  c.title = 'Sokovox'\n  c.physics.gravity = 520\n  c.camera.pitch = 40.5\n  c.things.gem = { model = 'gem.vox' }\n  c.actions = { 'jump', 'fire' }\n  c.light.sky = { 0.4, 0.6, 0.8 }\nend\n").unwrap();
+        let cfg = conf("function conf(c)\n  c.title = 'Sokovox'\n  c.physics.gravity = 520\n  c.camera.pitch = 40.5\n  c.things.gem = { model = 'gem.vox' }\n  c.actions = { 'jump', 'fire' }\n  c.light.sky = { 102, 153, 204 }\nend\n").unwrap();
         assert_eq!(cfg.title, "Sokovox");
         assert_eq!((cfg.physics.gravity, cfg.camera.pitch), (520.0, 40.5));
         assert_eq!(cfg.physics.max_fall, GameConfig::default().physics.max_fall);
@@ -335,16 +335,28 @@ mod tests {
         assert!(conf("function conf(c) c.title = os.time() end").is_err(), "the sandbox let os in");
         assert!(conf("x = 1").unwrap_err().to_string().contains("conf(c)"));
         let e = conf("function conf(c) c.light.sky = 'blue' end").unwrap_err().to_string();
-        assert!(e.contains("c.light.sky: a color is three numbers from 0 to 1"), "{e}");
+        assert_eq!(e, format!("conf.lua: c.light.sky: \"blue\" is no color: {}", crate::color::RULE));
     }
 
-    /// A color is three numbers from 0 to 1 or "#rrggbb", as a level's
-    /// file writes it.
+    /// A color of `c.light` and `c.effects` is "#rrggbb" or three numbers
+    /// from 0 to 255, as everywhere; a table from 0 to 1, the scale before
+    /// Voxcade 0.7.0, is refused rewritten, black taken as black; written
+    /// back (the defaults `conf(c)` is given) it reads the same to the bit.
     #[test]
     fn a_color_is_numbers_or_hex() {
-        let cfg = conf("function conf(c)\n  c.light.sky = '#20304a'\n  c.light.sun_color = { 1, 0.9, 0.8 }\n  c.effects.outline_color = '#000000'\nend\n").unwrap();
+        let cfg = conf("function conf(c)\n  c.light.sky = '#20304a'\n  c.light.sun_color = { 255, 229.5, 204 }\n  c.effects.outline_color = { 0, 0, 0 }\nend\n").unwrap();
         assert_eq!(cfg.light.sky, [32.0 / 255.0, 48.0 / 255.0, 74.0 / 255.0]);
         assert_eq!((cfg.light.sun_color, cfg.effects.outline_color), ([1.0, 0.9, 0.8], [0.0; 3]));
+        let e = conf("function conf(c) c.light.sun_color = { 1, 0.9, 0.8 } end").unwrap_err().to_string();
+        assert_eq!(e, "conf.lua: c.light.sun_color: { 1, 0.9, 0.8 } reads as numbers from 0 to 1, but a color's are from 0 to 255: write { 255, 229.5, 204 } or \"#ffe6cc\" (conf.lua's colors were numbers from 0 to 1 before Voxcade 0.7.0; voxcade upgrade rewrites them)");
+        let e = conf("function conf(c) c.light.sky = { 0.1, 0.1, 0.1, 1 } end").unwrap_err().to_string();
+        assert!(e.starts_with("conf.lua: c.light.sky: { 0.1, 0.1, 0.1, 1 }: it cannot be see-through, so no fourth number"), "{e}");
+        let defaults = conf("function conf(c) end").unwrap();
+        let given = toml::Value::try_from(&defaults).unwrap();
+        assert_eq!(given["light"]["sky"].to_string(), "[15.3, 17.85, 25.5]");
+        assert_eq!(given["light"]["sun_color"].as_str(), Some("#ffffff"));
+        let back: GameConfig = given.try_into().unwrap();
+        assert_eq!((back.light.sky, back.light.sun_color, back.effects.haze_color), (defaults.light.sky, defaults.light.sun_color, defaults.effects.haze_color));
     }
 
     /// The fade's color, the logo's colors and an icon's letters take a
@@ -533,7 +545,7 @@ mod tests {
         assert!(e.starts_with("conf.lua: c.world.size: 4096 by 4096 by 4096 voxels is too big"), "{e}");
         let e = conf("function conf(c) c.light.sun = { 0.4, 0.6, 1 } end").unwrap_err().to_string();
         assert_eq!(e, "conf.lua: c.light.sun[3] = 1: from -1000 to below 0");
-        for (line, says) in [("c.camera.fov = 0", "c.camera.fov = 0: from 10 to 100"), ("c.camera.pitch = 200", "c.camera.pitch = 200: from -89 to 90"), ("c.light.sky = { 0.1, 2, 0.1 }", "c.light.sky[2] = 2: from 0 to 1"), ("c.items.key = { stack = 0 }", "c.items.key.stack = 0: from 1 to 1000000")] {
+        for (line, says) in [("c.camera.fov = 0", "c.camera.fov = 0: from 10 to 100"), ("c.camera.pitch = 200", "c.camera.pitch = 200: from -89 to 90"), ("c.light.sky = { 0.1, 300, 0.1 }", "conf.lua: c.light.sky: { 0.1, 300, 0.1 }: each number is from 0 to 255, not 300"), ("c.items.key = { stack = 0 }", "c.items.key.stack = 0: from 1 to 1000000")] {
             let e = conf(&format!("function conf(c) {line} end")).unwrap_err().to_string();
             assert!(e.contains(says), "{line}: {e}");
         }

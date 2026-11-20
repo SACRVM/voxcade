@@ -817,7 +817,7 @@ fn frame_fog_takes_its_words() {
         steps(&mut g, 1);
         (frame, halted(&g))
     };
-    let (frame, e) = draw("fog-words", "  c.light.fog_color = { 0.5, 0.5, 0.5 }\n  c.light.fog_glow = 3\n", "frame:fog{ density = 0.05, anisotropy = 0.5 }");
+    let (frame, e) = draw("fog-words", "  c.light.fog_color = { 127.5, 127.5, 127.5 }\n  c.light.fog_glow = 3\n", "frame:fog{ density = 0.05, anisotropy = 0.5 }");
     let f = frame.fog.unwrap_or_else(|| panic!("{e}"));
     assert_eq!((f.density, f.anisotropy, f.color, f.glow), (0.05, 0.5, [0.5; 3], 3.0), "the color and the glow c.light's");
     let (frame, e) = draw("fog-glow", "", "frame:fog{ density = 0.01, glow = 4 }");

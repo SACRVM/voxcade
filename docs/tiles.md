@@ -396,14 +396,15 @@ facing = [0, -1]
   A level's light, every word (`render::LIGHT_WORDS` has the ranges, the
   level reader checks each; a number out of its range is a mistake at its
   line; HELP's LAMPS IN A LEVEL is the page for an author; `frame:light{}`
-  takes the same words, with `color` as `{ r, g, b }` from 0 to 255 and
-  `at` as a thing or a point):
+  takes the same words, with `at` as a thing or a point; a color is
+  written one way everywhere, `"#rrggbb"` or `[r, g, b]` from 0 to 255,
+  `src/color.rs`):
 
   | word | unit | range | default |
   |---|---|---|---|
   | `at` | voxels, whole numbers `[x, y, z]`, from the thing's place (a piece: from its model's pivot, turning with it) | any | `[0, 0, 0]` |
   | `radius` | voxels, how far it reaches | above 0 | needed |
-  | `color` | `"#rrggbb"` | | white |
+  | `color` | `"#rrggbb"` or `[r, g, b]` | each 0 to 255 | white |
   | `falloff` | (1 - distance / radius) to this power | 0 to 16 | 2 |
   | `cone` | degrees, a spot's whole opening angle; 360 is every way | 1 to 360 | every way (no cone) |
   | `blend` | share of the cone's edge that is soft | 0 to 1 | 0.15 |

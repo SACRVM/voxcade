@@ -423,8 +423,8 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   facing, state })`, `level:thing(id)`, `level:things(kind)`,
   `level:count(kind)`, `level:explode(at, r)`, `level:sound(name, at)`,
   `world:hitstop(ticks)`, voxels
-  (`level:set_voxel`, `level:fill`, by colour `"#rrggbb"` or palette
-  index), `level:solid`, the ground, `level.size`, `level.camera:follow`,
+  (`level:set_voxel`, `level:fill`, by color, `"#rrggbb"` or `{ r, g, b }`,
+  or palette index), `level:solid`, the ground, `level.size`, `level.camera:follow`,
   `level.camera:look_at(x, y)`), `player` (a thing that goes from level
   to level: the kit's player, or a thing of `c.player.kind`; its
   `player.state` holds the score and `inventory`, items of `c.items`),

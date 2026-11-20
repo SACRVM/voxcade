@@ -7,20 +7,20 @@ use crate::lua::lex::{self, Kind};
 
 /// The changes to one file: its text before and after, and what was
 /// changed in words.
-struct Change {
-    file: PathBuf,
-    before: String,
-    after: String,
-    said: Vec<String>,
+pub(super) struct Change {
+    pub(super) file: PathBuf,
+    pub(super) before: String,
+    pub(super) after: String,
+    pub(super) said: Vec<String>,
 }
 
 /// The line a byte of a text is on, from 1.
-fn line_at(text: &str, at: usize) -> usize {
+pub(super) fn line_at(text: &str, at: usize) -> usize {
     text[..at.min(text.len())].matches('\n').count() + 1
 }
 
 /// The text with each range replaced (the ranges apart from one another).
-fn edited(src: &str, mut edits: Vec<(Range<usize>, String)>) -> String {
+pub(super) fn edited(src: &str, mut edits: Vec<(Range<usize>, String)>) -> String {
     edits.sort_by_key(|(r, _)| r.start);
     let mut out = src.to_string();
     for (range, with) in edits.into_iter().rev() {
@@ -36,7 +36,7 @@ pub(super) const OLD_PUT_HEAD: &str = "# What stands on the map, in order: a pre
 
 /// What a `.toml` of the game is by its format line: a level, a map or
 /// neither.
-fn format_of(text: &str) -> Option<&'static str> {
+pub(super) fn format_of(text: &str) -> Option<&'static str> {
     let first = text.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#'))?;
     if first.starts_with(&format!("format = \"{}\"", crate::grid::FORMAT)) {
         Some("level")
@@ -136,14 +136,14 @@ pub fn now(file: &Path, src: &str) -> Result<String> {
 
 /// A token of Lua that counts (no comment): its text and place, and
 /// whether the bracket it stands in is a table's (`{`).
-struct Tok<'a> {
-    text: &'a str,
-    kind: Kind,
-    range: Range<usize>,
+pub(super) struct Tok<'a> {
+    pub(super) text: &'a str,
+    pub(super) kind: Kind,
+    pub(super) range: Range<usize>,
     in_table: bool,
 }
 
-fn tokens(src: &str) -> Vec<Tok<'_>> {
+pub(super) fn tokens(src: &str) -> Vec<Tok<'_>> {
     let mut open: Vec<&str> = Vec::new();
     let mut out = Vec::new();
     // Brackets, and the blocks of code (a function in a table is code).
@@ -191,7 +191,7 @@ fn chain<'a>(toks: &[Tok<'a>], i: usize) -> Vec<&'a str> {
 /// Where each name of `conf.lua` that is a key or a field lies among
 /// the settings: its path from `c` (`things`, `slime`, `behaviour`;
 /// `[]` an element of a list, `?` a table the path is not known of).
-fn paths<'a>(toks: &[Tok<'a>]) -> Vec<(usize, Vec<&'a str>)> {
+pub(super) fn paths<'a>(toks: &[Tok<'a>]) -> Vec<(usize, Vec<&'a str>)> {
     let mut stack: Vec<Vec<&'a str>> = Vec::new();
     let mut out = Vec::new();
     // The settings' path a chain names (its first name `c`, or a local).
@@ -235,13 +235,13 @@ fn paths<'a>(toks: &[Tok<'a>]) -> Vec<(usize, Vec<&'a str>)> {
 }
 
 /// Whether a path is `pattern`'s (`*` any one name).
-fn matches(path: &[&str], pattern: &[&str]) -> bool {
+pub(super) fn matches(path: &[&str], pattern: &[&str]) -> bool {
     path.len() == pattern.len() && path.iter().zip(pattern).all(|(p, q)| *q == "*" || p == q)
 }
 
 /// The edits to a Lua file, and the names left that the step cannot
 /// place (their byte, what to write).
-type Edits = (Vec<(Range<usize>, String)>, Vec<(usize, String)>);
+pub(super) type Edits = (Vec<(Range<usize>, String)>, Vec<(usize, String)>);
 
 const PROP_TURN: &str = "a title prop's turn (quarter turns anticlockwise) is rotation, degrees clockwise: turn = 1 is rotation = 270";
 

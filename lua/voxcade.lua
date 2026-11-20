@@ -41,7 +41,7 @@
 ---@field done boolean Enter was pressed.
 ---@field cancel boolean Escape was pressed.
 
----@alias Color string|number[] A color: "#rrggbb", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, "#rrggbbaa" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. (Until the upgrade of Voxcade 0.7, c.light's and c.effects' colors are three numbers from 0 to 1, or "#rrggbb".)
+---@alias Color string|number[] A color: "#rrggbb", or { r, g, b } with numbers from 0 to 255 (a fraction is fine). Where it can be see-through (frame:cube, text, box, bar, drop_in, an icon's letters) a fourth value too, "#rrggbbaa" or { r, g, b, a }: a from 0 (clear) to 255 (opaque, unless given); anywhere else a fourth value is a mistake. A table whose every number is at most 1 reads as the scale from 0 to 1 and is a mistake, but { 0, 0, 0 }, black. conf.lua's colors (c.light, c.effects, c.transition.color, c.title_screen.logo_colors, an icon's letters) and a level's file take the same.
 
 ---@class Place A named place of a level (level.places.NAME, level.arrived): where a player arrives, or a thing is put with thing:place.
 ---@field x number Across, east, in voxels.
@@ -1002,12 +1002,12 @@ function on_pickup(thing, item) end
 
 ---@class Conf.light
 ---@field sun number[] Direction the sunlight travels (towards the ground). (each from -1000 to 1000; [3] from -1000 to below 0)
----@field sun_color number[]|string The sunlight's color, three numbers from 0 to 1 or "#rrggbb" (a darker one shines weaker): white unless set (warm at dusk, a pale blue for the moon). frame:daylight sets it for one picture. (each from 0 to 1)
+---@field sun_color Color The sunlight's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255 (a darker one shines weaker); white unless set (warm at dusk, a pale blue for the moon). frame:daylight sets it for one picture. (each from 0 to 255)
 ---@field ambient number Light that reaches every face, 0..1. (from 0 to 1)
 ---@field shadow number How much a shadow darkens sunlit faces, 0..1. (from 0 to 1)
----@field sky number[]|string The background's color, three numbers from 0 to 1 or "#rrggbb". (each from 0 to 1)
----@field reflection_horizon number[]|string The sky metal mirrors: its color at the horizon, three numbers from 0 to 1 or "#rrggbb" (below the horizon it mirrors the ground, in the haze's color). (each from 0 to 1)
----@field reflection number[]|string The sky metal mirrors overhead: its color, three numbers from 0 to 1 or "#rrggbb". (each from 0 to 1)
+---@field sky Color The background's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255. (each from 0 to 255)
+---@field reflection_horizon Color The sky metal mirrors: its color at the horizon, a Color: "#rrggbb" or { r, g, b } from 0 to 255 (below the horizon it mirrors the ground, in the haze's color). (each from 0 to 255)
+---@field reflection Color The sky metal mirrors overhead: its color, a Color: "#rrggbb" or { r, g, b } from 0 to 255. (each from 0 to 255)
 ---@field metal_sweep number A streak of light sweeping over metal now and then, this bright (0: none): metal reads as metal even where the sun cannot glint in it. (from 0 to 10)
 ---@field shadow_style string How shadow edges look: "smooth" (soft edges across the voxels), "voxel" (every voxel face is either lit or in shadow, edges step along the grid) or "voxel_soft" (as voxel, with half-shadowed faces in between).
 ---@field model_shading string How models (actors, props) are lit: "faces" (every face of a voxel by its own direction), "smooth" (a whole voxel by the direction of the surface around it, so round shapes shade softly like pixel art) or "edges" (smooth, but where two flat surfaces meet the faces keep their own light, so hard edges stay hard).
@@ -1015,7 +1015,7 @@ function on_pickup(thing, item) end
 ---@field edge_tolerance number With "edges": how far, in voxels, a voxel's surroundings may stray from one smooth surface before it counts as an edge. (from 0 to 16)
 ---@field lamp_shadows string What stops a lamp that states no shadows of its own (a level's lights, frame:light): "static" (the level's voxels and its pieces), "all" (moving things too: figures, things, models drawn; costly, for a few lamps) or "none": it shines through walls, as before 0.7 (older hardware). A light's own shadows beats it, whatever it says.
 ---@field fog_density number Fog in the level's air, how thick: 0 none, else a voxel of air takes this share of the light passing through (0.01: a third is left after 100 voxels). The lamps' light shows in it, a spot as a beam, and what lies further fades to the fog's color (0.004 is a light haze in a big hall). By day give fog_color the sky's color, or what lies further fades to a dark veil. A game's frame:fog sets it for one picture. (from 0 to 1)
----@field fog_color number[]|string The fog's own color where no lamp lights it, three numbers from 0 to 1 or "#rrggbb". frame:fog sets it for one picture. (each from 0 to 1)
+---@field fog_color Color The fog's own color where no lamp lights it, a Color: "#rrggbb" or { r, g, b } from 0 to 255. frame:fog sets it for one picture. (each from 0 to 255)
 ---@field fog_anisotropy number How much the fog sends a lamp's light on ahead rather than back, -0.9 to 0.9: above 0 a beam is brighter looking towards its lamp (0: every way alike). (from -0.9 to 0.9)
 ---@field fog_glow number How brightly the fog shows the lamps' light, 0..20; the dimming is the density's alone: 1 as the air would (thicker fog, brighter beams), 4 a stage's haze (bright beams while the room stays clear), 0 a fog that only dims. Higher is never fainter, and however high, a lamp's glow in the fog never gets brighter than its own light (times the light's fog). (from 0 to 20)
 
@@ -1028,12 +1028,12 @@ function on_pickup(thing, item) end
 ---@field glow number How strongly bright things (muzzle flashes, fire, tracers, sparks) glow into their surroundings; 0 turns it off. (from 0 to 10)
 ---@field lights number How strongly flashes and explosions light up what is around them. (from 0 to 10)
 ---@field haze number Haze towards the far edge of the view, 0 (none) to 1 (thick); haze_color is its color. (from 0 to 1)
----@field haze_color number[]|string The haze's color, three numbers from 0 to 1 or "#rrggbb". (each from 0 to 1)
+---@field haze_color Color The haze's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255. (each from 0 to 255)
 ---@field tilt_shift number Blur at the top and bottom of the screen, a miniature look, 0..1. (from 0 to 1)
 ---@field screen_flash number How bright the white flash over the screen on big explosions gets, 0..1. (from 0 to 1)
 ---@field hitstop integer Ticks the game holds still when an enemy dies. (from 0 to 60)
 ---@field outline number A dark line round the models (figures, props), as round a sprite: how many voxels thick (0: none; 1 a voxel, as a sprite's pixel), and its colour (0..1). Hidden behind what stands in front, drawn where one part of a model stands before another too. (from 0 to 8)
----@field outline_color number[]|string The outline's color, three numbers from 0 to 1 or "#rrggbb". (each from 0 to 1)
+---@field outline_color Color The outline's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255. (each from 0 to 255)
 ---@field bake_models boolean Models drawn from lists of their faces that can be seen, made once, instead of a cube a voxel: the same picture, quicker and in less of the GPU's memory. false draws every voxel a cube.
 
 ---@class Conf.transition

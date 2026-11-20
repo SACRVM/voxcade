@@ -1257,13 +1257,7 @@ fn read_light(r: &Reader, l: &dyn toml_edit::TableLike, span: Option<std::ops::R
     let radius_item = l.get("radius").ok_or_else(|| r.fail(span.clone(), "a light needs radius = N (how far it reaches, voxels)"))?;
     let radius = radius_item.as_float().or_else(|| radius_item.as_integer().map(|i| i as f64)).filter(|v| (*v as f32).is_finite() && *v > 0.0);
     let radius = radius.ok_or_else(|| r.fail(radius_item.span(), "a light's radius must be a number above 0 (voxels)"))?;
-    let color = match l.get("color") {
-        None => None,
-        Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
-            Some(s) => Some(s.to_string()),
-            None => return Err(r.fail(c.span(), "a light's color must be \"#rrggbb\", like \"#ffd9a0\"")),
-        },
-    };
+    let color = l.get("color").map(|c| file_color(r, c, "a light's color", "a light has no transparency")).transpose()?;
     Ok(ThingLight { at, radius, color, falloff, cone, blend, rotation, pitch, shadows, fog })
 }
 
@@ -1313,24 +1307,26 @@ fn read_camera(r: &Reader, item: &Item) -> Result<LevelCamera> {
     Ok(LevelCamera { yaw: v as i32, line: yaw.span().map_or(0, |s| vvx::line_of(r.src, s.start)) })
 }
 
+/// A color in a level's file, as `color::read` reads it: "#rrggbb" or
+/// [r, g, b] from 0 to 255 (`why` it takes no fourth value), kept as the
+/// file's hex (a fraction rounded, as the picture takes a level's colors).
+/// An array on the scale from 0 to 1 says that a level's colors were so
+/// before Voxcade 0.7.0.
+fn file_color(r: &Reader, c: &Item, what: &str, why: &'static str) -> Result<String> {
+    match crate::color::read(crate::color::written_item(c), crate::color::SeeThrough::No(why)) {
+        Ok(color) => Ok(match c.as_str() {
+            Some(s) => s.to_string(),
+            None => color.hex(),
+        }),
+        Err(e) if e.old_scale => Err(r.fail(c.span(), format!("{what}: {e} (a level's colors were numbers from 0 to 1 before Voxcade 0.7.0; voxcade upgrade rewrites them)"))),
+        Err(e) => Err(r.fail(c.span(), format!("{what}: {e}"))),
+    }
+}
+
 fn read_daylight(r: &Reader, item: &Item) -> Result<Daylight> {
     let t = item.as_table_like().ok_or_else(|| r.fail(item.span(), "light must be a table: [light] with sun, sun_color, ambient, shadow, sky"))?;
     r.only(t, &Daylight::WORDS, "the level's [light]")?;
-    let colour = |key: &str| -> Result<Option<String>> {
-        match t.get(key) {
-            None => Ok(None),
-            Some(c) => match c.as_str().filter(|s| hex(s).is_some()) {
-                Some(s) => Ok(Some(s.to_string())),
-                // Three numbers from 0 to 1, as conf.lua's c.light writes them.
-                None if c.as_array().is_some() => {
-                    let rgb = r.triple(c, key).ok().filter(|v| v.iter().all(|v| (0.0..=1.0).contains(v)));
-                    let rgb = rgb.ok_or_else(|| r.fail(c.span(), format!("{key} must be a color \"#rrggbb\" or three numbers from 0 to 1, like [1, 0.85, 0.63]")))?;
-                    Ok(Some(format!("#{:02x}{:02x}{:02x}", (rgb[0] * 255.0).round() as u8, (rgb[1] * 255.0).round() as u8, (rgb[2] * 255.0).round() as u8)))
-                }
-                None => Err(r.fail(c.span(), format!("{key} must be a color \"#rrggbb\", like \"#ffd9a0\", or three numbers from 0 to 1"))),
-            },
-        }
-    };
+    let colour = |key: &str| -> Result<Option<String>> { t.get(key).map(|c| file_color(r, c, key, "the daylight has no transparency")).transpose() };
     let sun = match t.get("sun") {
         None => None,
         Some(s) => {
