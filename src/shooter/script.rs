@@ -48,6 +48,18 @@ impl Host for Shooter {
         })
     }
 
+    /// Any of its bodies, whatever moves it (`Host::shove`).
+    fn shove(&mut self, id: Id, by: Vec3) -> bool {
+        let Some(t) = self.things.get_mut(id) else { return false };
+        (t.body.pos, t.body.prev) = (t.body.pos + by, t.body.prev + by);
+        true
+    }
+
+    fn shove_player(&mut self, by: Vec3) {
+        let b = &mut self.player.body;
+        (b.pos, b.prev) = (b.pos + by, b.prev + by);
+    }
+
     /// The script's kinds at (x, y) (on the ground unless `z` is given); the
     /// kit's where a marker there would place them.
     fn spawn(&mut self, kind: usize, x: f32, y: f32, z: Option<f32>) -> Result<Id, String> {
@@ -58,7 +70,7 @@ impl Host for Shooter {
                 Some(z) => Vec3::new(x, y, z),
                 None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), height, self.sim.half()),
             };
-            return Ok(self.things.spawn(kind, Body::new(at, height), k.hp, Brain::Script(Default::default())));
+            return Ok(self.things.spawn(kind, self.sim.body(at, height), k.hp, Brain::Script(Default::default())));
         }
         let (cx, cy) = (x.floor() as i32, y.floor() as i32);
         let cz = z.map_or_else(|| self.sim.world.column_top(cx, cy), |z| z.floor() as i32);
@@ -439,7 +451,7 @@ impl Host for Shooter {
         }
         let height = self.shapes.kind(k).height();
         let at = crate::sim::stand_at(&self.sim.world, at, height, self.sim.half());
-        let mut body = Body::new(at, height);
+        let mut body = self.sim.body(at, height);
         if let Some(way) = facing {
             body.face(Vec3::new(way.x as f32, way.y as f32, 0.0));
         }

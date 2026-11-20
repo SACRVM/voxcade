@@ -158,8 +158,7 @@ impl Shooter {
         let resting = fighters.first().map_or(self.sim.cam_target, |f| f.body.centre());
         // The gunship holds at its offset from the player, inside the
         // world, sliding across the screen as the view sees it.
-        let yaw = self.sim.cfg.camera.yaw.to_radians();
-        let (sin, cos) = super::math::sin_cos(yaw);
+        let (sin, cos) = self.sim.yaw_sin_cos();
         let right = Vec3::new(cos, -sin, 0.0);
         let mut shots = Vec::new();
         let mut rockets = Vec::new();

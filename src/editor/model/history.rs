@@ -151,6 +151,7 @@ impl Editor {
         self.level.places = s.places.clone();
         self.level.areas = s.areas.clone();
         self.level.daylight = s.daylight.as_deref().cloned();
+        self.level.camera = s.camera;
         self.level.terrain = s.terrain.as_deref().cloned();
         (self.level.location, self.level.persistent) = (s.location.clone(), s.persistent);
         // (Points no longer there are no longer chosen.)

@@ -64,6 +64,10 @@ pub struct Def {
     /// voxels, whatever the script asks of it (a sign, a switch, a thing
     /// hung in the air). Only for kinds the script moves.
     pub fixed: bool,
+    /// Stops bodies in the cells its model is drawn in where it stands
+    /// (`solid = true`), as a level's solid piece does (`world::Solids`):
+    /// only a kind that stands, `fixed` and without a behavior.
+    pub solid: bool,
     /// Its things a level's file sets down stay as left for the whole run,
     /// in any level (`persistent = true`: a chest, a lever; `lua::memory`).
     pub persistent: bool,
@@ -256,6 +260,7 @@ fn piece() -> Def {
         free_turn: false,
         spin: 0.0,
         fixed: true,
+        solid: false,
         persistent: false,
         frames: BTreeMap::new(),
         fps: FPS,
@@ -466,6 +471,20 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
             if fixed && behavior.is_some() {
                 bail!("{}: a kind with a behavior is moved by its ready-made rules; fixed is for kinds the script moves (no behavior)", what("fixed"));
             }
+            let solid = match params.remove("solid") {
+                None => false,
+                Some(toml::Value::Boolean(b)) => b,
+                Some(_) => bail!("{}: true or false (its model's cells stop bodies, as a solid piece's)", what("solid")),
+            };
+            if solid && behavior.is_some() {
+                bail!("{}: only a thing that stands stops bodies, and a kind with a behavior moves by its ready-made rules: solid is for a kind with fixed = true and no behavior", what("solid"));
+            }
+            if solid && !fixed {
+                bail!("{}: only a thing that stands stops bodies: fixed = true with it (it stays where it is put)", what("solid"));
+            }
+            if solid && model.is_none() {
+                bail!("{}: the cells its model is drawn in stop bodies: give it a model (model = \"post.vvx\")", what("solid"));
+            }
             let fps = match params.remove("fps") {
                 None => FPS,
                 Some(f) => f.as_float().or_else(|| f.as_integer().map(|i| i as f64)).with_context(|| format!("{}: frames a second, a number", what("fps")))?.max(0.1) as f32,
@@ -489,11 +508,11 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
             if behavior.is_none()
                 && let Some(key) = params.keys().find(|k| !["width", "height", "facing"].contains(&k.as_str()))
             {
-                let known = ["like", "behavior", "model", "hp", "fixed", "width", "height", "facing"].into_iter().chain(COMMON);
+                let known = ["like", "behavior", "model", "hp", "fixed", "solid", "width", "height", "facing"].into_iter().chain(COMMON);
                 let near = crate::audio::words::near(key, known).map(|k| format!(" (did you mean `{k}`?)")).unwrap_or_default();
-                bail!("{}: not a setting of a kind without a behavior (the script's: model, hp, fixed, width, height, facing and {}){near}", what(key), COMMON.join(", "));
+                bail!("{}: not a setting of a kind without a behavior (the script's: model, hp, fixed, solid, width, height, facing and {}){near}", what(key), COMMON.join(", "));
             }
-            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, spin, fixed, persistent, frames, fps, swing, params })
+            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, spin, fixed, solid, persistent, frames, fps, swing, params })
         })
         .collect()
 }

@@ -1340,6 +1340,12 @@ impl Editor {
         self.change(None, |l| l.daylight = None);
     }
 
+    /// YAW: the level's camera turned its own way (`[camera] yaw`), or as
+    /// the game's again (None).
+    pub fn set_level_yaw(&mut self, yaw: Option<i32>) {
+        self.change(None, |l| l.camera = yaw.map(|yaw| crate::grid::LevelCamera { yaw, line: 0 }));
+    }
+
     /// LOCATION: the location the level belongs to (`location = "..."`,
     /// `lua::memory`), typed or chosen; empty: none. One step, its line
     /// only.

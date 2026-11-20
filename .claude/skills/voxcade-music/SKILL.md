@@ -52,14 +52,19 @@ judge by ear.
 
 ## A singing voice
 
-An instrument sings with the wave `voice` (`src/audio/music/voice.rs`, a
-formant synthesizer after Klatt: no samples). A quoted text before a note
+An instrument sings with the wave `singer` (`src/audio/music/clear.rs`,
+the clear voice, for words to be understood: a glottal pulse, five
+formants, formants gliding from each consonant's locus, voice onset
+times, a parallel branch for the hiss) or `voice` (`voice.rs`, the first,
+rougher one, kept to the sample: good for short shouts). No samples. A
+quoted text before a note
 is the syllable that note sings, phonemes split by spaces, in small
 letters: onset consonants, one vowel or diphthong, coda consonants.
 
 ```
-@singer voice attack=0.005 decay=0 sustain=1 release=0.05 vibrato=0.006 vibrato_speed=5.5 drive=19 filter=bandpass cutoff=1150 volume=0.6
-V: @singer o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
+@vox singer attack=0.005 decay=0 sustain=1 release=0.06 vibrato=0.006 vibrato_speed=5.5 vibrato_delay=0.1 volume=0.5
+@shout voice attack=0.005 decay=0 sustain=1 release=0.05 drive=19 filter=bandpass cutoff=1150 volume=0.6
+V: @vox o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
 ```
 
 - The vowel starts on the note's beat, the onset just before it (never
@@ -71,9 +76,25 @@ V: @singer o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
   share it, the coda and a diphthong's glide on the last; after a rest
   it sings the vowel alone. A voice's first note needs a text.
 - The phonemes (HELP's A SONG IN MML lists them, the mistake of an unknown
-  one too): vowels a ae e eh i ih o u ax oe ue, diphthongs aw ow ai oi
-  ei, consonants m n ng l r w j f v s z sh ch h t k p d g b. Written in
-  English or German sounds: "f ae n", "z ai n", "ch".
+  one too): vowels a ae e eh i ih o u ax er oe ue, diphthongs aw ow ai oi
+  ei, consonants m n ng l r w j f v s z sh ch x h rr t k p d g b (x the
+  German ach, rr a trilled r, er the unstressed German -er: "sh v eh s"
+  "t er"). Written in English or German sounds: "f
+  ae n", "z ai n", "ih ch", "a x".
+- `consonants` (dB, -24 to 12, 0 unless set) moves a voice's hiss,
+  bursts and breath against its vowels, both voices. Unset they lie as
+  in speech (sh about 13 dB under the vowel, s 15, f 20).
+- Clusters (`singer`): a coda ends where the next syllable's onset
+  begins, both compressed together down to each consonant's least where
+  they do not fit before the next vowel; consonants in a cluster are a
+  quarter shorter; a plosive after s or sh is unaspirated, one after a
+  nasal of its place has a short closure; a v (z) is Klatt's voiced
+  fricative: a voice bar and a weak hiss, not a vowel; a burst is a
+  transient falling into the breath; nothing steps (the voicing set at
+  a pulse's start, hisses ramped over 5 ms, the nasal zero gliding).
+  Checked by `the_singer_sings_every_consonant_of_a_cluster` and
+  `the_singers_bursts_fall_away_into_their_breath`; sources in
+  `clear.rs`'s comments (Klatt 1980, 1987 and the like).
 - `duty`, `pwm`, `pwm_speed` are refused on a voice; every other word
   applies. The attack starts from where the voice was, so a line does
   not drop to silence between syllables.

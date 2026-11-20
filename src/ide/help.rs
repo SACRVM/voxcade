@@ -830,13 +830,13 @@ end
     },
     Topic {
         title: "A SONG IN MML",
-        text: "A song is a text file in the folder music, ending in .mml (the plus beside MUSIC makes one; PLAY SONG plays the text as it stands). Lines starting with # are settings (#tempo is beats a minute, 1 to 999, #meter the beats in a bar, #loop 33 80 plays the song from its start once and then bars 33 to 80 round and round, counted from 1, what comes after them never reached, #loop 33 goes round from bar 33 to the end and #loop no plays it once; a note held over the loop's end is cut there), lines starting with @ make an instrument (a wave, square, saw, triangle, sine or noise, then options like attack, decay, sustain and release, written name=number; a number out of its range is a mistake saying the range, a word one slip off says which it meant), and a line like A: is a channel of notes, one voice each (@lead in it picks the instrument; without one it plays a plain square). Notes are c d e f g a b (or C D E F G A B), + or - for sharp and flat (++ or -- twice), then a length (4 a quarter, 8 an eighth, a dot makes it longer), & holds a note on by another length (c4&8, or c4&c8: the same pitch), r a rest, o4 the octave (0 to 9), < and > one octave down and up, l8 the default length, v0 to v15 the volume, [ ... ]3 repeats three times, $name = ... a short piece to use again, | a bar line (ignored). A channel may go on over several lines; a mistake says the line it is on. Every channel should be as long as the others, or the short ones fall silent before the song starts over. Name the file in c.audio.music and play it by its file's name, without the folder and .mml: music:play(\"drive\"). decay in an instrument is the fall from the peak to the sustain level, not the fade to silence a sound file's decay is. An instrument can sing: @singer voice in place of a wave. Then a text in quotes before a note is the syllable that note sings, its phonemes split by spaces, in small letters: \"l a\" c4, \"s ae ng\" e4 (consonants, one vowel, consonants). The vowel starts on the note's beat, the consonants before it sound just before the beat, the ones after it end where the note is let go. A voice note without a text holds the vowel before it (a melisma). The phonemes: vowels a ae e eh i ih o u ax oe ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch h t k p d g b (ae as in cat, eh bed, ih bit, ax the a in sofa, oe and ue the German ö and ü, ng sing, j yes, sh she, ch the German ich). Every instrument, a voice too, takes drive (decibels, 0 to 36: pushed into a soft clipper, 12 rough, 20 a shout through a megaphone with filter=bandpass cutoff=1150) and a bit crusher, crush_rate (the sound held at that many Hz, 6000 the speech of old games) and crush_bits (1 to 16 bits).",
+        text: "A song is a text file in the folder music, ending in .mml (the plus beside MUSIC makes one; PLAY SONG plays the text as it stands). Lines starting with # are settings (#tempo is beats a minute, 1 to 999, #meter the beats in a bar, #loop 33 80 plays the song from its start once and then bars 33 to 80 round and round, counted from 1, what comes after them never reached, #loop 33 goes round from bar 33 to the end and #loop no plays it once; a note held over the loop's end is cut there), lines starting with @ make an instrument (a wave, square, saw, triangle, sine or noise, then options like attack, decay, sustain and release, written name=number; a number out of its range is a mistake saying the range, a word one slip off says which it meant), and a line like A: is a channel of notes, one voice each (@lead in it picks the instrument; without one it plays a plain square). Notes are c d e f g a b (or C D E F G A B), + or - for sharp and flat (++ or -- twice), then a length (4 a quarter, 8 an eighth, a dot makes it longer), & holds a note on by another length (c4&8, or c4&c8: the same pitch), r a rest, o4 the octave (0 to 9), < and > one octave down and up, l8 the default length, v0 to v15 the volume, [ ... ]3 repeats three times, $name = ... a short piece to use again, | a bar line (ignored). A channel may go on over several lines; a mistake says the line it is on. Every channel should be as long as the others, or the short ones fall silent before the song starts over. Name the file in c.audio.music and play it by its file's name, without the folder and .mml: music:play(\"drive\"). decay in an instrument is the fall from the peak to the sustain level, not the fade to silence a sound file's decay is. An instrument can sing: singer or voice in place of a wave (@vox singer ...). singer is the clear one, made for words to be understood; voice the rougher one of before, good for short shouts. Then a text in quotes before a note is the syllable that note sings, its phonemes split by spaces, in small letters: \"l a\" c4, \"s ae ng\" e4 (consonants, one vowel, consonants). The vowel starts on the note's beat, the consonants before it sound just before the beat, the ones after it end where the note is let go. A voice note without a text holds the vowel before it (a melisma). The phonemes: vowels a ae e eh i ih o u ax er oe ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch x h rr t k p d g b (ae as in cat, eh bed, ih bit, ax the a in sofa, er an unstressed German -er as in Schwester, oe and ue the German ö and ü, ng sing, j yes, sh she, ch the German ich, x the German ach, rr a rolled r as sung). A voice also takes consonants: its consonants' hiss, bursts and breath against its vowels, in decibels (-24 to 12, 0 as they are). Every instrument, a voice too, takes drive (decibels, 0 to 36: pushed into a soft clipper, 12 rough, 20 a shout through a megaphone with filter=bandpass cutoff=1150) and a bit crusher, crush_rate (the sound held at that many Hz, 6000 the speech of old games) and crush_bits (1 to 16 bits).",
         conf: r##"c.audio.music = { "music/drive.mml" }
 c.player.kind = "hero"
 c.things.hero = {}"##,
         files: &[(
             "music/drive.mml",
-            "#title Drive\n#tempo 120\n#meter 4\n\n; the instruments\n@lead square duty=0.25 attack=0.005 decay=0.15 sustain=0.6 release=0.1 volume=0.4\n@bass triangle volume=0.5\n\n; a piece to use twice\n$riff = c8 c8 g8 c8 a+8 c8 g8 c8\n\n; a voice, rough and through a megaphone's band\n@singer voice attack=0.005 decay=0 sustain=1 release=0.05 vibrato=0.006 vibrato_speed=5.5 drive=12 filter=bandpass cutoff=1150 volume=0.4\n\n; every channel four bars long (16 beats)\nA: @lead o5 v12 l8 [e g a g e d c d]4\nB: @bass o2 v13 [$riff]4\n; the voice from bar 3: la la la, hey hey, sing\nV: @singer o4 r1 r1 \"l a\" e4 \"l a\" g4 \"l a\" a2 | \"h ei\" g4 \"h ei\" e4 \"s ih ng\" d2\n",
+            "#title Drive\n#tempo 120\n#meter 4\n\n; the instruments\n@lead square duty=0.25 attack=0.005 decay=0.15 sustain=0.6 release=0.1 volume=0.4\n@bass triangle volume=0.5\n\n; a piece to use twice\n$riff = c8 c8 g8 c8 a+8 c8 g8 c8\n\n; a clear voice that sings\n@vox singer attack=0.005 decay=0 sustain=1 release=0.06 vibrato=0.006 vibrato_speed=5.5 vibrato_delay=0.1 volume=0.5\n\n; every channel four bars long (16 beats)\nA: @lead o5 v12 l8 [e g a g e d c d]4\nB: @bass o2 v13 [$riff]4\n; the voice from bar 3: la la la, hey hey, sing\nV: @vox o3 r1 r1 \"l a\" e4 \"l a\" g4 \"l a\" a2 | \"h ei\" g4 \"h ei\" e4 \"s ih ng\" d2\n",
         )],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#30343c")
@@ -1456,6 +1456,79 @@ end
 "##,
     },
     Topic {
+        title: "A LEVEL SEEN FROM BEHIND",
+        text: "[camera] with yaw = 180 in a level's file shows that level from its other side: the camera looks south, so the screen's right is the world's west. The level stays as it is; things the file and the game do not turn face the camera there, as they do everywhere. The keys stay the keys: input.dir.y is 1 with up held, whichever way the camera looks. A game whose up walks away from the camera turns them by level.camera.yaw, as here. A key held through a door into a level seen from behind means the way back there: take it once the player let go, if your game needs that. A quarter turn (90, 270) works for a game seen from above; a jump & run turns by halves (0 or 180).",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/yard.toml
+c.camera.pitch = 50"##,
+        files: &[
+            ("levels/yard.toml", r##"format = "voxcade level 1"
+size = [96, 64, 32]
+
+[camera]
+yaw = 180
+
+[[thing]]
+name = "floor"
+model = "yard/floor.vvx"
+at = [48, 32, 0]
+solid = true
+
+[[place]]
+name = "start"
+at = [48, 32, 1]
+"##),
+            ("yard/floor.vvx", "format = \"voxcade voxel 1\"\nsize = [96, 64, 1]\n\n[palette]\na = { color = \"#5a6e4a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *64\n\"\"\"\n"),
+        ],
+        code: r##"-- The way the camera looks in this level (levels/yard.toml says 180).
+local function on_screen(dir)
+  if level.camera.yaw == 180 then
+    return { x = -dir.x, y = -dir.y }
+  end
+  return dir
+end
+
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    -- up walks away from the camera, right to the screen's right
+    p:walk(on_screen(p.input.dir), 40)
+  end
+end
+
+function on_draw(frame)
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+end
+"##,
+    },
+    Topic {
+        title: "A THING THAT STOPS YOU",
+        text: "solid = true on a kind makes its things stop bodies, as a wall does: the player walks into the statue here and stops, and so do the ready-made rules' figures and their rounds. Only a thing that stands can be solid: give the kind fixed = true and a model, and no behavior. What stops is its model, where it stands and the way it faces, not its box. thing:place moves it (and what it stood on is free again), thing:remove takes it away; a player it is put onto is pushed aside.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.things.statue = { model = "statue.vvx", fixed = true, solid = true }"##,
+        files: &[],
+        code: r##"function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  level.state.statue = level:spawn("statue", player.x, player.y + 30)
+end
+
+function on_tick()
+  player:walk(input.dir, 40)
+  -- every four seconds the statue steps aside, and back
+  if world.tick % 240 == 0 then
+    local s = level.state.statue
+    s:place(s.x + (world.tick % 480 == 0 and -20 or 20), s.y, s.z)
+  end
+end
+
+function on_draw(frame)
+  frame:model("hero.vvx", player)
+  frame:model("statue.vvx", level.state.statue)
+end
+"##,
+    },
+    Topic {
         title: "A ROOM OF PIECES",
         text: "A level can be a file of pieces: models set down where they stand (on the floor, on a wall or in the air), facing a way, and lights. levels/room.toml says them, each a [[thing]] with its name, its model (or only a light), where it stands and the way it faces; [[place]] is where the player arrives, [[area]] a named box. A piece with solid = true holds the player up and stops it, as the floor and the stove here do; light = { ... } gives it a light, lights = [ ... ] several (the lamp's flame and its glow). The pieces stay where they are; level:thing(name) finds one, and thing.state.light is how bright its lights shine (0 off, 1 on). level.areas.NAME:holds(player) says whether the player stands in the area.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/room.toml
@@ -2007,7 +2080,7 @@ mod tests {
         let mml = TOPICS.iter().find(|t| t.title == "A SONG IN MML").expect("the MML topic");
         // Every phoneme a voice sings, as the table has them.
         assert!(mml.text.contains(&crate::audio::music::phonemes()), "HELP's phonemes are not the table's: {}", crate::audio::music::phonemes());
-        assert!(mml.files.iter().any(|(_, song)| song.contains("voice") && song.contains('"')), "the example sings");
+        assert!(mml.files.iter().any(|(_, song)| song.contains(" singer ") && song.contains('"')), "the example sings with the clear voice");
     }
 
     /// Every example runs as a game: the empty template's conf.lua with

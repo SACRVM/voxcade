@@ -11,7 +11,7 @@ use crate::game::Outcome;
 use crate::input::Input;
 use crate::lua::host::{Host, Kept, Kit, Seen, Touched, move_things};
 use crate::sim::things::Id;
-use crate::sim::{Body, Sim, stand_on_ground};
+use crate::sim::{Sim, stand_on_ground};
 
 impl Host for Platformer {
     fn sim(&self) -> &Sim {
@@ -43,6 +43,13 @@ impl Host for Platformer {
         })
     }
 
+    /// Any of its bodies, whatever moves it (`Host::shove`).
+    fn shove(&mut self, id: Id, by: Vec3) -> bool {
+        let Some(t) = self.things.get_mut(id) else { return false };
+        (t.body.pos, t.body.prev) = (t.body.pos + by, t.body.prev + by);
+        true
+    }
+
     /// The script's kinds at (x, y) (on the ground unless `z` is given),
     /// the kit's as a marker there would place them.
     fn spawn(&mut self, kind: usize, x: f32, y: f32, z: Option<f32>) -> Result<Id, String> {
@@ -52,7 +59,7 @@ impl Host for Platformer {
                 Some(z) => Vec3::new(x, y, z),
                 None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), k.height, k.width * 0.5),
             };
-            return Ok(self.things.spawn(kind, Body::new(at, k.height), k.hp, Brain::Script(Default::default())));
+            return Ok(self.things.spawn(kind, self.sim.body(at, k.height), k.hp, Brain::Script(Default::default())));
         }
         let z = z.unwrap_or_else(|| self.sim.world.column_top(x.floor() as i32, y.floor() as i32) as f32);
         Ok(self.place(kind, Vec3::new(x, y, z)))
@@ -476,6 +483,10 @@ impl Kit for Platformer {
     }
 
     fn plays_several(_cfg: &crate::config::GameConfig) -> bool {
+        true
+    }
+
+    fn sees_from_the_side(_cfg: &crate::config::GameConfig) -> bool {
         true
     }
 

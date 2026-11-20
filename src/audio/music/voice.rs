@@ -42,35 +42,53 @@ pub(super) enum Kind {
     Plosive { closure: f32, voiced: bool, burst: f32, noise: f32, width: f32, level: f32, breath: f32, locus: Formants },
     /// Breath through the formants of the syllable's vowel (h).
     Breath { length: f32, level: f32 },
+    /// The tongue tapping (a trilled r): to `voice` a sonorant as `r`, to
+    /// `singer` its voicing broken by taps.
+    Trill { formants: Formants, length: f32 },
+}
+
+/// Where a consonant is made: what the clear voice (`super::clear`) takes
+/// its formants' loci, its nasal zero and its noise's band from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Place {
+    /// A vowel's.
+    Vowel,
+    Labial,
+    Alveolar,
+    Postalveolar,
+    Palatal,
+    Velar,
+    Glottal,
 }
 
 #[derive(Debug)]
 pub(super) struct Phoneme {
     pub(super) name: &'static str,
     pub(super) kind: Kind,
+    pub(super) place: Place,
 }
 
 const fn vowel(name: &'static str, f: Formants) -> Phoneme {
-    Phoneme { name, kind: Kind::Vowel(f) }
+    Phoneme { name, kind: Kind::Vowel(f), place: Place::Vowel }
 }
 
 const fn diphthong(name: &'static str, from: Formants, to: Formants) -> Phoneme {
-    Phoneme { name, kind: Kind::Diphthong(from, to) }
+    Phoneme { name, kind: Kind::Diphthong(from, to), place: Place::Vowel }
 }
 
-const fn sonorant(name: &'static str, formants: Formants, voicing: f32, length: f32) -> Phoneme {
-    Phoneme { name, kind: Kind::Sonorant { formants, voicing, length } }
+const fn sonorant(name: &'static str, formants: Formants, voicing: f32, length: f32, place: Place) -> Phoneme {
+    Phoneme { name, kind: Kind::Sonorant { formants, voicing, length }, place }
 }
 
 /// A fricative: (length s, noise Hz, its width Hz, level), formants, voicing.
-const fn fricative(name: &'static str, (length, noise, width, level): (f32, f32, f32, f32), formants: Formants, voicing: f32) -> Phoneme {
-    Phoneme { name, kind: Kind::Fricative { length, noise, width, level, formants, voicing } }
+const fn fricative(name: &'static str, (length, noise, width, level): (f32, f32, f32, f32), formants: Formants, voicing: f32, place: Place) -> Phoneme {
+    Phoneme { name, kind: Kind::Fricative { length, noise, width, level, formants, voicing }, place }
 }
 
 /// A plosive: (closure s, voiced, burst s), (burst noise Hz, its width Hz,
 /// level), breath s, locus.
-const fn plosive(name: &'static str, (closure, voiced, burst): (f32, bool, f32), (noise, width, level): (f32, f32, f32), breath: f32, locus: Formants) -> Phoneme {
-    Phoneme { name, kind: Kind::Plosive { closure, voiced, burst, noise, width, level, breath, locus } }
+const fn plosive(name: &'static str, (closure, voiced, burst): (f32, bool, f32), (noise, width, level): (f32, f32, f32), breath: f32, locus: Formants, place: Place) -> Phoneme {
+    Phoneme { name, kind: Kind::Plosive { closure, voiced, burst, noise, width, level, breath, locus }, place }
 }
 
 // The vowels: men's formants after Peterson & Barney (1952) and
@@ -82,6 +100,8 @@ const O: Formants = [500.0, 900.0, 2400.0];
 const U: Formants = [350.0, 900.0, 2300.0];
 const E: Formants = [400.0, 2000.0, 2600.0];
 const AX: Formants = [600.0, 1300.0, 2400.0];
+/// German vocalic r [ɐ], an unstressed -er.
+const ER: Formants = [650.0, 1250.0, 2450.0];
 const I: Formants = [300.0, 2300.0, 3000.0];
 const IH: Formants = [430.0, 2030.0, 2680.0];
 const OE: Formants = [380.0, 1500.0, 2200.0];
@@ -103,6 +123,7 @@ pub(super) const PHONEMES: &[Phoneme] = &[
     vowel("o", O), // German so
     vowel("u", U), // blue, German gut
     vowel("ax", AX), // but, the a in sofa
+    vowel("er", ER), // German Schwester, an unstressed -er: the vocalic r
     vowel("oe", OE), // German schön
     vowel("ue", UE), // German über
     diphthong("aw", A, U), // now, German Haus
@@ -110,26 +131,28 @@ pub(super) const PHONEMES: &[Phoneme] = &[
     diphthong("ai", A, IH), // my, German mein
     diphthong("oi", O, IH), // boy, German neu
     diphthong("ei", EH, I), // day
-    sonorant("m", [250.0, 1100.0, 2300.0], 0.45, 0.07), // me
-    sonorant("n", [250.0, 1400.0, 2500.0], 0.45, 0.07), // no
-    sonorant("ng", [250.0, 1900.0, 2300.0], 0.45, 0.07), // sing
-    sonorant("l", [350.0, 1100.0, 2700.0], 0.6, 0.06), // low
-    sonorant("r", [350.0, 1100.0, 1500.0], 0.7, 0.06), // red
-    sonorant("w", [300.0, 700.0, 2200.0], 0.7, 0.06), // we
-    sonorant("j", [280.0, 2250.0, 3000.0], 0.7, 0.06), // yes, German ja
-    fricative("f", (0.08, 4500.0, 4000.0, 0.085), [300.0, 1300.0, 2400.0], 0.0), // fun
-    fricative("v", (0.07, 4500.0, 4000.0, 0.04), [300.0, 1300.0, 2400.0], 0.35), // very
-    fricative("s", (0.09, 6500.0, 3000.0, 0.031), [300.0, 1700.0, 2700.0], 0.0), // sun
-    fricative("z", (0.08, 6500.0, 3000.0, 0.015), [300.0, 1700.0, 2700.0], 0.35), // zoo, German See
-    fricative("sh", (0.09, 3000.0, 1800.0, 0.19), [300.0, 1800.0, 2400.0], 0.0), // she, German schon
-    fricative("ch", (0.09, 4000.0, 2500.0, 0.082), [280.0, 2200.0, 2900.0], 0.0), // German ich
-    Phoneme { name: "h", kind: Kind::Breath { length: 0.07, level: 0.03 } }, // hat
-    plosive("t", (0.045, false, 0.022), (4500.0, 2500.0, 0.088), 0.03, [250.0, 1800.0, 2700.0]), // top
-    plosive("k", (0.045, false, 0.028), (1900.0, 900.0, 0.25), 0.025, [250.0, 2000.0, 2200.0]), // cat
-    plosive("p", (0.05, false, 0.015), (900.0, 1200.0, 0.7), 0.03, [250.0, 900.0, 2300.0]), // pen
-    plosive("d", (0.035, true, 0.012), (4000.0, 2500.0, 0.13), 0.0, [250.0, 1700.0, 2600.0]), // do
-    plosive("g", (0.035, true, 0.015), (1800.0, 900.0, 0.28), 0.0, [250.0, 2000.0, 2200.0]), // go
-    plosive("b", (0.04, true, 0.01), (900.0, 1200.0, 0.45), 0.0, [250.0, 900.0, 2300.0]), // be
+    sonorant("m", [250.0, 1100.0, 2300.0], 0.45, 0.07, Place::Labial), // me
+    sonorant("n", [250.0, 1400.0, 2500.0], 0.45, 0.07, Place::Alveolar), // no
+    sonorant("ng", [250.0, 1900.0, 2300.0], 0.45, 0.07, Place::Velar), // sing
+    sonorant("l", [350.0, 1100.0, 2700.0], 0.6, 0.06, Place::Alveolar), // low
+    sonorant("r", [350.0, 1100.0, 1500.0], 0.7, 0.06, Place::Alveolar), // red
+    sonorant("w", [300.0, 700.0, 2200.0], 0.7, 0.06, Place::Labial), // we
+    sonorant("j", [280.0, 2250.0, 3000.0], 0.7, 0.06, Place::Palatal), // yes, German ja
+    fricative("f", (0.08, 4500.0, 4000.0, 0.085), [300.0, 1300.0, 2400.0], 0.0, Place::Labial), // fun
+    fricative("v", (0.07, 4500.0, 4000.0, 0.04), [300.0, 1300.0, 2400.0], 0.35, Place::Labial), // very
+    fricative("s", (0.09, 6500.0, 3000.0, 0.031), [300.0, 1700.0, 2700.0], 0.0, Place::Alveolar), // sun
+    fricative("z", (0.08, 6500.0, 3000.0, 0.015), [300.0, 1700.0, 2700.0], 0.35, Place::Alveolar), // zoo, German See
+    fricative("sh", (0.09, 3000.0, 1800.0, 0.19), [300.0, 1800.0, 2400.0], 0.0, Place::Postalveolar), // she, German schon
+    fricative("ch", (0.09, 4000.0, 2500.0, 0.082), [280.0, 2200.0, 2900.0], 0.0, Place::Palatal), // German ich
+    fricative("x", (0.09, 1500.0, 1000.0, 0.26), [300.0, 1200.0, 2300.0], 0.0, Place::Velar), // German ach
+    Phoneme { name: "h", kind: Kind::Breath { length: 0.07, level: 0.03 }, place: Place::Glottal }, // hat
+    Phoneme { name: "rr", kind: Kind::Trill { formants: [400.0, 1300.0, 2400.0], length: 0.075 }, place: Place::Alveolar }, // a trilled r, German Rot sung
+    plosive("t", (0.045, false, 0.022), (4500.0, 2500.0, 0.088), 0.03, [250.0, 1800.0, 2700.0], Place::Alveolar), // top
+    plosive("k", (0.045, false, 0.028), (1900.0, 900.0, 0.25), 0.025, [250.0, 2000.0, 2200.0], Place::Velar), // cat
+    plosive("p", (0.05, false, 0.015), (900.0, 1200.0, 0.7), 0.03, [250.0, 900.0, 2300.0], Place::Labial), // pen
+    plosive("d", (0.035, true, 0.012), (4000.0, 2500.0, 0.13), 0.0, [250.0, 1700.0, 2600.0], Place::Alveolar), // do
+    plosive("g", (0.035, true, 0.015), (1800.0, 900.0, 0.28), 0.0, [250.0, 2000.0, 2200.0], Place::Velar), // go
+    plosive("b", (0.04, true, 0.01), (900.0, 1200.0, 0.45), 0.0, [250.0, 900.0, 2300.0], Place::Labial), // be
 ];
 
 fn phoneme(name: &str) -> Option<&'static Phoneme> {
@@ -149,9 +172,9 @@ pub fn phonemes() -> String {
 /// What a quoted text sings: onset consonants, a vowel, coda consonants.
 #[derive(Clone, Debug)]
 pub(super) struct Syllable {
-    onset: Vec<&'static Phoneme>,
-    vowel: &'static Phoneme,
-    coda: Vec<&'static Phoneme>,
+    pub(super) onset: Vec<&'static Phoneme>,
+    pub(super) vowel: &'static Phoneme,
+    pub(super) coda: Vec<&'static Phoneme>,
 }
 
 impl Syllable {
@@ -223,7 +246,7 @@ fn samples(seconds: f32) -> i64 {
 fn length(p: &Phoneme) -> i64 {
     match p.kind {
         Kind::Vowel(_) | Kind::Diphthong(..) => 0,
-        Kind::Sonorant { length, .. } | Kind::Fricative { length, .. } | Kind::Breath { length, .. } => samples(length),
+        Kind::Sonorant { length, .. } | Kind::Fricative { length, .. } | Kind::Breath { length, .. } | Kind::Trill { length, .. } => samples(length),
         Kind::Plosive { closure, burst, breath, .. } => samples(closure) + samples(burst) + samples(breath),
     }
 }
@@ -259,6 +282,11 @@ impl Plan<'_> {
                 self.add(Segment { voicing, ..Segment::new(at, end, formants) });
                 end
             }
+            Kind::Trill { formants, length } => {
+                let end = at + samples(length);
+                self.add(Segment { voicing: 0.7, ..Segment::new(at, end, formants) });
+                end
+            }
             Kind::Fricative { length, noise, width, level, formants, voicing } => {
                 let end = at + samples(length);
                 self.add(Segment { voicing, frication: level, noise, width, ..Segment::new(at, end, formants) });
@@ -290,7 +318,7 @@ impl Plan<'_> {
 
 /// How a note sings its syllable's vowel.
 #[derive(Clone, Copy, PartialEq)]
-enum Part {
+pub(super) enum Part {
     /// All of it, a diphthong's glide too.
     Whole,
     /// Its first vowel, held (a melisma's notes before the last).
@@ -331,15 +359,25 @@ pub(super) struct Sing {
     /// note's start when no rest follows).
     pub(super) at: u64,
     pub(super) end: u64,
+    /// Which voice sings it.
+    pub(super) voicing: super::song::Voicing,
 }
 
 /// Lays a channel's voice notes out: each a range of segments in
-/// `segments`, its onset moved before its beat (never before the note
-/// before it), a melisma's notes tied, their coda on the last.
-pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments: &mut Vec<Segment>) {
+/// `segments` (`voice`'s) or `clear` (the clear voice's, `super::clear`),
+/// its onset moved before its beat (never before the note before it), a
+/// melisma's notes tied, their coda on the last. The clear voice's notes
+/// that follow each other without a rest share the time between their
+/// vowels (`clear::joins`): a coda ends where the next onset begins.
+pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments: &mut Vec<Segment>, clear: &mut Vec<super::clear::Seg>) {
+    use super::song::Voicing;
     // Whether the voice note after `a` holds its vowel on, with no rest between.
     let holds_on = |a: &Sing, b: &Sing| b.text.is_none() && b.note == a.note + 1 && b.at == a.end;
+    // What each note sings: the onset on a syllable's first note only, the
+    // coda on the last note of its melisma; a note after a rest sings the
+    // vowel alone.
     let mut sung: Option<&Syllable> = None;
+    let mut laid: Vec<(Syllable, Part, bool)> = Vec::with_capacity(sings.len());
     for (i, sing) in sings.iter().enumerate() {
         let tied = sings.get(i + 1).is_some_and(|next| holds_on(sing, next));
         let held_on = i > 0 && holds_on(&sings[i - 1], sing);
@@ -347,8 +385,6 @@ pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments:
             sung = Some(text);
         }
         let Some(text) = sung else { unreachable!("the parser refuses a first voice note without a text") };
-        // The onset on a syllable's first note only, the coda on the last
-        // note of its melisma; a note after a rest sings the vowel alone.
         let mut syllable = text.bare();
         if sing.text.is_some() {
             syllable.onset.clone_from(&text.onset);
@@ -356,19 +392,45 @@ pub(super) fn lay_out(notes: &mut [super::song::Note], sings: &[Sing], segments:
         if !tied && (sing.text.is_some() || held_on) {
             syllable.coda.clone_from(&text.coda);
         }
-        let part = if tied { Part::Held } else { Part::Whole };
-        let onset: i64 = syllable.onset.iter().map(|p| length(p)).sum();
+        laid.push((syllable, if tied { Part::Held } else { Part::Whole }, tied));
+    }
+    // The clear voice's joins between notes that follow without a rest.
+    let follows: Vec<(&Syllable, bool)> = (0..sings.len())
+        .map(|i| {
+            let clear_pair = |n: &Sing| n.note == sings[i].note + 1 && n.at == sings[i].end && n.voicing == Voicing::Clear && sings[i].voicing == Voicing::Clear;
+            (&laid[i].0, sings.get(i + 1).is_some_and(clear_pair))
+        })
+        .collect();
+    let spans: Vec<i64> = (0..sings.len()).map(|i| sings.get(i + 1).map_or(0, |n| n.at as i64 - sings[i].at as i64)).collect();
+    let joins = super::clear::joins(&follows, &spans);
+    for (i, sing) in sings.iter().enumerate() {
+        let (syllable, part, tied) = (&laid[i].0, laid[i].1, laid[i].2);
+        let formants = sing.voicing == Voicing::Formants;
+        let onset: i64 = if formants { syllable.onset.iter().map(|p| length(p)).sum() } else { super::clear::onset_length(syllable, &joins[i]) };
         let earliest = if sing.note == 0 { 0 } else { notes[sing.note - 1].start };
         let note = &mut notes[sing.note];
         let beat = note.start;
         let begin = beat.saturating_sub(onset as u64).max(earliest).min(beat);
-        // Tied, the note is held up to the next.
-        let held = if tied { sing.end - sing.at } else { note.held };
-        let from = segments.len();
-        plan(segments, &syllable, part, (beat - begin) as i64, (beat - begin + held) as i64);
+        // Tied, the note is held up to the next; the clear voice's up to where
+        // the next onset begins.
+        let held = match joins[i].next_onset {
+            _ if tied => sing.end - sing.at,
+            Some(next) if !formants => (sing.end - sing.at).saturating_sub(next as u64),
+            _ => note.held,
+        };
+        let (on, off) = ((beat - begin) as i64, (beat - begin + held) as i64);
+        let range = if formants {
+            let from = segments.len();
+            plan(segments, syllable, part, on, off);
+            (from, segments.len())
+        } else {
+            let from = clear.len();
+            super::clear::plan(clear, syllable, part, on, off, &joins[i]);
+            (from, clear.len())
+        };
         note.start = begin;
         note.held = beat - begin + held;
-        note.sung = Some((from as u32, segments.len() as u32));
+        note.sung = Some((range.0 as u32, range.1 as u32));
     }
 }
 

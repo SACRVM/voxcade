@@ -1535,11 +1535,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   a C64 echo instead (`delay` in the import file), quiet: a third of the
   line's volume (two thirds sounded like the melody doubled, too much for
   the user).
-  A voice sings (`@singer voice`, `src/audio/music/voice.rs`, a formant
-  synthesizer after Klatt): a quoted text before a note is its syllable
+  Two voices sing: `singer` (`src/audio/music/clear.rs`, the clear one,
+  the owner's wish 2026-11-20: words understood on first hearing; a
+  glottal pulse, five formants, loci and voice onset times, a parallel
+  branch for the hiss; its name is `clear::WAVE`) and `voice`
+  (`src/audio/music/voice.rs`, the first, kept to the sample: test
+  `the_voice_sings_as_pinned`; `singer`'s clusters, the owner's
+  2026-11-20 "Schwester" and t, g: a coda ending where the next onset
+  begins, bursts as transients, a v as Klatt's voiced fricative, no step
+  that clicks; every value from a paper names it in a comment, the rest
+  says it is ours (the owner: "fair play und kein AI slop"), tests
+  `the_singer_sings_every_consonant_of_a_cluster`,
+  `the_singers_bursts_fall_away_into_their_breath`): a quoted text before a note is its syllable
   in phonemes (`"s ae ng" e4`, one table,
   `music::phonemes`, HELP lists it), the onset before the beat, a note
-  without a text holding the vowel; `drive` (dB into tanh, a DC blocker
+  without a text holding the vowel, `consonants` (dB) their hiss against
+  the vowels; `drive` (dB into tanh, a DC blocker
   after; a voice's breath and hiss join past it, raised as it raises a
   vowel, or a drive lifted the consonants to the vowels' level and they
   hurt: the owner, 2026-11-19; the consonants as far under the vowels as
@@ -1622,6 +1633,18 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   palette is untouched), a blast leaves them, `thing:remove` frees them at
   the tick's end. Tests: `a_solid_piece_holds_bodies_up_and_stops_them`,
   `the_hero_stands_on_a_solid_piece`, `rounds_stop_at_a_solid_piece`.
+  A kind's `solid = true` (the owner's, 2026-11-20; only `fixed` and
+  without a behavior, with a model) means the same for its things: their
+  cells in `Solids` by id (`World::put_solid_thing`, `ThingCells`: its
+  pivot's cell and quarter turn), set, moved and freed at the tick's end
+  and as a level begins (`Stage::settle_solids`, the kinds' cells
+  `host::solid_cells`), a body set into one pushed out sideways
+  (`host::free_beside`, `Host::shove`), a place or a moving thing the
+  file sets inside one a mistake (`levels::check_solid_things`); in the
+  hash only where a game has them; a level's record (`lua::memory`) is
+  laid before they settle, so one moved or taken out stays so on return
+  (test `a_solid_thing_a_level_remembers_blocks_where_it_was_left`).
+  Tests `src/lua/tests/solid.rs`.
 - Strafing aims the way the player's model looks, along it, never
   diagonally (the user: shots went off at a slant after running
   diagonally). Test: `strafing_fires_the_way_the_model_looks`.
@@ -1930,11 +1953,36 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (the user: "the old figures were prettier"): a 5-voxel head has too few
   voxels to round, the rounding pays off on bigger models. Tests:
   `smooth_shading_keeps_hard_edges`, `more_blood_shades_its_figures_smooth`.
-- Camera yaw stays 0 unless the user asks for it. A turned camera needs the
-  actors turned with it: their cubes are drawn axis-aligned to the world and
-  their resting direction is world south, so with yaw they look skewed. Turn
-  the instance cubes and face actors relative to the camera before shipping
-  any yaw.
+- Camera yaw stays 0 unless the user asks for it: quarter turns only. A
+  level may turn it (the owner's, 2026-11-20: a level seen from its other
+  side): `[camera] yaw` in its file (`grid::LevelCamera`, read and written
+  by `grid::text`, a quarter turn, its line in a mistake; a view from the
+  side, `camera::from_above` false, or a kit whose rules walk across the
+  screen, `Kit::sees_from_the_side`, by halves only: 90 and 270 refused,
+  `levels::quarter_mistake`, `checks::check_yaws`), the level's world's
+  `World::yaw`, so the fingerprint (the level file), snapshots and every
+  machine have it; `Sim::yaw`, `yaw_sin_cos` (exact for a level's),
+  `Session::camera` (`c.camera` with it: the picture, `face_mask`, the
+  title, `look`), `level.camera.yaw`. The meshes' faces are the level's
+  (the window, `shot` and the IDE compare `face_mask` every picture and
+  build anew once on entering a level turned otherwise); the side view's
+  shadow fit looks the camera's way (`camera::light_view_proj`); sounds
+  pan by the screen's right (`Session::screen_right`); the title's flyby
+  crosses its screen. The shooter's keys turn by it, the jump & run's
+  left and right swap seen from behind (`read_keys`' `behind`), the hold
+  swaps across and deep at 90 and 270; `input` stays the keys, raw in
+  replays, a Lua game turns them itself (HELP's "A LEVEL SEEN FROM
+  BEHIND"). Ways stated stay the world's (a kind's `facing`, a file's
+  `rotation`, places, pieces: a piece without one faces south); a thing
+  whose way nothing states rests facing the camera (`Sim::rest_way`,
+  `Sim::body` at every spawn of the kits and the plain host; the level
+  editor's `Figures::key_in` alike; tests in `src/lua/tests/camera.rs`,
+  `the_shooters_keys_turn_with_a_level_seen_from_behind`, the stillness
+  tests at 180 too). The level editor's LEVEL has YAW, GAME VIEW looks
+  that way. Levels of one location may look different ways: the record
+  of one left brings back a thing's way over its rest facing (test
+  `levels_of_one_location_turned_two_ways`). Not built: a picture's own
+  yaw (`frame:camera`), 90 and 270 from the side.
 - World voxels are palette indices (0 empty). Moving things are instanced
   cubes built in `Session::compose` and the game's `Game::draw` (through
   `session::Drawing`), on the voxel grid by default: one cell each,

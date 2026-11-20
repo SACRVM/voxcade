@@ -17,7 +17,7 @@ pub fn things_along(ed: &Editor, world: &World, figures: &Figures, origin: Vec3,
         .enumerate()
         .filter(|&(i, _)| Some(i) != ed.moving())
         .filter_map(|(i, t)| {
-            let (lo, hi) = figures.bounds(&figures.key_in(t));
+            let (lo, hi) = figures.bounds(&figures.key_in(t, &ed.level));
             let at = IVec3::from(t.at);
             ray_box(origin, dir, (at + lo).as_vec3(), (at + hi).as_vec3()).map(|d| (i, d))
         })
@@ -97,7 +97,7 @@ pub fn hit_along(ed: &Editor, figures: &Figures, origin: Vec3, dir: Vec3, marks:
         let at = IVec3::from(t.at).as_vec3();
         if !t.is_piece() {
             // Its figure as it is drawn (`Figures::key_in`), unturned there.
-            let key = figures.key_in(t);
+            let key = figures.key_in(t, &ed.level);
             let met = match figures.figure_cells(&key) {
                 Some((cells, lo)) => cells.hit(origin - at - lo.as_vec3(), dir).map(|(d, n)| (d, n.as_vec3())),
                 None => {

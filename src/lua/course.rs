@@ -188,6 +188,9 @@ impl<K: Kit> LuaGame<K> {
             self.lay(r)?;
         }
         self.stage.away = record.as_ref().map_or(0, |r| self.stage.host.sim().tick.saturating_sub(r.left));
+        // The solid things' cells where the file and the record stand them,
+        // for on_level_start.
+        self.stage.settle_solids();
         // A save's lights as they were, by the pieces' names.
         if let Some(l) = &loaded {
             for (name, brightness) in &l.lights {

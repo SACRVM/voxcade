@@ -18,6 +18,10 @@ pub struct Figures {
     /// The pieces' models and their filled cells, by their files.
     pub(super) models: BTreeMap<String, crate::vox::VoxModel>,
     cells: BTreeMap<String, crate::editor::pick::Cells>,
+    /// The kinds whose things rest facing the camera as a run starts (no
+    /// `facing`, not a figure seen from the side): in a level that turns
+    /// the camera (`[camera] yaw`) they face it there (`Sim::rest_way`).
+    rests: std::collections::BTreeSet<String>,
 }
 
 pub(super) struct KindLook {
@@ -65,8 +69,12 @@ pub(super) const MARKER: [u8; 3] = [150, 200, 240];
 impl Figures {
     pub fn load(dir: &Path, cfg: &GameConfig) -> Self {
         let mut figures = BTreeMap::new();
+        let mut rests = std::collections::BTreeSet::new();
         for (kind, table) in &cfg.things {
             let start = start_way(table);
+            if rests_to_the_camera(table) {
+                rests.insert(kind.clone());
+            }
             let number = |key: &str| table.get(key).and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)));
             let model = table.get("model").and_then(|m| m.as_str()).and_then(|file| crate::vox::load_model(&dir.join(file)).ok());
             // Facing each way as a level's file may turn it (its forward
@@ -115,7 +123,7 @@ impl Figures {
             };
             figures.insert(kind.clone(), KindLook::new(voxels));
         }
-        Self { looks: figures, models: BTreeMap::new(), cells: BTreeMap::new() }
+        Self { looks: figures, models: BTreeMap::new(), cells: BTreeMap::new(), rests }
     }
 
     /// The sizes of the models loaded, by their files (`Editor::sizes`).
@@ -219,9 +227,14 @@ impl Figures {
     }
 
     /// `key`, where the figures have it, else the kind's own (a kind
-    /// without a model looks the same every way).
-    pub fn key_in(&self, t: &crate::grid::Thing) -> String {
-        let key = Self::key(t);
+    /// without a model looks the same every way); in `level`, a thing that
+    /// rests facing the camera facing it the way the level turns it.
+    pub fn key_in(&self, t: &crate::grid::Thing, level: &crate::grid::GridLevel) -> String {
+        let turned = level.camera.filter(|c| c.yaw != 0 && t.facing.is_none() && t.model.is_none() && self.rests.contains(&t.kind));
+        let key = match turned {
+            Some(c) => format!("{}@{}", t.kind, crate::grid::Way::nearest(c.yaw as f64 + 180.0).name()),
+            None => Self::key(t),
+        };
         if self.looks.contains_key(&key) { key } else { t.kind.clone() }
     }
 

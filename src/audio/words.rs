@@ -86,7 +86,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "wave",
         sound: sound(Choice, None, "square", "the oscillator's wave: square, saw, triangle, sine or noise; pulse is square"),
-        mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ...; or voice, which sings the text in quotes before each note"),
+        mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ...; or voice or singer, which sing the text in quotes before each note (singer the clearer)"),
     },
     Word {
         name: "freq",
@@ -180,6 +180,7 @@ pub const WORDS: &[Word] = &[
     Word { name: "sidechain", sound: None, mml: mml(Share, Some((0.0, 1.0)), "0", "how far this instrument's notes duck the other channels") },
     Word { name: "sidechain_release", sound: None, mml: mml(Seconds, SONG_TIMES, "0.2", "how long the others take to come back") },
     Word { name: "duck", sound: None, mml: mml(Share, Some((0.0, 1.0)), "1", "how far this instrument follows the ducking") },
+    Word { name: "consonants", sound: None, mml: mml(Decibels, Some((-24.0, 12.0)), "0", "a voice's consonants against its vowels: their hiss, bursts and breath louder or softer; only a voice takes it") },
     Word { name: "drive", sound: None, mml: mml(Decibels, Some((0.0, 36.0)), "0", "how hard the sound is pushed into a soft clipper before the filters: 0 leaves it clean, 12 rough, 20 a megaphone's shout") },
     Word { name: "crush_rate", sound: None, mml: mml(Hz, Some((100.0, 44_100.0)), "none", "a bit crusher: the sound held at this rate, as an early sampler played it; 6000 the speech of old games") },
     Word { name: "crush_bits", sound: None, mml: mml(Bits, Some((1.0, 16.0)), "none", "a bit crusher: the sound rounded to this many bits, after the envelope; 4 a grainy 8-bit voice") },
@@ -282,7 +283,9 @@ mod tests {
                     _ => "1".to_string(),
                 },
             };
-            crate::audio::music::parse(&format!("@x {}={value}\nA: c", w.name)).unwrap_or_else(|e| panic!("{}: {e:#}", w.name));
+            // A voice's own word on a voice, singing.
+            let (wave, note) = if w.name == "consonants" { ("voice ", "\"l a\" c") } else { ("", "c") };
+            crate::audio::music::parse(&format!("@x {wave}{}={value}\nA: {note}", w.name)).unwrap_or_else(|e| panic!("{}: {e:#}", w.name));
         }
         // Renamed words are no words of a sound any more.
         for (old, _) in RENAMED {

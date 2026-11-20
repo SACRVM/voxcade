@@ -269,6 +269,23 @@ fn the_instruments_play_as_pinned() {
     assert_eq!(digest(&Player::new(parse(&quiet).unwrap(), 1.0).render(None)), PINNED.1);
 }
 
+/// The voice `voice` as it sang when `singer` came: a song of every
+/// phoneme it had then, plain, driven and crushed, pinned by its samples.
+const VOICE_PINNED: (usize, u64) = (756_000, 0x1f0c_fa09_2599_5821);
+
+#[test]
+fn the_voice_sings_as_pinned() {
+    let all = "a ae e eh i ih o u ax oe ue aw ow ai oi ei m n ng l r w j f v s z sh ch h t k p d g b";
+    let line: String = all.split(' ').enumerate().map(|(k, p)| if k < 16 { format!("\"{p}\" c8 ") } else { format!("\"{p} a {p}\" e8 ") }).collect();
+    let song = format!(
+        "#tempo 140\n@v voice attack=0.005 decay=0 sustain=1 release=0.05 vibrato=0.006 vibrato_speed=5.5 volume=0.8\n\
+         @d voice drive=19 filter=bandpass cutoff=1150 volume=0.5\n@c voice drive=12 crush_rate=6300 crush_bits=4 volume=0.4\n\
+         A: @v o3 {line} d4 r4\nB: @d o3 r4 {line} e4\nC: @c o4 r2 {line}\n"
+    );
+    let samples = Player::new(parse(&song).unwrap(), 1.0).render(None);
+    assert_eq!((samples.len(), digest(&samples)), VOICE_PINNED, "the voice no longer sings as it did");
+}
+
 /// A voice's song: one instrument that sings, notes at 120 (a quarter is
 /// 22,050 samples).
 fn sung(notes: &str) -> String {
@@ -403,7 +420,11 @@ fn consonants_lie_under_the_vowels() {
         let top = (a..b.saturating_sub(n).max(a + 1)).step_by(n / 4).map(|i| (x[i..i + n].iter().map(|s| s * s).sum::<f32>() / n as f32).sqrt()).fold(0.0, f32::max);
         20.0 * top.log10()
     };
-    for p in super::voice::PHONEMES {
+    // The clear voice's plosives breathe longer; `the_singer_tells_minimal_pairs_apart` has them.
+    for (p, wave) in super::voice::PHONEMES.iter().flat_map(|p| [(p, "voice"), (p, super::clear::WAVE)]) {
+        if wave != "voice" && matches!(p.kind, Kind::Plosive { .. }) {
+            continue;
+        }
         let (heard, voiced) = match p.kind {
             Kind::Fricative { length, voicing, .. } => (length, voicing > 0.0),
             Kind::Breath { length, .. } => (length, false),
@@ -412,17 +433,19 @@ fn consonants_lie_under_the_vowels() {
         };
         let (lo, hi) = match p.name {
             "s" | "sh" => (-17.0, -11.0),
-            "f" | "ch" | "h" => (-22.0, -15.0),
-            "v" | "z" => (-19.0, -12.0),
+            "f" | "ch" | "x" | "h" => (-22.0, -15.0),
+            // A voiced fricative about 13 dB under its vowel, mostly its
+            // voice (Klatt 1980, p. 986: AV and AVS 47 against a vowel's 60).
+            "v" | "z" => (-19.0, -10.0),
             "b" => (-30.0, -23.0),
             _ => (-22.0, -13.0),
         };
         let level = |drive: &str| {
-            let x = play(&sung(&format!("r2 \"{} a\" a2", p.name)).replace("volume=1", &format!("volume=1 {drive}")), 2.0);
+            let x = play(&sung(&format!("r2 \"{} a\" a2", p.name)).replace("@v voice", &format!("@v {wave}")).replace("volume=1", &format!("volume=1 {drive}")), 2.0);
             loudest(&x, 1.0 - heard, 1.0) - loudest(&x, 1.1, 1.5)
         };
         let plain = level("");
-        assert!((lo..=hi).contains(&plain), "{}: {plain:.1} dB under the vowel, not {lo} to {hi}", p.name);
+        assert!((lo..=hi).contains(&plain), "{} sung by {wave}: {plain:.1} dB under the vowel, not {lo} to {hi}", p.name);
         if !voiced {
             for drive in ["drive=10", "drive=19"] {
                 let driven = level(drive);
@@ -444,5 +467,237 @@ fn a_voice_joins_its_syllables_without_clicks() {
     for n in song.channels[0].iter().filter(|n| n.freq.is_some()).skip(1) {
         let at = n.start as usize;
         assert!(step(at - 20, at + 20) < within * 1.5, "a click at {at}: {} against {within}", step(at - 20, at + 20));
+    }
+}
+
+/// `samples` through a biquad (RBJ's): a low-pass, high-pass (Q 0.71) or
+/// band-pass (Q 2) at `f` Hz.
+fn filtered(samples: &[f32], kind: &str, f: f32) -> Vec<f32> {
+    let w = std::f32::consts::TAU * f / SR;
+    let q = if kind == "band" { 2.0 } else { std::f32::consts::FRAC_1_SQRT_2 };
+    let alpha = w.sin() / (2.0 * q);
+    let cos = w.cos();
+    let b = match kind {
+        "low" => [(1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0],
+        "high" => [(1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0],
+        _ => [alpha, 0.0, -alpha],
+    };
+    let a0 = 1.0 + alpha;
+    let a = [-2.0 * cos / a0, (1.0 - alpha) / a0];
+    let (mut x, mut y) = ([0.0f32; 2], [0.0f32; 2]);
+    samples
+        .iter()
+        .map(|&s| {
+            let out = (b[0] * s + b[1] * x[0] + b[2] * x[1]) / a0 - a[0] * y[0] - a[1] * y[1];
+            (x, y) = ([s, x[0]], [out, y[0]]);
+            out
+        })
+        .collect()
+}
+
+/// A song sung by the clear voice, as `sung` makes one for `voice`.
+fn clearly(notes: &str) -> String {
+    sung(notes).replace("@v voice", &format!("@v {}", super::clear::WAVE))
+}
+
+/// The clear voice sings each vowel by its formants: of the harmonics of
+/// a held vowel at 110 Hz, the strongest under 1 kHz lies at its F1 and
+/// the strongest peak (louder than both its neighbours) between F1 and
+/// 2.6 kHz at its F2 (the table's, within a harmonic or 12 %).
+#[test]
+fn the_singer_sings_each_vowel_by_its_formants() {
+    for p in super::voice::PHONEMES {
+        let super::voice::Kind::Vowel(f) = p.kind else { continue };
+        let x = play(&clearly(&format!("o2 \"{}\" a1", p.name)), 1.0);
+        let part = &x[(0.4 * SR) as usize..(0.9 * SR) as usize];
+        let level = |hz: f32| {
+            let (mut re, mut im) = (0.0f32, 0.0f32);
+            for (i, s) in part.iter().enumerate() {
+                let phase = std::f32::consts::TAU * hz * i as f32 / SR;
+                (re, im) = (re + s * phase.cos(), im + s * phase.sin());
+            }
+            re.hypot(im)
+        };
+        let levels: Vec<f32> = (0..40).map(|k| level(k as f32 * 110.0)).collect();
+        let strongest = |lo: f32, hi: f32, peak: bool| {
+            let k = (1..39).filter(|&k| (lo..=hi).contains(&(k as f32 * 110.0)) && (!peak || (levels[k] > levels[k - 1] && levels[k] > levels[k + 1])));
+            k.max_by(|a, b| levels[*a].total_cmp(&levels[*b])).unwrap() as f32 * 110.0
+        };
+        let f1 = strongest(150.0, 1000.0, false);
+        let f2 = strongest(f[0] + 250.0, 2600.0, true);
+        for (got, want, which) in [(f1, f[0], "F1"), (f2, f[1], "F2")] {
+            assert!((got - want).abs() <= (want * 0.12).max(110.0), "{}: {which} at {got} Hz, the table's {want}", p.name);
+        }
+    }
+}
+
+/// Both voices put their energy where sung speech does: of a sung line,
+/// a small part above 1 kHz (about 9 % in speech's long-term spectrum),
+/// most of it below.
+#[test]
+fn the_voices_put_their_energy_where_speech_does() {
+    let line = "\"ih m\" d8 \"l ih ch t\" e8 \"d e r\" f8 \"z o\" g8 \"n ax\" e8 \"sh l eh f t\" f8 \"d i\" g8 \"k l ai\" a8 \"n ax\" g8 \"k a\" f8 \"t s ax\" e8 \"sh t ih l\" d4 r4";
+    for song in [sung(line), clearly(line)] {
+        let x = play(&song, 3.5);
+        let total: f32 = x.iter().map(|s| s * s).sum();
+        let high: f32 = filtered(&filtered(&x, "high", 1000.0), "high", 1000.0).iter().map(|s| s * s).sum();
+        let share = high / total;
+        assert!((0.03..0.25).contains(&share), "{share:.3} above 1 kHz: {}", &song[..40]);
+    }
+}
+
+/// The clear voice tells minimal pairs apart as speech does: F2 rises
+/// into a after b and falls after d, after g F3 starts near F2 (a
+/// velar's); p breathes before its voicing (long voice onset time), b
+/// does not; s hisses above 5 kHz, sh between 2 and 4.
+#[test]
+fn the_singer_tells_minimal_pairs_apart() {
+    // F1 to F3 5 ms into the vowel, from the voice's own formants.
+    let onset = |text: &str| {
+        let mut p = Player::new(parse(&clearly(&format!("r4 \"{text}\" c4"))).unwrap(), 1.0);
+        let mut out = vec![0.0; ((0.5 + 0.005) * SR) as usize * 2];
+        p.mix(&mut out);
+        p.voices[0].clear.formants_now()
+    };
+    let (b, d, g) = (onset("b a"), onset("d a"), onset("g a"));
+    assert!(b[1] < 1090.0 && d[1] > 1300.0, "F2 into a: after b {:.0}, after d {:.0}", b[1], d[1]);
+    assert!(g[2] - g[1] < 700.0 && d[2] - d[1] > 1000.0, "F3 over F2 after g {:.0}, after d {:.0}", g[2] - g[1], d[2] - d[1]);
+    // The voice onset time: from the burst (where the noise above 2 kHz
+    // first reaches 30 % of its most before the beat) to the voicing
+    // (under 600 Hz at half the vowel's).
+    let vot = |text: &str| {
+        let x = play(&clearly(&format!("r4 \"{text}\" c4")), 1.0);
+        let env = |y: &[f32], at: usize| (y[at..at + 220].iter().map(|s| s * s).sum::<f32>() / 220.0).sqrt();
+        let (high, low) = (filtered(&x, "high", 2000.0), filtered(&x, "low", 600.0));
+        let beat = (0.5 * SR) as usize;
+        let most = (beat - (0.15 * SR) as usize..beat).map(|i| env(&high, i)).fold(0.0, f32::max);
+        let burst = (beat - (0.15 * SR) as usize..beat).find(|&i| env(&high, i) > most * 0.3).unwrap();
+        let vowel = env(&low, beat + (0.15 * SR) as usize);
+        let voiced = (burst..beat + 4410).find(|&i| env(&low, i) > vowel * 0.5).unwrap();
+        (voiced - burst) as f32 / SR * 1000.0
+    };
+    let (p, b) = (vot("p a"), vot("b a"));
+    assert!(p > 40.0 && b < 20.0, "voice onset after p {p:.0} ms, after b {b:.0} ms");
+    // Where s and sh hiss: the 70 ms before the beat, 6.3 kHz against 2.9.
+    let hiss = |text: &str| {
+        let x = play(&clearly(&format!("r4 \"{text}\" c4")), 1.0);
+        let at = ((0.5 - 0.075) * SR) as usize..(0.495 * SR) as usize;
+        let band = |f: f32| filtered(&x, "band", f)[at.clone()].iter().map(|s| s * s).sum::<f32>();
+        band(6300.0) / band(2900.0)
+    };
+    let (s, sh) = (hiss("s a"), hiss("sh a"));
+    assert!(s > 3.0 && sh < 0.3, "6.3 kHz against 2.9 kHz: s {s:.2}, sh {sh:.2}");
+}
+
+/// `consonants` moves a voice's hiss against its vowels by its decibels,
+/// in both voices, and means nothing on a wave.
+#[test]
+fn consonants_move_the_consonants() {
+    for wave in ["voice", super::clear::WAVE] {
+        let level = |words: &str| {
+            let x = play(&sung("r2 \"s a\" a2").replace("@v voice", &format!("@v {wave} {words}")), 2.0);
+            20.0 * (rms(&x, 0.93, 0.99) / rms(&x, 1.1, 1.5)).log10()
+        };
+        let (plain, up, down) = (level(""), level("consonants=6"), level("consonants=-12"));
+        assert!((up - plain - 6.0).abs() < 1.0 && (plain - down - 12.0).abs() < 1.0, "{wave}: {plain:.1} dB, +6 {up:.1}, -12 {down:.1}");
+    }
+    let e = format!("{:#}", parse("@x saw consonants=3\nA: @x c").unwrap_err());
+    assert!(e.contains("consonants means nothing on a saw") && e.contains("line 1"), "{e}");
+    let e = format!("{:#}", parse("@x voice consonants=20\nA: @x \"l a\" c").unwrap_err());
+    assert!(e.contains("from -24 to 12 dB"), "{e}");
+}
+
+/// The clear voice sings every consonant of a cluster, as eighths at 124
+/// with a quarter last: each one its segments, at least 25 ms in all (a
+/// plosive after a nasal of its place no more: the nasal closed already);
+/// each heard, its loudest 10 ms (in its noise's band where it hisses or
+/// bursts) 12 dB over the quietest 10 ms in the word or more (a voiced
+/// plosive's voice bar may be that) and within 30 dB of its loudest vowel, a hiss or
+/// a burst 4 dB under the word's loudest vowel at least (consonants that
+/// stood out hurt; `consonants_lie_under_the_vowels` pins them against an
+/// a); a plosive
+/// after s or sh unaspirated, a coda kept before the next onset. A
+/// shape a word: s and a plosive (and r, l) in an onset, a coda s before
+/// a t, a nasal before a plosive of its place, a plosive and r, a hiss and
+/// v, a coda cluster, pf and l, sh, p and r.
+#[test]
+fn the_singer_sings_every_consonant_of_a_cluster() {
+    let words: [&[&str]; 10] = [
+        &["sh t r u m p f"],
+        &["s p l ae sh"],
+        &["s t r eh ng k f"],
+        &["sh v eh s", "t er"],
+        &["t a ng", "g o"],
+        &["g r ue n"],
+        &["t s v eh r k"],
+        &["a ng s t"],
+        &["p f l a n", "t s ax"],
+        &["sh p r eh", "ch ax n"],
+    ];
+    for syllables in words {
+        let notes: Vec<String> = syllables.iter().enumerate().map(|(i, s)| if i + 1 == syllables.len() { format!("q8 \"{s}\" e4 q7") } else { format!("\"{s}\" e8") }).collect();
+        let text = format!("#tempo 124\n@v {} attack=0.005 decay=0 sustain=1 release=0.06 volume=1\nA: @v o3 r2 {} r4\n", super::clear::WAVE, notes.join(" "));
+        let song = parse(&text).unwrap();
+        let x = play(&text, song.length as f32 / SR);
+        // Every segment where it lies in the song, with its note's start.
+        let segs: Vec<(u64, &super::clear::Seg)> = song.channels[0].iter().filter_map(|n| n.sung.map(|(a, b)| (n.start, a, b))).flat_map(|(at, a, b)| song.clear[a as usize..b as usize].iter().map(move |s| (at, s))).collect();
+        let n = (0.01 * SR) as usize;
+        // The loudest 10 ms between two samples, of `y`, in dB.
+        let loudest = |y: &[f32], a: u64, b: u64| {
+            let (a, b) = (a as usize, (b as usize).max(a as usize + n).min(y.len()));
+            let top = (a..b.saturating_sub(n).max(a + 1)).step_by(n / 4).map(|i| (y[i..i + n].iter().map(|s| s * s).sum::<f32>() / n as f32).sqrt()).fold(0.0, f32::max);
+            20.0 * top.max(1e-9).log10()
+        };
+        let word = (segs[0].0 + segs[0].1.from, segs.last().map_or(0, |(at, s)| at + s.to));
+        let vowel = segs.iter().filter(|(_, s)| s.voicing >= 1.0).map(|(at, s)| loudest(&x, at + s.from, at + s.to)).fold(-200.0, f32::max);
+        let quiet = (word.0 as usize..word.1 as usize - n).step_by(n).map(|i| loudest(&x, i as u64, (i + n) as u64)).fold(0.0, f32::min).max(vowel - 60.0);
+        let said = syllables.join(" | ");
+        let mut before: Option<&str> = None;
+        for p in syllables.iter().flat_map(|s| s.split(' ')).filter(|p| super::voice::PHONEMES.iter().any(|q| q.name == *p && !matches!(q.kind, super::voice::Kind::Vowel(_) | super::voice::Kind::Diphthong(..)))) {
+            let own: Vec<&(u64, &super::clear::Seg)> = segs.iter().filter(|(_, s)| s.name == p).collect();
+            let length: u64 = own.iter().map(|(_, s)| s.to - s.from).sum();
+            assert!(length as f32 >= 0.025 * SR, "{said}: {p} lasts {:.0} ms", length as f32 / SR * 1000.0);
+            // Heard: in its band where it hisses through one, else whole.
+            let level = own
+                .iter()
+                .map(|(at, s)| match s.band() {
+                    Some(f) => loudest(&filtered(&x, "band", f), at + s.from, at + s.to).max(loudest(&x, at + s.from, at + s.to) - 6.0),
+                    None => loudest(&x, at + s.from, at + s.to),
+                })
+                .fold(-200.0, f32::max);
+            assert!(level >= quiet + 12.0 && level >= vowel - 30.0, "{said}: {p} at {level:.1} dB, the quiet {quiet:.1}, the vowel {vowel:.1}");
+            if own.iter().any(|(_, s)| s.noisy() && s.voicing == 0.0) {
+                assert!(level <= vowel - 4.0, "{said}: {p} at {level:.1} dB, the vowel {vowel:.1}");
+            }
+            if before.is_some_and(|b| b == "s" || b == "sh") && matches!(p, "p" | "t" | "k") {
+                let breath: u64 = own.iter().filter(|(_, s)| s.breathes()).map(|(_, s)| s.to - s.from).sum();
+                assert!(breath as f32 <= 0.015 * SR, "{said}: {p} after {before:?} breathes {:.0} ms", breath as f32 / SR * 1000.0);
+            }
+            before = Some(p);
+        }
+    }
+}
+
+/// A plosive's burst is a transient, not a block of noise (hard joins at t
+/// and g were what the ear caught): 8 ms after its onset the noise above
+/// 2 kHz has fallen under 40 % of its peak, and a voiceless plosive's
+/// breath goes on to the vowel rather than leaving a gap (over its last
+/// 20 ms above 10 % of the burst's peak, the vowel glided into).
+#[test]
+fn the_singers_bursts_fall_away_into_their_breath() {
+    for text in ["t a", "k a", "p a"] {
+        let x = play(&clearly(&format!("r4 \"{text}\" c4")), 1.0);
+        let high = filtered(&filtered(&x, "high", 2000.0), "high", 2000.0);
+        let env = |at: usize| (high[at..at + 88].iter().map(|s| s * s).sum::<f32>() / 88.0).sqrt();
+        let beat = (0.5 * SR) as usize;
+        let from = beat - (0.15 * SR) as usize;
+        let peak = (from..beat).map(env).fold(0.0, f32::max);
+        let onset = (from..beat).find(|&i| env(i) > peak * 0.3).unwrap();
+        let top = (onset..onset + 132).map(env).fold(0.0, f32::max);
+        let later = env(onset + (0.008 * SR) as usize);
+        assert!(later < top * 0.4, "{text}: 8 ms after its onset the burst is at {:.0} % of its peak", later / top * 100.0);
+        let breath = x[beat - (0.02 * SR) as usize..beat].iter().map(|s| s * s).sum::<f32>() / (0.02 * SR);
+        let burst = x[onset..onset + 132].iter().map(|s| s * s).sum::<f32>() / 132.0;
+        assert!(breath.sqrt() > burst.sqrt() * 0.1, "{text}: the breath before the vowel at {:.0} % of the burst", breath.sqrt() / burst.sqrt() * 100.0);
     }
 }

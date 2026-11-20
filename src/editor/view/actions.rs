@@ -176,6 +176,8 @@ pub enum Action {
     DayOwn,
     DayColour(bool, [u8; 3]),
     DayAsGame,
+    /// YAW: the level's camera turned its own way, or the game's (None).
+    LevelYaw(Option<i32>),
     /// PERSISTENT of the level, on or off.
     Persistent(bool),
     GameView,
@@ -720,6 +722,7 @@ pub fn act(ed: &mut Editor, view: &mut View, action: Action) {
         Action::DayOwn => ed.day_own(),
         Action::DayColour(sun, [r, g, b]) => ed.set_day_colour(sun, &format!("#{r:02x}{g:02x}{b:02x}")),
         Action::DayAsGame => ed.day_as_game(),
+        Action::LevelYaw(yaw) => ed.set_level_yaw(yaw),
         Action::Persistent(on) => ed.set_persistent(on),
         // GAME VIEW on and off: off, the camera as it was before.
         // A figure's: the figure whole as the game draws it, from its

@@ -394,12 +394,16 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   replay: they are in neither the fingerprint nor the state hash.
 - **Music** (`src/audio/music/`): a song is MML text (the format at the
   top of `src/audio/music/mod.rs`, HELP's "A SONG IN MML"), played by
-  SID-like voices and by a voice that sings: `@singer voice`, a formant
-  synthesizer after Klatt (`src/audio/music/voice.rs`), a quoted text
+  SID-like voices and by two voices that sing: `@vox singer`, the clear
+  one, a cascade/parallel formant synthesizer after Klatt with a glottal
+  pulse and formants gliding by their consonants' loci
+  (`src/audio/music/clear.rs`), and `@vox voice`, the first and rougher
+  (`src/audio/music/voice.rs`); a quoted text
   before a note the syllable that note sings, in phonemes split by
   spaces (`"s ae ng" e4`: the vowel on the beat, the consonants before
   it just before, the ones after it ending where the note is let go; a
-  note without a text holds the vowel). Every instrument takes `drive`
+  note without a text holds the vowel; `consonants` moves their hiss and
+  breath against the vowels, in dB). Every instrument takes `drive`
   (decibels into a soft clipper, before the filters) and a bit crusher
   (`crush_rate`, `crush_bits`).
 - **Levels** (`src/levels.rs`): the files in a game's `levels/` folder,
