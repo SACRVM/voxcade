@@ -616,8 +616,9 @@ pub struct Here {
     /// the game's to change, so in the snapshot, the hash and a save.
     pub lights: std::collections::BTreeMap<u32, f32>,
     /// The things the level's file set down, as it was entered: id, name
-    /// and kind (what a record keeps, `super::memory`).
-    pub filed: Vec<(u32, String, usize)>,
+    /// and its kind's name (what a record keeps, `super::memory`; by name,
+    /// as `conf.lua` read anew may number the kinds anew).
+    pub filed: Vec<(u32, String, String)>,
 }
 
 /// When a song the game asks for begins (`music:play`).
@@ -1116,7 +1117,7 @@ impl Stage {
                 }
             };
             let name = own.unwrap_or_else(|| crate::levels::unused(&k.name, *n, &owns, &mut numbered));
-            self.here.filed.push((id.raw(), name.clone(), kind));
+            self.here.filed.push((id.raw(), name.clone(), k.name.clone()));
             self.here.names.insert(id.raw(), name);
         }
         // (Only kinds without a behavior have a way in a file: `LuaGame`

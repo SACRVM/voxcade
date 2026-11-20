@@ -301,7 +301,7 @@ impl<K: Kit> LuaGame<K> {
         let data = self.registry("voxcade.data")?;
         let mut things = Vec::new();
         for (id, name, kind) in &stage.here.filed {
-            if !whole && !stage.kinds.get(*kind).is_some_and(|k| k.persistent) {
+            if !whole && !stage.kinds.iter().any(|k| k.name == *kind && k.persistent) {
                 continue;
             }
             let gone = stage.here.dead.contains(id) || stage.here.gone.contains(id);
@@ -431,7 +431,8 @@ impl<K: Kit> LuaGame<K> {
     /// with a note. Its voxels were laid as its world was made (`enter`).
     pub(super) fn lay(&mut self, record: &Record) -> Result<()> {
         let level = self.stage.levels.list[self.stage.level].name.clone();
-        let by_name: BTreeMap<String, (u32, usize)> = self.stage.here.filed.iter().map(|(id, n, k)| (n.clone(), (*id, *k))).collect();
+        let kinds = Arc::clone(&self.stage.kinds);
+        let by_name: BTreeMap<String, (u32, usize)> = self.stage.here.filed.iter().map(|(id, n, k)| (n.clone(), (*id, kinds.iter().position(|kind| kind.name == *k).unwrap_or(usize::MAX)))).collect();
         let data = self.registry("voxcade.data")?;
         let lua = self.sandbox.lua.clone();
         for (name, left) in &record.things {
