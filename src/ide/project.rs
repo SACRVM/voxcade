@@ -474,10 +474,11 @@ impl<G: Game> Project<'_, G> {
                 return self.shell.tell(format!("{e:#}"));
             }
         };
-        let drive = self.shell.drive();
+        let (drive, ceiling) = self.shell.drive();
         match opened(&mut self.song, &self.window.sdl) {
             Some(mut mixer) => {
                 mixer.set_drive(drive);
+                mixer.set_ceiling(ceiling);
                 mixer.set_music(Some(player));
             }
             None => {
@@ -490,10 +491,11 @@ impl<G: Game> Project<'_, G> {
     /// PLAY SOUND: the sound made ready through the sounds' speaker.
     fn sound(&mut self) {
         let Some((samples, volume)) = self.shell.heard() else { return };
-        let drive = self.shell.drive();
+        let (drive, ceiling) = self.shell.drive();
         match opened(&mut self.blip, &self.window.sdl) {
             Some(mut mixer) => {
                 mixer.set_drive(drive);
+                mixer.set_ceiling(ceiling);
                 mixer.play("heard", &samples, volume, 0.0);
             }
             None => self.shell.tell(NO_SPEAKER.into()),

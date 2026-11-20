@@ -376,6 +376,7 @@ impl<G: Game> Play<G> {
             self.game.feed_music(&mut mixer, false);
             mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
             mixer.set_drive(self.game.cfg.audio.drive);
+            mixer.set_ceiling(self.game.cfg.audio.ceiling);
         }
 
         // The ticks due.

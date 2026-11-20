@@ -156,8 +156,14 @@ The user makes songs in Suno (Pro) and exports MIDI or audio stems.
 c.audio.music = { "music/sunny_hills.mml" }   -- one or more: keys 1..9 switch while playing
 c.audio.music_volume = 0.4
 c.audio.drive = 0          -- how hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense (0 to 12)
+c.audio.ceiling = -1       -- the loudest it may get, in dB true peak, after the drive (-6 to 0; -1 unless set)
 c.title_screen.music = "music/storm.mml"      -- the title's own (default: the first song)
+c.title_screen.music_at = 33                  -- the bar the title's song begins at (1 unless set): past an intro
 ```
+
+A song begun at a bar: `music:play("storm", { at = 33 })` (counted from
+1) begins it there, its beat 0 there, going round its `#loop` as
+written; a bar past its end or after its loop is a mistake.
 
 Which song plays when is the game's code, never a kit's: More Blood's
 `main.lua` plays `end_boss` while its gunship flies (`music:play`) and
@@ -192,6 +198,18 @@ in the room, the muffle back up in the hall behind the door. Only heard
 (no replay changes with it); a film of a replay carries it. Checked by
 measurement in `lua::tests::the_music_sounds_as_the_game_asks`.
 
+A loop of its own: `#loop 33 80` in a song plays it from its start once,
+then bars 33 to 80 (counted from 1, both in, `#meter` beats each) round
+and round, what lies after bar 80 never reached: a song made with 32
+bars of intro and outro for mixing plays its middle in the game.
+`#loop 33` goes round from bar 33 to the end, `#loop no` plays it once.
+A note still held as bar 80 ends is cut there (as at a song's end), so
+end the loop's last bar with its notes let go. The game's beats count
+on through the loop (`music.beat`, `on_beat`), as through a whole song
+going round. `voxcade music FILE.mml` writes such a song to the loop's
+end and round into its first four bars again, and says where the seam
+is: look at the seam there (`spectro.py`), and let the user listen.
+
 Layers by tension: `#layer D C 0.35` in a song puts channels in a layer
 that sounds while the game's `music.intensity` (0..1, 1 unless set) is at
 least 0.35, fading in and out over a bar. `compose.py` writes them with
@@ -212,7 +230,10 @@ cargo build --release        # first, after any change to the MML parser or synt
 ```
 
 `voxcade music` prints the length, the peak and warnings about channels
-of different lengths (a bar too many on one line). `spectro.py` adds the
+of different lengths (a bar too many on one line). A game's song it
+writes as the game plays it (its music volume, drive and ceiling); a
+song file alone at the engine's defaults, and it says so: the game may
+play it louder and limited. `spectro.py` adds the
 loudness per section (pass the length of 8 bars: 8 × 4 × 60 / tempo
 seconds), the share above 4 kHz (harshness: the library's songs stay well
 under 1 %), the DC offset, left against right, and the loop's seam. Then

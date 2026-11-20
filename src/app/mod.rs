@@ -515,6 +515,7 @@ impl<G: Game> App<G> {
             }
             mixer.set_music_volume(game.cfg.audio.music_volume * settings.music_gain());
             mixer.set_drive(game.cfg.audio.drive);
+            mixer.set_ceiling(game.cfg.audio.ceiling);
         }
     }
 

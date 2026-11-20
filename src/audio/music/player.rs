@@ -334,10 +334,15 @@ impl Player {
         (beats * 60.0 / self.song.tempo as f64 * SAMPLE_RATE as f64) as u64
     }
 
+    /// Samples into the song bar `bar` (from 1) begins at.
+    pub fn at_bar(&self, bar: u32) -> u64 {
+        self.song.bar_start(bar)
+    }
+
     /// Jumps to `at` samples into the song (round its loop), each voice
     /// taking up the note that sounds there, faded in so it does not click.
     pub fn seek(&mut self, at: u64) {
-        let at = if self.song.looping { at % self.song.length } else { at.min(self.song.length) };
+        let at = self.within(at);
         (self.time, self.carry, self.duck, self.since_jump) = (at, 0.0, None, 0);
         for (ch, v) in self.voices.iter_mut().enumerate() {
             let notes = &self.song.channels[ch];
@@ -353,10 +358,11 @@ impl Player {
     /// jump when it is far off (after a pause), else a little faster or
     /// slower until it is with it again, unheard.
     pub fn follow(&mut self, target: u64) {
-        let length = self.song.length.max(1) as i64;
-        let target = if self.song.looping { target % self.song.length } else { target.min(self.song.length) };
+        let (from, to) = self.song.span;
+        let length = (to - from).max(1) as i64;
+        let target = self.within(target);
         let mut off = target as i64 - self.time as i64;
-        if self.song.looping {
+        if self.song.looping && self.time >= from && target >= from {
             // The shorter way round the loop.
             if off > length / 2 {
                 off -= length;
@@ -372,6 +378,18 @@ impl Player {
         }
     }
 
+    /// Where `at` samples of the song as written, played on and on, lie:
+    /// round its loop (`#loop`'s bars, else the whole song) past its end,
+    /// at the end of a song that plays once.
+    pub(super) fn within(&self, at: u64) -> u64 {
+        let (from, to) = self.song.span;
+        match () {
+            _ if !self.song.looping => at.min(self.song.length),
+            _ if at < to => at,
+            _ => from + (at - from) % (to - from).max(1),
+        }
+    }
+
     /// Whether a song that plays once has ended.
     pub fn over(&self) -> bool {
         !self.song.looping && self.time >= self.song.length
@@ -383,14 +401,17 @@ impl Player {
         // The layers move towards the tension, a bar's worth a bar.
         let step = self.song.tempo / (60.0 * SAMPLE_RATE as f32 * self.song.meter as f32);
         for frame in out.as_chunks_mut::<2>().0 {
-            if self.time >= self.song.length {
+            // Round the loop (`#loop`'s bars, else the whole song), what
+            // sounds cut as at a song's end.
+            if self.time >= self.song.span.1 {
                 if !self.song.looping {
                     return;
                 }
-                self.time = 0;
+                let from = self.song.span.0;
+                self.time = from;
                 self.duck = None;
-                for v in &mut self.voices {
-                    v.next = 0;
+                for (v, notes) in self.voices.iter_mut().zip(&self.song.channels) {
+                    v.next = notes.partition_point(|n| n.start < from);
                     v.note = None;
                 }
             }
@@ -505,11 +526,12 @@ impl Player {
         }
     }
 
-    /// The whole song (once) as interleaved stereo samples.
+    /// The whole song (once; with `#loop` round its loop into its first
+    /// bars again, `Song::once`) as interleaved stereo samples.
     pub fn render(mut self, seconds: Option<f32>) -> Vec<f32> {
         let frames = match seconds {
             Some(s) => (s * SAMPLE_RATE as f32) as u64,
-            None => self.song.length,
+            None => self.song.once(),
         };
         let mut out = vec![0.0; frames as usize * 2];
         self.mix(&mut out);

@@ -95,6 +95,7 @@
 ---@class MusicPlay How a song begins (music:play).
 ---@field from? string When it begins: at the next bar of the one playing (bar, unless said), beat or now.
 ---@field crossfade? number Seconds the old song fades out as this one fades in, 0 to 60 (0: the old ends, this begins); unless said, c.audio.crossfade.
+---@field at? integer The bar it begins at, counted from 1 (its start, unless said): 33 skips an intro of 32 bars. Its beat 0 is there.
 
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
@@ -725,7 +726,7 @@ function Controls:key(action) end
 
 ---@class Music The song your game plays of its own choice, its beats and bars, and how loud and how muffled it sounds: the game can go with the music (waves on the beat), and replays play it the same.
 ---@field song string|nil The song your game plays (music:play), by its file's name; nil while the player's own plays.
----@field beat integer|nil Beats since your game's song began, from 0 (its #tempo); nil while the player's own song plays.
+---@field beat integer|nil Beats since your game's song began, from 0 (its #tempo), on and on as it goes round; nil while the player's own song plays.
 ---@field intensity number How tense the game is, from 0 (calm) to 1 (all of the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a hit.
 ---@field bar integer|nil Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil while the player's own song plays.
 local Music = {}
@@ -733,7 +734,8 @@ local Music = {}
 ---Plays a song of c.audio.music by its file's name ("storm" for music/storm.mml) as your game's own. Your game's song wins over the player's choice.
 ---- from: when it begins: "bar" (the next bar of the one playing, unless said), "beat" or "now"; at once when none of yours plays.
 ---- crossfade: { from = "now", crossfade = 3 } fades the old song out as the new comes in over 3 seconds, as loud together as either alone. c.audio.crossfade sets it for every change; else the old ends as the new begins.
----It starts at its beat 0 and keeps time with the game (music.beat and on_beat count its beats from then), held while the game pauses. Asked for while it plays, it goes on, through a level change too. Without a song: the player's own again, from the next bar.
+---- at: the bar it begins at, counted from 1: { at = 33 } skips an intro of 32 bars; a bar past the song's end, or after its #loop (which it never leaves), is a mistake.
+---It starts at its beat 0 (its first bar, or the bar at says) and keeps time with the game (music.beat and on_beat count its beats from then, on and on as it goes round, #loop's bars too), held while the game pauses. Asked for while it plays, it goes on, through a level change too. Without a song: the player's own again, from the next bar.
 ---@param song? string
 ---@param from? string|MusicPlay
 function Music:play(song, from) end
@@ -938,6 +940,7 @@ function on_pickup(thing, item) end
 
 ---@class Conf.title_screen
 ---@field music string What plays on the title (a song of c.audio.music; none: the first).
+---@field music_at integer The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro. It goes round as the song says (#loop). The engine's title only: a title level of the game's own picks with music:play's at. (from 1 to 9999)
 ---@field at number[] The ground point the camera looks at (default: where the player starts).
 ---@field view_width number Voxels across the screen there (default: c.camera.view_width). (above 0, up to 65536)
 ---@field logo string[] The logo, a line each (default: the game's title), and their colours as "#rrggbb".
@@ -1023,6 +1026,7 @@ function on_pickup(thing, item) end
 ---@field music string|string[] Music as MML text, relative to the game folder: one file, or a list the keys 1..9 switch between while playing.
 ---@field music_volume number Loudness of the music, 0..1, times the player's music volume. (from 0 to 1)
 ---@field drive number How hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense. 0 to 12. The limiter's drive (the JUST mastering stage's own input gain), on sounds and music together, after the player's volumes; the game's choice, not the player's. (from 0 to 12)
+---@field ceiling number The loudest the game's sound may get, in decibels of true peak (between the samples too), -6 to 0; -1 unless set. The limiter holds everything under it, sounds and music together, after the drive; 0 is full scale. Hard-edged waves (squares, noise) can still peak a few tenths of a decibel over it between samples, so -1 leaves room. (from -6 to 0)
 ---@field crossfade number Seconds one song crossfades into the next when the game's code changes the song (music:play; one call may say otherwise): the old fading out as the new fades in, equal in power. 0: the old ends and the new begins, a level's fade between them silent. (from 0 to 60)
 
 ---@class Conf.ui

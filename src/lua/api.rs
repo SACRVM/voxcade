@@ -129,6 +129,7 @@ const TYPES: &str = "\
 ---@class MusicPlay How a song begins (music:play).
 ---@field from? string When it begins: at the next bar of the one playing (bar, unless said), beat or now.
 ---@field crossfade? number Seconds the old song fades out as this one fades in, 0 to 60 (0: the old ends, this begins); unless said, c.audio.crossfade.
+---@field at? integer The bar it begins at, counted from 1 (its start, unless said): 33 skips an intro of 32 bars. Its beat 0 is there.
 
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
@@ -601,9 +602,10 @@ pub const API: &[Item] = &[
             over the player's choice.\n- from: when it begins: \"bar\" (the next bar of the one playing, unless said), \"beat\" or \"now\"; \
             at once when none of yours plays.\n- crossfade: { from = \"now\", crossfade = 3 } fades the old song out as the new comes in \
             over 3 seconds, as loud together as either alone. c.audio.crossfade sets it for every change; else the old ends as the new \
-            begins.\nIt starts at its beat 0 and keeps time with the game (music.beat and on_beat count its beats from then), held while the \
-            game pauses. Asked for while it plays, it goes on, through a level change too. Without a song: the player's own again, from the \
-            next bar." },
+            begins.\n- at: the bar it begins at, counted from 1: { at = 33 } skips an intro of 32 bars; a bar past the song's end, or \
+            after its #loop (which it never leaves), is a mistake.\nIt starts at its beat 0 (its first bar, or the bar at says) and keeps time with the game (music.beat and on_beat \
+            count its beats from then, on and on as it goes round, #loop's bars too), held while the game pauses. Asked for while it plays, \
+            it goes on, through a level change too. Without a song: the player's own again, from the next bar." },
     Item { of: "music", name: "volume", what: Method { params: &[("level?", "number"), ("seconds?", "number")], returns: "number|nil" },
         doc: "How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the \
             start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on \
@@ -619,7 +621,7 @@ pub const API: &[Item] = &[
     Item { of: "music", name: "song", what: Field { ty: "string|nil", set: false }, doc: "The song your game plays (music:play), by its \
             file's name; nil while the player's own plays." },
     Item { of: "music", name: "beat", what: Field { ty: "integer|nil", set: false }, doc: "Beats since your game's song began, from 0 (its \
-            #tempo); nil while the player's own song plays." },
+            #tempo), on and on as it goes round; nil while the player's own song plays." },
     Item { of: "music", name: "intensity", what: Field { ty: "number", set: true }, doc: "How tense the game is, from 0 (calm) to 1 (all of \
             the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come \
             in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a \

@@ -74,6 +74,7 @@ impl<G: Game> Session<G> {
     pub fn load_from(files: Files, mut slots: Slots) -> Result<Self> {
         let dir = files.dir().to_path_buf();
         let cfg = config_in::<G>(&files)?;
+        check_title_bar(&files, &cfg)?;
         slots.set_count(cfg.saves.slots);
         let levels = std::sync::Arc::new(crate::levels::load::<G>(&files, &cfg)?);
         let level_files = levels.files.clone();
@@ -214,7 +215,13 @@ impl<G: Game> Session<G> {
         files.extend(self.game.code());
         // A game that reads or picks its music: the songs' beats.
         if self.game.uses_music() {
-            let beats: String = self.songs.iter().map(|t| format!("{} {} {}\n", t.name, t.tempo, t.meter)).collect();
+            // `#loop` only where a song has one, so the others stay as they were.
+            let looped = |t: &audio::music::Timing| match t.round {
+                None => String::new(),
+                Some((from, None)) => format!(" loop {from}"),
+                Some((from, Some(to))) => format!(" loop {from} {to}"),
+            };
+            let beats: String = self.songs.iter().map(|t| format!("{} {} {}{}\n", t.name, t.tempo, t.meter, looped(t))).collect();
             files.push(("music".into(), beats.into_bytes()));
         }
         Ok(files)
@@ -357,6 +364,7 @@ impl<G: Game> Session<G> {
             let before = self.cfg.audio.music.clone();
             let mut cfg = config_in::<G>(&self.files)?;
             crate::levels::check_start::<G>(&self.files, &cfg)?;
+            check_title_bar(&self.files, &cfg)?;
             let waiting = self.cfg.restart_only(&cfg);
             if !waiting.is_empty() {
                 self.cfg.keep_for_restart(&mut cfg);

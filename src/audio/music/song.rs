@@ -122,6 +122,14 @@ pub struct Song {
     /// Samples until it starts over.
     pub length: u64,
     pub looping: bool,
+    /// The bars that go round (`#loop FROM TO`, counted from 1; no TO:
+    /// to the song's end), None without `#loop`.
+    pub round: Option<(u32, Option<u32>)>,
+    /// The samples that go round, from where to where: the whole song
+    /// (0 to `length`) unless `#loop` says bars.
+    pub(super) span: (u64, u64),
+    /// Bars begun in the song (`#meter` beats of `#tempo` each).
+    pub bars: u32,
 }
 
 /// When a song's beats fall, for a game that reads them (`music.beat`):
@@ -132,6 +140,30 @@ pub struct Timing {
     pub name: String,
     pub tempo: f32,
     pub meter: u32,
+    /// The bars that go round (`#loop`), and the bars the song has (a
+    /// song begun at a bar, `music:play`'s `at`, begins within them).
+    pub round: Option<(u32, Option<u32>)>,
+    pub bars: u32,
+}
+
+/// Samples into a song of `tempo` and `meter` bar `bar` (from 1) begins
+/// at, as its notes are laid: seconds first, then samples.
+pub(super) fn bar_start(tempo: f32, meter: u32, bar: u32) -> u64 {
+    let beats = f64::from(bar.saturating_sub(1)) * f64::from(meter);
+    (beats * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64) as u64
+}
+
+impl Timing {
+    /// Why a song cannot begin at `bar` (from 1), if it cannot: a bar past
+    /// its end, or after its `#loop`, which it never comes to.
+    pub fn bar_mistake(&self, bar: u32) -> Option<String> {
+        let s = |n: u32| if n == 1 { "" } else { "s" };
+        match self.round {
+            _ if bar > self.bars => Some(format!("is past the end of \"{}\", which has {} bar{}", self.name, self.bars, s(self.bars))),
+            Some((from, Some(to))) if bar > to => Some(format!("lies after the loop of \"{}\" (#loop {from} {to}), which it never leaves", self.name)),
+            _ => None,
+        }
+    }
 }
 
 impl Song {
@@ -144,7 +176,30 @@ impl Song {
     /// Its beats, for a game: by its file's name.
     pub fn timing(&self, file: &str) -> Timing {
         let name = std::path::Path::new(file).file_stem().map_or_else(|| file.to_string(), |s| s.to_string_lossy().into_owned());
-        Timing { name, tempo: self.tempo, meter: self.meter }
+        Timing { name, tempo: self.tempo, meter: self.meter, round: self.round, bars: self.bars }
+    }
+
+    /// Samples into the song bar `bar` (from 1) begins at.
+    pub fn bar_start(&self, bar: u32) -> u64 {
+        bar_start(self.tempo, self.meter, bar)
+    }
+
+    /// The seconds the loop goes round from and to (`#loop`), if it has one.
+    pub fn round_seconds(&self) -> Option<(f32, f32)> {
+        self.round.map(|_| (self.span.0 as f32 / SAMPLE_RATE as f32, self.span.1 as f32 / SAMPLE_RATE as f32))
+    }
+
+    /// The samples a render without a length writes: the song once, or
+    /// with `#loop` the beginning, the loop once and its first bars again
+    /// (four, or the whole loop when shorter), so the seam lies in it.
+    pub fn once(&self) -> u64 {
+        match self.round {
+            None => self.length,
+            Some(_) => {
+                let (from, to) = self.span;
+                to + (to - from).min(4 * self.bar_start(2))
+            }
+        }
     }
 
     /// How long each channel is, in seconds (they should match, or the

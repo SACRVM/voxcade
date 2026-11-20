@@ -568,7 +568,13 @@ nearest; its replay `tests/two_ships`);
 - Hear without playing: `cargo run --release -- sounds <game>` (every sound
   in a row; `--list` says each one's file or that it is built in, its
   length and peak) and `-- music <game>` (the song; or `-- music FILE.mml`, one
-  song) write WAVs to `shots/`. You
+  song) write WAVs to `shots/`, through the limiter as the game plays
+  them: its `c.audio.drive` and `c.audio.ceiling` (the limiter's
+  ceiling in dB true peak, -6 to 0, -1 unless set, live as the drive;
+  BS.1770's 4x meter holds it to 0.01 dB, a finer 8x meter sees up to a
+  few tenths more on hard-edged waves, test
+  `a_ceiling_a_tenth_under_full_scale_holds`); a song file alone at the
+  engine's defaults, which it says. You
   cannot listen: check them as a spectrogram (numpy + PIL), and the
   printed lengths, peaks and channel-length warnings. `shot` prints which
   sounds a run made.
@@ -1146,7 +1152,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   and `music` (the game's own song, `music:play`, and its clock: a step
   every tick the game goes, hit stop too, `on_beat` before `on_tick`,
   `music.beat`, `music.bar`; `lua::host::Music`, in the snapshot, and in
-  the hash and the fingerprint (the songs' `#tempo`, `#meter`) of a game
+  the hash and the fingerprint (the songs' `#tempo`, `#meter`, a
+  `#loop` where one has it) of a game
   whose code names `music` or `on_beat`, `Game::uses_music`; the audio
   follows it, `Session::feed_music`, `music::Player::follow`;
   `music.intensity` the game's tension, which a song's layers follow,
@@ -1458,8 +1465,28 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,
-  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `tests.rs`), text so the user and agents can
-  write it. MIDI comes in through `tools/midi2mml.py` and an import file
+  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `tests.rs`,
+  `loop_tests.rs`), text so the user and agents can
+  write it. `#loop 33 80` (the owner's, 2026-11-20: songs with 32 bars
+  of intro and outro for mixing) plays a song from its start once, then
+  bars 33 to 80 round and round (counted from 1, both in; `#loop 33` to
+  the end; `#loop no` once), the rest never reached; a note held over
+  the loop's end is cut there as at a song's end (`Song::span`, its ends
+  `LOOP_SLACK` samples before the bar lines so a note on the line, a sum
+  of lengths, is never a sample off; `Player::within` folds a place
+  into the song); the game's clock counts on through it as through a
+  whole song going round, the audio folding the clock's place into the
+  loop (test `the_audio_keeps_with_the_clock_round_a_loop`); `voxcade
+  music` writes such a song to the loop's end and round into its first
+  four bars again, the seam in the file (`Song::once`), and says where.
+  A song begun at a bar: `music:play(song, { at = 33 })`, its beat 0
+  there (`lua::host::Music`'s `at`, in the hash only when not 1;
+  `MusicCue::start`), and the engine's title's song at
+  `c.title_screen.music_at` (checked as the game loads, `check_title_bar`;
+  a title level of the game's own uses `at`; the settings' preview plays
+  the chosen song from its start, as the game plays the player's song);
+  a bar past the song's end, or after its `#loop` (which it never
+  leaves), is a mistake (`Timing::bar_mistake`). MIDI comes in through `tools/midi2mml.py` and an import file
   (`games/moreblood/music/end_boss.import.toml`); the user makes music
   in Suno (Pro) and exports MIDI or audio stems. Audio stems go through
   `tools/audio2midi.py` first (the tempo must be known, e.g. from the zip's

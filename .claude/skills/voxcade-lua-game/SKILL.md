@@ -383,7 +383,8 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
 - The sound's pressure: `c.audio.drive` (0 to 12, default 0), how hard the
   game's sound is pushed into the limiter, in decibels: 0 as it is, more
   makes it denser and louder; music you listen to for long tires sooner
-  when dense.
+  when dense. `c.audio.ceiling` (-6 to 0, default -1): the loudest it may
+  get after the drive, in decibels of true peak.
 - Music: `c.audio.music = { "music/song.mml" }`. For a new song write a
   recipe for `tools/compose.py` (styles calm, mysterious, dark, action, space,
   bright) or pick one from the library `music/`; copy it into the game.
@@ -391,7 +392,10 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   file's name, from the next bar; `music:play()` gives the player's
   choice back) and goes with it: `on_beat(beat)` before `on_tick`,
   `music.beat`, `music.bar` (waves on the bar, shots on the beat). Its
-  clock is the game's, so replays play it the same. `music.intensity`
+  clock is the game's, so replays play it the same; the beats count on
+  as the song goes round (its `#loop` too). `music:play("song", { at =
+  33 })` begins it at bar 33, past an intro (`c.title_screen.music_at`
+  for the title's song). `music.intensity`
   (0..1) is the game's tension: a song's layers (`adaptive = true` in a
   recipe) come and go with it (Pulsar sets it from the enemies on the
   screen). `music:volume(level, seconds)` (0..1 of the song's own

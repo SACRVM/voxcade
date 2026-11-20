@@ -47,6 +47,30 @@ pub(super) fn song_timings(files: &Files, cfg: &GameConfig) -> Vec<audio::music:
         .collect()
 }
 
+/// The title's song file: `c.title_screen.music`, else the first song.
+fn title_song(cfg: &GameConfig) -> Option<&str> {
+    cfg.title_screen.music.as_deref().or_else(|| cfg.audio.music.files().first().copied())
+}
+
+/// `c.title_screen.music_at` within the title's song: a bar past its
+/// end or after its `#loop` is a mistake naming the setting (a song that
+/// does not read says its own mistake when it is played; without a song
+/// there is nothing to begin).
+pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig) -> Result<()> {
+    let at = cfg.title_screen.music_at;
+    if at <= 1 {
+        return Ok(());
+    }
+    // Without a song for the title there is nothing to begin.
+    if let Some(file) = title_song(cfg)
+        && let Some(song) = files.read_to_string(file).ok().and_then(|t| audio::music::parse(&t).ok())
+        && let Some(wrong) = song.timing(file).bar_mistake(at)
+    {
+        anyhow::bail!("conf.lua: c.title_screen.music_at = {at} {wrong} ({file})");
+    }
+    Ok(())
+}
+
 impl<G: Game> Session<G> {
     /// The file of the song that plays.
     pub fn song_file(&self) -> Option<&str> {
@@ -81,7 +105,7 @@ impl<G: Game> Session<G> {
         let mut player = match self.game.music() {
             Some(cue) => {
                 let mut player = self.song(self.cfg.audio.music.files().get(cue.song)?)?;
-                player.seek(player.at_beat(cue.beats));
+                player.seek(player.at_beat(cue.start + cue.beats));
                 player.start_at(cue.intensity);
                 player
             }
@@ -112,7 +136,7 @@ impl<G: Game> Session<G> {
         } else if let Some(cue) = self.game.music()
             && let Some(t) = self.songs.get(cue.song)
         {
-            mixer.follow_music((cue.beats * 60.0 / t.tempo as f64 * audio::SAMPLE_RATE as f64) as u64);
+            mixer.follow_music(((cue.start + cue.beats) * 60.0 / t.tempo as f64 * audio::SAMPLE_RATE as f64) as u64);
             mixer.music_intensity(cue.intensity);
         }
         if !began {
@@ -127,10 +151,14 @@ impl<G: Game> Session<G> {
         self.song(self.cfg.audio.music.files().get(index)?)
     }
 
-    /// The title's song: `[title_screen] music`, else the first song.
+    /// The title's song, begun at `c.title_screen.music_at`'s bar.
     pub fn title_music(&self) -> Option<audio::music::Player> {
-        let file = self.cfg.title_screen.music.as_deref().or_else(|| self.cfg.audio.music.files().first().copied())?;
-        self.song(file)
+        let mut player = self.song(title_song(&self.cfg)?)?;
+        let at = self.cfg.title_screen.music_at;
+        if at > 1 {
+            player.seek(player.at_bar(at));
+        }
+        Some(player)
     }
 
     pub(super) fn song(&self, file: &str) -> Option<audio::music::Player> {

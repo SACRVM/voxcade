@@ -1,7 +1,8 @@
 //! A port of the JUST suite's limiter (JustPlay.Analysis's MasteringLimiter, same author).
 //!
 //! The last stage of the sound: a stereo true-peak limiter that holds the
-//! mix under a ceiling (-1 dBTP) instead of bending it as `tanh` did. Below
+//! mix under a ceiling (-1 dBTP, or the game's `c.audio.ceiling`) instead
+//! of bending it as `tanh` did. Below
 //! the ceiling it does nothing at all: the mix comes out as it went in,
 //! only later by the look-ahead (1.5 ms). Above it, both channels are
 //! turned down together, by just enough, and back up slowly.
@@ -175,6 +176,16 @@ impl Limiter {
         if drive_db != self.options.drive_db {
             self.options.drive_db = drive_db;
             self.drive = if drive_db == 0.0 { 1.0 } else { 10f64.powf(drive_db / 20.0) as f32 };
+        }
+    }
+
+    /// A new ceiling while it plays (a game's `c.audio.ceiling` saved): the
+    /// gain goes on from where it is, down at once to a lower ceiling, up
+    /// through the releases to a higher one, so it does not click.
+    pub fn set_ceiling_db(&mut self, ceiling_db_tp: f64) {
+        if ceiling_db_tp != self.options.ceiling_db_tp {
+            self.options.ceiling_db_tp = ceiling_db_tp;
+            self.ceiling = 10f64.powf(ceiling_db_tp / 20.0) as f32;
         }
     }
 

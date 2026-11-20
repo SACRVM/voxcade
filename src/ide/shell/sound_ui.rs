@@ -28,9 +28,10 @@ impl Shell {
         }
     }
 
-    /// How hard the game's sound goes into the limiter (`c.audio.drive`).
-    pub fn drive(&self) -> f32 {
-        self.cfg.audio.drive
+    /// How hard the game's sound goes into the limiter (`c.audio.drive`),
+    /// and the limiter's ceiling (`c.audio.ceiling`).
+    pub fn drive(&self) -> (f32, f32) {
+        (self.cfg.audio.drive, self.cfg.audio.ceiling)
     }
 
     /// The song in `path` to play, at the volume the game and the player
