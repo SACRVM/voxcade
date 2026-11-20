@@ -68,6 +68,10 @@ pub struct ShotOptions {
     /// The chosen thing's group set (`--group`, "" none); groups of the
     /// outliner folded and locked (by name).
     pub group: Option<String>,
+    /// The level's location set (`--location`, "" none), and PERSISTENT on
+    /// (`--persistent`).
+    pub location: Option<String>,
+    pub persistent: bool,
     pub fold: Vec<String>,
     pub lock: Vec<String>,
     /// Props of the chosen thing set in turn (`--prop KEY=VALUE`), each
@@ -676,7 +680,7 @@ fn in_context(dir: &Path, ed: &mut Editor, opts: &ShotOptions) -> Result<()> {
 fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOptions) -> Result<()> {
     // The changes tried among the pieces, then the one chosen, the view.
     // (ADD MODEL's pictures are the pieces' too.)
-    if !opts.ops.is_empty() || opts.choose.is_some() || opts.picker || !opts.fold.is_empty() || !opts.lock.is_empty() {
+    if !opts.ops.is_empty() || opts.choose.is_some() || opts.picker || !opts.fold.is_empty() || !opts.lock.is_empty() || opts.location.is_some() || opts.persistent {
         if ed.level.has_grid() {
             ed.switch(Layer::Pieces);
         }
@@ -703,6 +707,12 @@ fn try_pieces(dir: &Path, ed: &mut Editor, figures: &mut Figures, opts: &ShotOpt
     if let Some(group) = &opts.group {
         anyhow::ensure!(ed.chosen_thing().is_some(), "--group {group}: choose a thing first (--choose NAME)");
         ed.set_group(group).map_err(|why| anyhow::anyhow!("--group {group}: {why}"))?;
+    }
+    if let Some(location) = &opts.location {
+        ed.set_location(location).map_err(|why| anyhow::anyhow!("--location {location}: {why}"))?;
+    }
+    if opts.persistent {
+        ed.set_persistent(true);
     }
     let there = |ed: &Editor, flag: &str, group: &str| -> Result<()> {
         anyhow::ensure!(ed.groups().iter().any(|g| g == group), "{flag} {group}: the level has no such group (it has {})", ed.groups().join(", "));

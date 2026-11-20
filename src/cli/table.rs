@@ -237,6 +237,8 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--picker", "", "ADD MODEL's pictures shown"),
             look("--add-menu", "", "ADD's menu open"),
             look("--level-settings", "", "LEVEL shown in the inspector"),
+            look("--location", "NAME", "the level's location set (\"\" none)"),
+            look("--persistent", "", "the level made persistent: what it sets down stays as left for the run"),
             look("--lights-off", "", "the view without the lights"),
             look("--terrain", "", "TERRAIN shown (a flat one where the level has none)"),
             look("--raise", "X,Y --by N [--radius R]", "a point of the land raised with the brush (radius 3 unless said)"),

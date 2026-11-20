@@ -497,6 +497,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
                 "--lights-off" => opts.lights_off = true,
                 "--add-menu" => opts.add_menu = true,
                 "--level-settings" => opts.level_settings = true,
+                "--persistent" => opts.persistent = true,
                 other => bail!("unknown option {other}"),
             }
             continue;
@@ -611,6 +612,7 @@ pub(super) fn parse_edit(rest: &[String]) -> Result<(crate::editor::ShotOptions,
             "--hover" => opts.hover = Some(value.clone()),
             "--hide" => opts.hide.push(value.clone()),
             "--group" => opts.group = Some(value.clone()),
+            "--location" => opts.location = Some(value.clone()),
             "--fold" => opts.fold.push(value.clone()),
             "--lock" => opts.lock.push(value.clone()),
             "--prop" => {

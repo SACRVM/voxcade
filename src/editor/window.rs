@@ -700,12 +700,17 @@ impl EditorWindow {
                 crate::gui::marker::paint(ui.ctx(), tip);
             }
         });
-        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some() || drawn.renamed_part.is_some() || drawn.prop.is_some() || drawn.grouped.is_some() || drawn.group_renamed.is_some();
+        let acted = !drawn.clicked.is_empty() || drawn.renamed.is_some() || drawn.renamed_part.is_some() || drawn.prop.is_some() || drawn.grouped.is_some() || drawn.group_renamed.is_some() || drawn.located.is_some();
         if let Some((key, value)) = drawn.prop.take() {
             ed.set_prop(&key, value);
         }
         if let Some(typed) = drawn.grouped.take()
             && let Err(problem) = ed.set_group(&typed)
+        {
+            ed.message = Some(problem);
+        }
+        if let Some(typed) = drawn.located.take()
+            && let Err(problem) = ed.set_location(&typed)
         {
             ed.message = Some(problem);
         }

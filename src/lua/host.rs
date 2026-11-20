@@ -54,6 +54,9 @@ pub struct Kind {
     pub spin: f32,
     /// Stays where it is put: no gravity (`fixed`).
     pub fixed: bool,
+    /// Its things a level's file sets down stay as left for the whole run
+    /// (`persistent`, `lua::memory`).
+    pub persistent: bool,
     /// Its model's frames for what it does (idle, walk, jump: `frame:model`
     /// without a frame).
     pub frames: std::collections::BTreeMap<String, crate::sim::things::Frames>,
@@ -413,6 +416,17 @@ pub trait Host: Any {
             None => Err("it moves by its ready-made rules".into()),
         }
     }
+
+    /// A thing's body and its ready-made rules' switch (`Thing::off`,
+    /// `thing:enable`), whoever moves it: what a level kept of the thing is
+    /// laid over it as the level is entered (`lua::memory`).
+    fn thing_body(&mut self, id: Id) -> Option<(&mut Body, &mut Option<Walk>)>;
+
+    /// Whether a thing's ready-made rules are switched off (`thing:enable`).
+    fn rules_off(&self, _id: Id) -> bool {
+        false
+    }
+
     fn box_clone(&self) -> Box<dyn Host>;
 }
 
@@ -484,6 +498,15 @@ pub struct Stage {
     pub levels: Arc<crate::levels::Levels>,
     pub level: usize,
     pub visits: Vec<u32>,
+    /// What the levels kept of how they were left, by the levels' names
+    /// (`super::memory`): fixed once made, so a snapshot shares them.
+    pub records: Arc<std::collections::BTreeMap<String, Arc<super::memory::Record>>>,
+    /// `level.state` as the level being played was entered, where it
+    /// belongs to a location: what a restart gives back.
+    pub entered: Option<Arc<super::value::Value>>,
+    /// The ticks since the level being played was left, as the record laid
+    /// over it says (`level.away`; 0 where none was).
+    pub away: u64,
     /// What the script asked to happen at the tick's end: the one ask that
     /// counts so far (`Ask::outranks`).
     pub ask: Option<Ask>,
@@ -592,6 +615,9 @@ pub struct Here {
     /// How bright each piece's light is, 0 (off) to 1 (`thing.state.light`):
     /// the game's to change, so in the snapshot, the hash and a save.
     pub lights: std::collections::BTreeMap<u32, f32>,
+    /// The things the level's file set down, as it was entered: id, name
+    /// and kind (what a record keeps, `super::memory`).
+    pub filed: Vec<(u32, String, usize)>,
 }
 
 /// When a song the game asks for begins (`music:play`).
@@ -807,10 +833,11 @@ impl Clone for Box<dyn Host> {
 pub enum Ask {
     /// Another level (by its name: the levels may be read anew meanwhile),
     /// arriving at a place.
-    GoTo { level: String, place: Option<String>, fade: Option<f32> },
+    /// `fresh`: the level from its file, what it kept forgotten.
+    GoTo { level: String, place: Option<String>, fade: Option<f32>, fresh: bool },
     /// This level afresh, arriving at a place (else the checkpoint, else
-    /// its start).
-    Restart { place: Option<String>, fade: Option<f32> },
+    /// its start): as it was entered this visit, or (`fresh`) from its file.
+    Restart { place: Option<String>, fade: Option<f32>, fresh: bool },
     /// A save: from a slot (`world:load`), or the one the run goes on from
     /// at once (`Game::start_from`).
     Load { slot: Option<u32>, fade: Option<f32> },
@@ -1088,7 +1115,9 @@ impl Stage {
                     name
                 }
             };
-            self.here.names.insert(id.raw(), own.unwrap_or_else(|| crate::levels::unused(&k.name, *n, &owns, &mut numbered)));
+            let name = own.unwrap_or_else(|| crate::levels::unused(&k.name, *n, &owns, &mut numbered));
+            self.here.filed.push((id.raw(), name.clone(), kind));
+            self.here.names.insert(id.raw(), name);
         }
         // (Only kinds without a behavior have a way in a file: `LuaGame`
         // refuses the rest as it loads.)
@@ -1361,6 +1390,10 @@ impl Host for Plain {
         (self.focus, self.looking) = (None, true);
         (self.sim.cam_target.x, self.sim.cam_target.y) = (x, y);
         Ok(())
+    }
+
+    fn thing_body(&mut self, id: Id) -> Option<(&mut Body, &mut Option<Walk>)> {
+        self.things.get_mut(id).map(|t| (&mut t.body, &mut t.off))
     }
 
     fn box_clone(&self) -> Box<dyn Host> {
@@ -1714,6 +1747,14 @@ impl<A: Kit, B: Kit> Host for Either<A, B> {
 
     fn player_seen(&self) -> Option<Seen<'_>> {
         each!(self, k => k.player_seen())
+    }
+
+    fn thing_body(&mut self, id: Id) -> Option<(&mut Body, &mut Option<Walk>)> {
+        each!(self, k => k.thing_body(id))
+    }
+
+    fn rules_off(&self, id: Id) -> bool {
+        each!(self, k => k.rules_off(id))
     }
 
     fn box_clone(&self) -> Box<dyn Host> {

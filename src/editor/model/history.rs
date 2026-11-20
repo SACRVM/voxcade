@@ -152,6 +152,7 @@ impl Editor {
         self.level.areas = s.areas.clone();
         self.level.daylight = s.daylight.as_deref().cloned();
         self.level.terrain = s.terrain.as_deref().cloned();
+        (self.level.location, self.level.persistent) = (s.location.clone(), s.persistent);
         // (Points no longer there are no longer chosen.)
         let t = self.level.terrain.as_ref();
         let has = |p: &glam::IVec2| t.is_some_and(|t| t.index(*p).is_some());

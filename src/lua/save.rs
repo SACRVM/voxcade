@@ -4,7 +4,8 @@
 //! and visits, the level being played with its `level.state`, where the
 //! player stands, the numbers the engine keeps for the player, the
 //! ready-made rules' run, the time and the random generator, and the
-//! level's voxels its file would not bring back. The level itself is read
+//! level's voxels its file would not bring back, and what the levels that
+//! remember kept (`memory`). The level itself is read
 //! from its file when the save is loaded, so a save outlives updates of
 //! the game; a name it holds that the game no longer has is dropped with a
 //! note, never a failed load.
@@ -71,6 +72,20 @@ pub struct SaveData {
     /// the pieces' names.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub lights: BTreeMap<String, f32>,
+    /// The level being played as it would be kept were it left now, where
+    /// it keeps anything (`memory::Record`, as a Lua table): its things by
+    /// name, and its voxels in a level that keeps them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub here: String,
+    /// Its `level.state` as it was entered, in a location: what a restart
+    /// gives back.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub entered: String,
+    /// What the other levels kept of how they were left, by their names
+    /// (`memory::Record`, each as a Lua table): the location's, and what
+    /// lasts the run.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub records: BTreeMap<String, String>,
 }
 
 /// The states, each a Lua table (`data::write`).

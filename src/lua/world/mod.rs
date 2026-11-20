@@ -823,7 +823,7 @@ fn seat_state(lua: &Lua, seat: usize) -> mlua::Result<Value> {
 }
 
 /// The key of a piece's light in its state (`thing.state.light`).
-const LIGHT: &str = "light";
+pub const LIGHT: &str = "light";
 
 /// The key of a piece's pose in its state (`thing.state.parts`): its
 /// figure's parts by name, each a rotation, as `frame:model`'s pose.

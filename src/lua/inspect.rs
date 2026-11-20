@@ -1,5 +1,5 @@
 //! A Lua game's state as `voxcade inspect` prints it: the things, the
-//! states, the level, the players.
+//! states, the level, the players, what the levels kept.
 
 use super::*;
 
@@ -52,7 +52,23 @@ impl<K: Kit> LuaGame<K> {
         let stage = &self.stage;
         let at = serde_json::json!({ "name": stage.levels.list[stage.level].name, "number": stage.level + 1, "visits": stage.visits[stage.level], "levels": stage.levels.names() });
         let kept: serde_json::Map<String, serde_json::Value> = kept.iter().map(|(n, v)| (n.clone(), value::to_json(v))).collect();
+        let mut at = at;
+        // A level that remembers: its location, how long it was left, and
+        // what the levels kept of how they were left (`memory`).
+        if let Some(location) = &stage.levels.list[stage.level].location {
+            at["location"] = location.clone().into();
+        }
+        if stage.away != 0 {
+            at["away"] = stage.away.into();
+        }
         let mut out = serde_json::json!({ "things": things, "state": state.as_ref().map(value::to_json), "level": level.as_ref().map(value::to_json), "at": at, "kept": kept, "player": player });
+        if !stage.records.is_empty() {
+            let records: serde_json::Map<String, serde_json::Value> = stage.records.iter().map(|(n, r)| (n.clone(), value::to_json(&r.value()))).collect();
+            out["records"] = records.into();
+        }
+        if let Some(v) = &stage.entered {
+            out["entered"] = value::to_json(v);
+        }
         // The other seats, a game of several's.
         if stage.seats.len() > 1 {
             let players: Vec<serde_json::Value> = (2..=stage.seats.len())

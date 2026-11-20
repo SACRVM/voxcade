@@ -445,6 +445,14 @@ impl Host for Platformer {
         Some(hero.cell.as_vec3() + Vec3::new(0.5, 0.5, 0.0))
     }
 
+    fn thing_body(&mut self, id: Id) -> Option<(&mut crate::sim::Body, &mut Option<crate::sim::things::Walk>)> {
+        self.things.get_mut(id).map(|t| (&mut t.body, &mut t.off))
+    }
+
+    fn rules_off(&self, id: Id) -> bool {
+        self.things.get(id).is_some_and(|t| t.off.is_some())
+    }
+
     fn box_clone(&self) -> Box<dyn Host> {
         Box::new(self.clone())
     }

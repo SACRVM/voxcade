@@ -122,6 +122,7 @@ impl Editor {
     pub fn look_at_disk(&mut self) -> bool {
         self.pieces.choices.take();
         self.pieces.levels.take();
+        self.pieces.locations.take();
         self.pieces.names.take();
         if self.dry {
             return false;
@@ -665,6 +666,9 @@ fn rebase_level(b: &LevelState, a: &LevelState, d: &LevelState) -> Result<LevelS
     }
     if b.daylight != a.daylight {
         o.daylight = a.daylight.clone();
+    }
+    if (&b.location, b.persistent) != (&a.location, a.persistent) {
+        (o.location, o.persistent) = (a.location.clone(), a.persistent);
     }
     if b.terrain != a.terrain {
         o.terrain = rebase_terrain(b.terrain.as_deref(), a.terrain.as_deref(), d.terrain.as_deref())?.map(Box::new);
