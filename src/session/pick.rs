@@ -196,6 +196,14 @@ fn sphere_enter(from: Vec3, way: Vec3, middle: Vec3, radius: f32) -> Option<f32>
 /// Where a ray enters a voxel (a cube a voxel big about `centre`, turned
 /// by `rot`), if it does.
 fn cube_enter(from: Vec3, way: Vec3, centre: Vec3, rot: Quat) -> Option<f32> {
+    // Most voxels lie off the ray: none is tried whose ball the line
+    // misses (half a cube's diagonal, squared 0.75, and a little more so
+    // a grazed corner is never lost to rounding), turned any way.
+    let to = centre - from;
+    let along = to.dot(way);
+    if to.length_squared() - along * along > 0.8 {
+        return None;
+    }
     let back = rot.inverse();
     let (from, way) = (back * (from - centre), back * way);
     box_enter(from, way, Vec3::splat(-0.5), Vec3::splat(0.5))
