@@ -40,7 +40,7 @@ fn a_game_opens_only_for_its_version() {
     std::fs::create_dir_all(dir.join("sounds")).unwrap();
     std::fs::write(dir.join("sounds/boom.wav"), b"RIFF").unwrap();
     let e = opens(&dir).unwrap_err().to_string();
-    assert!(e.contains("made for an older Voxcade (conf.lua states none") && e.contains("sounds/boom.wav") && e.contains("voxcade upgrade"), "{e}");
+    assert!(e.contains("made for an older Voxcade (conf.lua states none") && e.contains("no recorded sounds") && !e.contains("boom.wav") && e.contains("voxcade upgrade"), "{e}");
     std::fs::remove_dir_all(dir.join("sounds")).unwrap();
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.5.0\"\nend\n").unwrap();
     assert!(opens(&dir).unwrap_err().to_string().contains("made for Voxcade 0.5.0; this is"));
@@ -412,6 +412,17 @@ fn levels_maps_and_worlds_become_text() {
     assert!(!blocks.join("levels/01_cave.json").exists());
     opens(&blocks).unwrap();
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The refusal of a game says what it no longer reads in a short clause and
+/// the command, never the step's words of what the upgrade writes.
+#[test]
+fn the_refusal_is_short() {
+    let dir = crate::scratch::Scratch::new("upgrade-refusal");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.voxcade = \"{}\"\n  c.light.sky = {{ 0.06, 0.07, 0.1 }}\nend\n", engine())).unwrap();
+    let e = opens(&dir).unwrap_err().to_string();
+    assert_eq!(e, format!("{0}: Voxcade {1} reads this no more (colors from 0 to 255); `voxcade upgrade {0}` brings it over", dir.display(), engine()));
 }
 
 /// A game on the old color scale that states this very version: the report

@@ -185,13 +185,13 @@ pub fn opens(dir: &Path) -> Result<()> {
             Ok(())
         }
         Standing::Older { made, steps } => {
+            // The refusal names the steps, never their words of what the
+            // upgrade will write: a person at the door needs the command.
             // A game of this very version holding something it reads no
             // more (`c.markers` typed anew): what, not "made for an earlier".
-            if made.as_deref() == Some(engine())
-                && let Some(first) = steps.iter().find_map(|s| s.would.first())
-            {
+            if made.as_deref() == Some(engine()) && steps.iter().any(|s| !s.would.is_empty()) {
                 let names = steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ");
-                bail!("{}: Voxcade {} reads this no more ({names}): {first}; `voxcade upgrade {}` brings it over", dir.display(), engine(), dir.display());
+                bail!("{}: Voxcade {} reads this no more ({names}); `voxcade upgrade {}` brings it over", dir.display(), engine(), dir.display());
             }
             let made = match made {
                 Some(v) if v == engine() => format!("an earlier Voxcade {v} (before: {})", steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")),
@@ -199,8 +199,8 @@ pub fn opens(dir: &Path) -> Result<()> {
                 // No line: made before it came, and a step has something to
                 // change (else it opens): say the first.
                 None => {
-                    let (step, first) = steps.iter().find_map(|s| s.would.first().map(|w| (s.name, w.as_str()))).unwrap_or(("", ""));
-                    format!("an older Voxcade (conf.lua states none, {VERSION_LINE}; {step}: {first})")
+                    let step = steps.iter().find(|s| !s.would.is_empty()).map_or("", |s| s.name);
+                    format!("an older Voxcade (conf.lua states none, {VERSION_LINE}; {step})")
                 }
             };
             bail!("{}: made for {made}; this is {}: `voxcade upgrade {}` brings it up to date", dir.display(), engine(), dir.display())
