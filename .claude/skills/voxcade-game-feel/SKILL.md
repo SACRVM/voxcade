@@ -116,7 +116,7 @@ Feel lives in the numbers first. The platformer kit's hero has (in
 `src/platformer/kit.toml`, each with a comment): `speed`, `accel`,
 `air_accel`, `jump` (height in voxels), `jump_cut`, `coyote`, `buffer`
 (ticks), `climb`; `fall_gravity` (heavier on the way down, 1.5: snappy,
-1: as floaty as the rise), `hang` and `hang_speed` (lighter at the top of
+1: as floaty as the rise), `apex_gravity` and `apex_speed` (lighter at the top of
 the jump while jump is held: time to steer), `corner` (a head clipping a
 ceiling's edge by up to this many voxels slips past), `look_ahead`
 with `look_ahead_speed` (the view leads where the hero runs, easing round
@@ -126,7 +126,7 @@ within `grab` voxels above the head and `grab_ahead` beyond the body is
 caught and hung from, the head `hang_below` under it, until up or jump
 pulls the hero up in `pull` ticks, down lets go; an edge below the head
 it nearly made it pulls itself onto at once; 0: off), `air_jumps` and
-`air_jump` (jumps again in the air, from where it is, this high: a
+`air_jump_height` (jumps again in the air, from where it is, this high: a
 double jump; the user found the grab too easy for Voxkeep, where a
 ledge three cells up now takes the first jump held and the second in
 its upper half: an air jump of 12 there left a window of a tick or two,
@@ -134,7 +134,7 @@ and the user could not get up; 18 leaves about a third of a second,
 four cells still out of reach) and `face_ladder` (climbing, it turns its back to the camera;
 frames seen from behind). A ladder's top holds from above like a plank:
 up a ladder through a floor the hero stands on it, down climbs down.
-Voxkeep shows them (a hero 14 tall: jump 22, air_jumps 1, air_jump 18,
+Voxkeep shows them (a hero 14 tall: jump 22, air_jumps 1, air_jump_height 18,
 corner 8, no grab); the platformer template keeps the grab (jump 22,
 grab 6, grab_ahead 3, hang_below 2). Tune by what
 the player sees: how many voxels high, how many ticks to the top, how far

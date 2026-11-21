@@ -1,7 +1,7 @@
 # Voxcade replay: Voxkeep, 5094 ticks, won, score 8650
 version = 1
 game = "Voxkeep"
-fingerprint = "c869832518e4135b"
+fingerprint = "a167470348d75b8c"
 ticks = 5094
 outcome = "won"
 score = 8650
@@ -16,7 +16,7 @@ final_state = "963c5bb65f992c7f"
 "blocks/spikes.vvx" = "b77199ad72ff1ac2"
 "blocks/stone.vvx" = "4e465210edc307f9"
 "blocks/wall.vvx" = "645571179210a331"
-"conf.lua" = "832fb3d96510598c"
+"conf.lua" = "754e518f5e7bb1bd"
 "crate.vvx" = "604cd107977c01d4"
 "door.vvx" = "c4ca12b2f4b116a8"
 "gem.vvx" = "22c4adc438781293"

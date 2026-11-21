@@ -217,7 +217,7 @@ fn a_platform_carries_its_rider() {
 #[test]
 fn a_double_jump_goes_again_from_the_air() {
     let top = |air_jumps: u32, second_at: usize| {
-        let cfg = config(&[("jumper", &format!("behavior = \"hero\"\nheight = 14\nwidth = 6\njump = 22\nair_jumps = {air_jumps}\nair_jump = 12"))]);
+        let cfg = config(&[("jumper", &format!("behavior = \"hero\"\nheight = 14\nwidth = 6\njump = 22\nair_jumps = {air_jumps}\nair_jump_height = 12"))]);
         let mut g = game(flat_world(IVec3::new(64, 16, 128)), &cfg, &[("jumper", IVec3::new(30, 8, 1))]);
         let start = hero(&g).pos.z;
         let mut top = start;
@@ -578,17 +578,17 @@ fn jump_times(numbers: &str) -> (u32, u32) {
 /// as heavy, they take about the same.
 #[test]
 fn falling_is_quicker_than_rising() {
-    let (up, down) = jump_times("behavior = \"hero\"\nheight = 20\nhang = 1.0");
+    let (up, down) = jump_times("behavior = \"hero\"\nheight = 20\napex_gravity = 1.0");
     assert!((down as f32) < up as f32 * 0.9, "up {up}, down {down}");
-    let (up, down) = jump_times("behavior = \"hero\"\nheight = 20\nhang = 1.0\nfall_gravity = 1.0");
+    let (up, down) = jump_times("behavior = \"hero\"\nheight = 20\napex_gravity = 1.0\nfall_gravity = 1.0");
     assert!(up.abs_diff(down) <= 2, "up {up}, down {down}");
 }
 
 /// With jump held the top of the jump is lighter: the hero stays up longer.
 #[test]
 fn holding_jump_hangs_at_the_top() {
-    let plain = jump_times("behavior = \"hero\"\nheight = 20\nhang = 1.0\nfall_gravity = 1.0");
-    let hung = jump_times("behavior = \"hero\"\nheight = 20\nhang = 0.5\nfall_gravity = 1.0");
+    let plain = jump_times("behavior = \"hero\"\nheight = 20\napex_gravity = 1.0\nfall_gravity = 1.0");
+    let hung = jump_times("behavior = \"hero\"\nheight = 20\napex_gravity = 0.5\nfall_gravity = 1.0");
     assert!(hung.0 + hung.1 >= plain.0 + plain.1 + 3, "{hung:?} against {plain:?}");
 }
 

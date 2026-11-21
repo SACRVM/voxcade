@@ -33,7 +33,7 @@ impl<G: Game> Session<G> {
                 menu,
                 settings,
                 logo: &logo,
-                drip: t.drip,
+                drip: t.logo_drip,
                 songs: &self.song_titles,
                 scored: self.game.scored(),
                 font: self.font.as_deref(),

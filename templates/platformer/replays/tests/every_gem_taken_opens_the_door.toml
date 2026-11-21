@@ -1,7 +1,7 @@
 # Voxcade replay: My Game, 300 ticks, quit, score 400
 version = 1
 game = "My Game"
-fingerprint = "06b3ed22ca15a1b2"
+fingerprint = "9d2dabd6cc66805f"
 ticks = 300
 outcome = "quit"
 score = 400
@@ -17,7 +17,7 @@ scenario = "door_open"
 "blocks/spikes.vvx" = "b77199ad72ff1ac2"
 "blocks/stone.vvx" = "4e465210edc307f9"
 "blocks/wall.vvx" = "645571179210a331"
-"conf.lua" = "c326eb8284985e80"
+"conf.lua" = "4114c180530c7553"
 "door.vvx" = "c4ca12b2f4b116a8"
 "gem.vvx" = "22c4adc438781293"
 "hero.vvx" = "52a75006cb7d7fa0"

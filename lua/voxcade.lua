@@ -249,8 +249,8 @@ function World:to_title() end
 ---@field number integer Its place among world.levels, from 1.
 ---@field next string|nil The next level's name, nil after the last one. Your game's own title (c.title_screen.level) is passed over.
 ---@field visits integer How often it was entered in this run, restarts too: 1 the first time.
----@field location string|nil The location it belongs to, as its file says (location = "station"), nil for none. While the player changes among the levels of one location, each is as it was left (its things by their names: removed ones stay removed, the others where they stood, thing.state, its voxels) and they share level.state. Leaving the location forgets that, but for what is persistent (persistent = true in a level's file, or on a kind). No time passes in a level nobody is in: level.away.
----@field away integer The ticks since this level was left, when it comes back as it was left (a level of a location, a persistent one, things of a persistent kind); 0 on a first visit and where it kept nothing. Nothing moves in a level nobody is in: on_level_start can make up what would have happened meanwhile (a timer in thing.state counted down by level.away).
+---@field location string|nil The location it belongs to, as its file says (location = "station"), nil for none. While the player changes among the levels of one location, each is as it was left (its things by their names: removed ones stay removed, the others where they stood, thing.state, its voxels) and they share level.state. Leaving the location forgets that, but for what is persistent (persistent = true in a level's file, or on a kind). No time passes in a level nobody is in: level.ticks_away.
+---@field ticks_away integer The ticks since this level was left, when it comes back as it was left (a level of a location, a persistent one, things of a persistent kind); 0 on a first visit and where it kept nothing. Nothing moves in a level nobody is in: on_level_start can make up what would have happened meanwhile (a timer in thing.state counted down by level.ticks_away).
 ---@field kept table What this level keeps across visits for the whole run (a lever pulled, a puzzle solved): read it in on_level_start. Plain data, no things.
 ---@field arrived Place Where the player arrived in this level, with its name (a place's, or start): a game without a figure of the engine's stands its hero there in on_level_start.
 ---@field places table<string, Place> Its named places, set in its file (level.places.west): where a player arrives; start is always there (the place called start, else where the ready-made rules stand the player, else c.player.spawn).
@@ -973,7 +973,7 @@ function on_pickup(thing, item) end
 ---@field blink? integer While nothing hurts the player it blinks: shown this many ticks, then hidden as many (0: it does not blink). (c.kit = "shooter") (4 unless set)
 ---@field stride? number A puff of dust rises every this many voxels the player walks. Unset: half its height. (c.kit = "shooter")
 ---@field step_dust? integer How many specks of dust each puff of its steps has (0: no dust). (c.kit = "shooter") (3 unless set)
----@field landing? number Landing from higher than this, in voxels, raises a puff of dust. (c.kit = "shooter") (2 unless set)
+---@field landing_height? number Landing from higher than this, in voxels, raises a puff of dust. (c.kit = "shooter") (2 unless set)
 ---@field landing_dust? integer How many specks of dust a landing puff has. (c.kit = "shooter") (10 unless set)
 
 ---@class Conf.title_screen.props
@@ -989,7 +989,7 @@ function on_pickup(thing, item) end
 ---@field logo string[] The logo, a line each (default: the game's title); logo_colors colors them.
 ---@field logo_colors Color[] Each logo line's color, a Color: "#rrggbb" or { r, g, b } from 0 to 255.
 ---@field logo_heights integer[] How high each logo line's capitals are, in UI voxels. (each from 1 to 1000)
----@field drip integer Which logo line drips (blood). (from 0 to 99)
+---@field logo_drip integer Which logo line drips (blood). (from 0 to 99)
 ---@field logo_cracks number[] Cracks per letter in each logo line, on average. (each from 0 to 100)
 ---@field logo_model string A model of the game's (.vvx) as the logo, in place of its lines of letters: a UI voxel each of its voxels, its front (+y) to the player and its z up, centred under the top of the screen. A figure of parts (its objects named, a letter each) drops in part by part in the file's order, else whole. Lit as the big letters are (the sides a little darker, what lies further back too): its colours are its materials'.
 ---@field logo_bob number How far the logo's letters (or its model's parts) bob up and down once they have landed, in UI voxels: a slow, smooth wave running through them, coming in over a second; 0 (unless set) they stand still. (from 0 to 100)
@@ -1159,8 +1159,8 @@ Only for a kind that stands: fixed = true, no behavior, a model. thing:place mov
 ---@field blink? integer While nothing hurts it, it blinks: it is shown this many ticks, then hidden as many ticks. 0: it does not blink. (4 unless set)
 ---@field knockback? number[] How a hit throws it, { back, up } in voxels a second: back away from what hit it, and up. ({ 100, 100 } unless set)
 ---@field fall_gravity? number Gravity is multiplied by this while it falls, so a fall is snappy, not floaty. 1: as strong as on the way up. (1.5 unless set)
----@field hang? number Gravity is multiplied by this near the top of a jump while the jump button is held: below 1 it floats there a moment. "Near the top" is hang_speed. (0.5 unless set)
----@field hang_speed? number In voxels a second: while it rises or falls more slowly than this it is at the top of a jump, for hang. It catches a ledge (grab) only while it rises more slowly than this too. (30 unless set)
+---@field apex_gravity? number Gravity is multiplied by this near the top of a jump (its apex) while the jump button is held: below 1 it floats there a moment. "Near the top" is apex_speed. (0.5 unless set)
+---@field apex_speed? number In voxels a second: while it rises or falls more slowly than this it is at the top of a jump, for apex_gravity. It catches a ledge (grab) only while it rises more slowly than this too. (30 unless set)
 ---@field corner? integer A head that hits the edge of a ceiling by up to this many voxels slips past it, so a jump is not stopped by a corner. 0: no such help. (4 unless set)
 ---@field look_ahead? number How far the camera leads ahead of the hero in the way it runs, in voxels. 0: the camera stays centered on it. (40 unless set)
 ---@field look_ahead_speed? number How fast the camera swings over to lead the other way when the hero turns round, in voxels a second. (90 unless set)
@@ -1170,7 +1170,7 @@ Only for a kind that stands: fixed = true, no behavior, a model. thing:place mov
 ---@field pull? integer How many ticks it takes to pull itself up onto the ledge it hangs from. Up or jump pulls up; down lets go. Only when grab is above 0. (24 unless set)
 ---@field face_ladder? boolean While it climbs a ladder it turns to the ladder, its back to the camera. false: it keeps the way it faced. (true unless set)
 ---@field air_jumps? integer How many more jumps it may make in the air before it lands: 0 none, 1 a double jump. (0 unless set)
----@field air_jump? number How high each jump in the air goes, in voxels, from where the hero is when it makes it. Only when air_jumps is above 0. (20 unless set)
+---@field air_jump_height? number How high each jump in the air goes, in voxels, from where the hero is when it makes it. Only when air_jumps is above 0. (20 unless set)
 
 ---@class Kind.platformer.walker : Kind behavior = "walker" of the ready-made rules c.kit = "platformer": its keys besides every kind's, unset its defaults.
 ---@field speed? number Its walking speed, in voxels a second. (60 unless set)
@@ -1205,21 +1205,21 @@ Only for a kind that stands: fixed = true, no behavior, a model. thing:place mov
 ---@field sight? number How far he sees the player, in voxels. A comrade falling he notices as far. (60 unless set)
 ---@field hearing? number How far he hears gunfire, in voxels; rounds hitting near him count as half that. (70 unless set)
 ---@field blast_hearing? number How far he hears an explosion, in voxels. (130 unless set)
----@field active? number While the player is further from him than this, in voxels, he waits where he is. (150 unless set)
+---@field wake? number While the player is further from him than this, in voxels, he waits where he is. (150 unless set)
 ---@field range? number How far he shoots, in voxels. (95 unless set)
 ---@field distance? number The distance he keeps from the player, in voxels. (32 unless set)
 ---@field step_dust? integer How many specks of dust each puff of his steps has (see stride). 0: no dust. (3 unless set)
----@field landing? number Landing from higher than this, in voxels, raises a puff of dust. (2 unless set)
----@field landing_dust? integer How many specks of dust a landing puff has (see landing). (10 unless set)
+---@field landing_height? number Landing from higher than this, in voxels, raises a puff of dust. (2 unless set)
+---@field landing_dust? integer How many specks of dust a landing puff has (see landing_height). (10 unless set)
 ---@field muzzle? number[] Where his shots leave the gun, { ahead, up } from his feet in voxels. Unset: just in front of him at half his height.
 ---@field stride? number A puff of dust rises every this many voxels he walks. Unset: half his height.
 
 ---@class Kind.shooter.spawner : Kind behavior = "spawner" of the ready-made rules c.kit = "shooter": its keys besides every kind's, unset its defaults.
 ---@field spawns? string The kind of thing it sends out: a name of c.things, a kind with the behavior "soldier". ("rifleman" unless set)
 ---@field count? integer How many it sends out in all. (2 unless set)
----@field first? integer Ticks after the player comes within range before the first one comes out. (60 unless set)
+---@field first? integer Ticks after the player comes within wake before the first one comes out. (60 unless set)
 ---@field every? integer Ticks between one coming out and the next. (420 unless set)
----@field range? number It sends them out only while the player is this near, in voxels. (120 unless set)
+---@field wake? number It sends them out only while the player is this near, in voxels. (120 unless set)
 ---@field ahead? number[] A way { x, y } (x east, y north): it sends them out only while it lies this way of the player, by more than ahead_by. Unset: on any side. ({ 0, 1 } unless set)
 ---@field not_near? number Nobody comes out while the player is nearer than this, in voxels. (0 unless set)
 ---@field ahead_by? number How far it must lie in the way of ahead, in voxels. Unset: the player's height.
@@ -1238,7 +1238,7 @@ Only for a kind that stands: fixed = true, no behavior, a model. thing:place mov
 ---@field offset? number[] Where it holds from the player, { x, y } in voxels (x east, y north). ({ 0, 65 } unless set)
 ---@field wake? number It lifts off when the player comes this close, in voxels. (130 unless set)
 ---@field size? number[] Its hit box in voxels: { across, along, high }. ({ 12, 24, 8 } unless set)
----@field gun? number[] Where its guns' muzzles are in its model, { across, along, up } in voxels; the gun on the other side is mirrored across. ({ 0, 12, 1.5 } unless set)
+---@field muzzle? number[] Where its guns' muzzles are in its model, { across, along, up } in voxels; the gun on the other side is mirrored across. ({ 0, 12, 1.5 } unless set)
 ---@field pods? number[] Where the fronts of its rocket pods are in its model, { across, along, up } in voxels; the pod on the other side is mirrored across. ({ 5, 2.5, 2.5 } unless set)
 ---@field side_on? boolean true: it turns its side to the player and the gun on that side fires. false: it faces the player and its guns take turns. (false unless set)
 ---@field crash_blast? number The crater where it crashes, in voxels, as a weapon's blast. (9 unless set)

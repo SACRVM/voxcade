@@ -124,6 +124,7 @@ fn a_name_an_object_lacks_is_a_mistake() {
     for (line, says) in [
         ("local a = world.tik", "main.lua:2: world has no `tik`: did you mean `world.tick`?"),
         ("local a = level.szie", "main.lua:2: level has no `szie`: did you mean `level.size`?"),
+        ("local a = level.away", "main.lua:2: level has no `away`: it is called `level.ticks_away` now (voxcade upgrade renames it)"),
         ("level:spwan('gem', 1, 1)", "main.lua:2: level has no `spwan`: did you mean `level:spawn`?"),
         ("player:wlak({ x = 1, y = 0 }, 10)", "main.lua:2: player has no `wlak`: did you mean `player:walk`?"),
         ("local a = player.helth", "main.lua:2: player has no `helth` (it has player.controls,"),

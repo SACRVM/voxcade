@@ -54,8 +54,8 @@ invulnerable = 60       # ticks after a hit nothing hurts ...
 blink = 4               # ... and it blinks, this many ticks shown, as many not (0: steady)
 knockback = [100, 100]  # a hit throws it back and up, voxels a second
 fall_gravity = 1.5      # gravity times this on the way down: snappy, not floaty (1: as up)
-hang = 0.5              # gravity times this at the top of a jump while jump is held ...
-hang_speed = 30         # ... "the top": rising or falling slower than this, voxels a second
+apex_gravity = 0.5      # gravity times this at the top of a jump while jump is held ...
+apex_speed = 30         # ... "the top": rising or falling slower than this, voxels a second
 corner = 4              # a head clipping a ceiling's edge by up to this many voxels slips past
 look_ahead = 40         # the view leads this far where it runs, voxels (0: centred) ...
 look_ahead_speed = 90   # ... swinging round at this speed, voxels a second
@@ -65,7 +65,7 @@ hang_below = 2          # ... how far under it its head hangs, voxels (an edge l
 pull = 24               # ... and the ticks pulling itself up (up or jump; down lets go)
 face_ladder = true      # climbing, it turns to the ladder: its back to the camera
 air_jumps = 0           # jumps it may make again in the air before landing (1: a double jump) ...
-air_jump = 20           # ... each this high from where it is then, voxels
+air_jump_height = 20    # ... each this high from where it is then, voxels
 
 [things.walker]
 behavior = "walker"

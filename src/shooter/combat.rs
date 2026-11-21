@@ -862,7 +862,7 @@ impl Shooter {
             t.flash = t.flash.saturating_sub(1);
             let flat = (player_pos - b.pos).truncate().extend(0.0);
             let dist = flat.length();
-            if dist > foes.active {
+            if dist > foes.wake {
                 continue;
             }
             if awake && dist < foes.sight {
@@ -1067,7 +1067,7 @@ impl Shooter {
             let passed = r.ahead.is_some_and(|way| fighting.iter().any(|(pos, height)| at.truncate().dot(way) < pos.truncate().dot(way) + r.ahead_by.unwrap_or(*height)));
             let near = fighting.iter().map(|(pos, _)| pos.distance(at)).fold(f32::INFINITY, f32::min);
             let close = fighting.iter().any(|(pos, _)| pos.distance(at) < r.not_near);
-            if s.spawned >= r.count || passed || near > r.range || close {
+            if s.spawned >= r.count || passed || near > r.wake || close {
                 continue;
             }
             s.timer = s.timer.saturating_sub(1);

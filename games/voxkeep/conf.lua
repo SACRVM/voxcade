@@ -37,9 +37,9 @@ function conf(c)
   -- and the second in its upper half, four never. He grabs no ledges.
   c.things.hero = {
     behavior = "hero", model = "hero.vvx", height = 14,
-    speed = 60, accel = 900, air_accel = 700, jump = 22, look_ahead = 0, air_jumps = 1, air_jump = 18,
+    speed = 60, accel = 900, air_accel = 700, jump = 22, look_ahead = 0, air_jumps = 1, air_jump_height = 18,
     climb = 40, corner = 8,
-    knockback = { 100, 100 }, hang_speed = 30, look_ahead_speed = 90,   -- as on the fox (unset: scaled to 14 high)
+    knockback = { 100, 100 }, apex_speed = 30, look_ahead_speed = 90,   -- as on the fox (unset: scaled to 14 high)
     frames = { idle = { 0, 1 }, run = { 2, 5 }, jump = { 6, 6 }, fall = { 7, 7 },
                hang = { 8, 8 }, pull = { first = 9, last = 11, loop = false }, climb = { 12, 13 } },
   }

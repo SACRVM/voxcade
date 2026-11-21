@@ -1281,7 +1281,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   entered, `Stage::entered`); `go_to` the same level of a location keeps
   it; `{ fresh = true }` on `go_to`/`restart` drops the record (new, not
   seen by the owner yet); the checkpoint is still forgotten on every
-  `go_to`. `level.away`: the ticks the laid record was left (0 without
+  `go_to`. `level.ticks_away`: the ticks the laid record was left (0 without
   one and after a load). One form in memory, a save (`here`, `records`,
   `entered`; an older save has none and loads as before), `inspect`
   (`"records"`) and a scenario's `as_left` (new, not seen by the owner

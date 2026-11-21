@@ -236,7 +236,7 @@ impl Shooter {
                                 let forward = Vec3::new(b.look.x as f32, b.look.y as f32, 0.0);
                                 h.gun = Vec3::new(forward.y, -forward.x, 0.0).dot(flat).signum();
                             }
-                            shots.push((point(b, cfg.gun, h.gun), cfg.weapon, rules.kinds[kind].team, player));
+                            shots.push((point(b, cfg.muzzle, h.gun), cfg.weapon, rules.kinds[kind].team, player));
                             if !cfg.side_on {
                                 h.gun = -h.gun;
                             }
@@ -474,7 +474,7 @@ mod tests {
         let mut cfg = kit();
         cfg.player.spawn = [64.0, 32.0];
         set(&mut cfg, "gunship", "side_on", true);
-        set(&mut cfg, "gunship", "gun", toml::Value::Array(vec![6.0.into(), 1.0.into(), 4.0.into()]));
+        set(&mut cfg, "gunship", "muzzle", toml::Value::Array(vec![6.0.into(), 1.0.into(), 4.0.into()]));
         let mut sim = Shooter::new(flat_world(IVec3::new(128, 256, 48)), &cfg, shapes(), &[at("gunship", 64, 120)]);
         sim.player.invulnerable = u32::MAX / 2;
         let mut rounds = 0;

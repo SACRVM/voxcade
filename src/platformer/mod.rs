@@ -843,7 +843,7 @@ impl Hero {
         } else if keys.pressed && !b.on_ground && self.air > r.coyote && self.air_left > 0 {
             // Again in the air (a double jump): from where it is now.
             self.air_left -= 1;
-            self.take_off(b, (2.0 * g * r.air_jump).sqrt(), sounds);
+            self.take_off(b, (2.0 * g * r.air_jump_height).sqrt(), sounds);
         }
         if self.jumping && !keys.jump && b.vel.z > 0.0 {
             b.vel.z *= r.jump_cut;
@@ -875,7 +875,7 @@ impl Hero {
     #[allow(clippy::too_many_arguments)]
     fn grab_edge(&mut self, b: &mut Body, r: &kinds::HeroRules, world: &World, half: f32, input: &Input, keys: Keys, hung: bool) {
         let f = b.look.x as f32;
-        if r.grab > 0.0 && f != 0.0 && !hung && !self.climbing && !b.on_ground && !input.down && b.vel.z <= r.hang_speed && (keys.dir as f32 == f || input.up || keys.jump)
+        if r.grab > 0.0 && f != 0.0 && !hung && !self.climbing && !b.on_ground && !input.down && b.vel.z <= r.apex_speed && (keys.dir as f32 == f || input.up || keys.jump)
             && let Some((at, stand, hangs)) = edge(world, b.pos, half, b.height, f, r)
         {
             (b.pos, b.vel) = (at, Vec3::ZERO);
@@ -920,8 +920,8 @@ impl Hero {
 /// that free it.
 fn fall_as_a_hero(b: &mut Body, r: &kinds::HeroRules, world: &World, half: f32, jump: bool, g: f32) {
     if !b.on_ground {
-        let top = jump && b.vel.z.abs() < r.hang_speed;
-        let extra = if top { r.hang - 1.0 } else if b.vel.z < 0.0 { r.fall_gravity - 1.0 } else { 0.0 };
+        let top = jump && b.vel.z.abs() < r.apex_speed;
+        let extra = if top { r.apex_gravity - 1.0 } else if b.vel.z < 0.0 { r.fall_gravity - 1.0 } else { 0.0 };
         b.vel.z -= g * extra * DT;
     }
     if b.vel.z <= 0.0 || r.corner == 0 {

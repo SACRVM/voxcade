@@ -47,6 +47,7 @@ const STEPS: &[Step] = &[
     Step { since: "0.6.0", name: "no list of models", plan: listed::plan, apply: listed::apply, left: Some(listed::left) },
     Step { since: "0.7.0", name: "lamps stopped by walls", plan: lamps::plan, apply: lamps::plan, left: None },
     Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left) },
+    Step { since: "0.7.0", name: "names of 0.7", plan: names::plan, apply: names::apply, left: Some(names::left) },
 ];
 
 /// The steps that only say what the author should change and write nothing.
@@ -443,6 +444,11 @@ mod lamps;
 /// `c.light` and `c.effects` colors and a level's `[light]` written on the
 /// new scale, exactly.
 mod colors;
+
+/// Step 0.7.0: names that read as something else, called as they are
+/// meant: a kind's keys by its behavior (through `like`), two settings and
+/// `level.away` in the game's Lua.
+mod names;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

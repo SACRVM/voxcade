@@ -1,7 +1,7 @@
 # Voxcade replay: More Blood, 8893 ticks, quit, score 5250
 version = 1
 game = "More Blood"
-fingerprint = "d25e4a3377aa7925"
+fingerprint = "f9b2df2a889a807c"
 ticks = 8893
 outcome = "quit"
 score = 5250
@@ -10,7 +10,7 @@ checks = ["6bdbf07393dab24d", "774ed9fb0320d513", "b110bab6ae013c1c", "5e2ce7c48
 final_state = "6d7a116096482afa"
 
 [fingerprint_parts]
-"conf.lua" = "e80c488082c640b1"
+"conf.lua" = "d79c5a896ad649e6"
 "enemy.vvx" = "6d44cfbf00f46a12"
 "grenadier.vvx" = "234abf79121a1942"
 "ground/height.png" = "6dcf4703fcf672e7"

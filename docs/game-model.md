@@ -101,7 +101,7 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `level.state` | this visit's state: fresh each time the level is entered; the levels of one location share theirs ("Levels that remember") |
 | `level.kept` | what this level keeps across visits (a run long, saved): for things a game tracks by hand |
 | `level.location` | the location the level's file says it belongs to (`location = "station"`), nil for none |
-| `level.away` | the ticks since this level was left, where it comes back as it was left (a location's, a persistent level, things of a persistent kind); 0 on a first visit and where it kept nothing |
+| `level.ticks_away` | the ticks since this level was left, where it comes back as it was left (a location's, a persistent level, things of a persistent kind); 0 on a first visit and where it kept nothing |
 | `level.visits` | how often it has been entered in this run, restarts included (1 on the first) |
 | `level.size` | its size in voxels |
 | `level.places` | its named places: `level.places.west` is `{ x, y, z, facing }`; `level.places.start` is always there, where the level starts |
@@ -629,7 +629,7 @@ owner's words). `lua::memory` builds it.
   becomes the player (the jump & run's first hero) has no name: a kind
   with that behavior and `persistent` is a mistake as the game loads.
 - **No time passes in a level nobody is in** (as in every Sierra and
-  LucasArts room): its things do not tick. `level.away` is how many
+  LucasArts room): its things do not tick. `level.ticks_away` is how many
   ticks it was left: `world.tick` as it is entered less the tick its
   record was taken at; 0 on a first visit, where it kept nothing, after
   `{ fresh = true }` and after a load (no time passes in a save).
@@ -638,7 +638,7 @@ owner's words). `lua::memory` builds it.
 - **Starting over.** `world:restart()` gives the level as it was entered
   this visit: its things with what it kept then (a key taken on an
   earlier visit is not there twice) and, in a location, `level.state` as
-  it came in; `level.away` counts the visit too, its record being from
+  it came in; `level.ticks_away` counts the visit too, its record being from
   before it. A level file saved while playing (`"reload"`) is entered so,
   the player where it stood. `{ fresh = true }` on `world:go_to` or
   `world:restart` drops the level's record: as its file has it.

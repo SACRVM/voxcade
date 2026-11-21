@@ -122,7 +122,7 @@ seat 3, over the network, in a replay? Asks: `world:go_to`, `world:restart`,
 `world:win`, `world:lose`, `world:save`, `world:load`, `world:new_game`
 (the game's own title only). Asked of the machine, never the run (no
 state, no replay): `world:open(page)`, `world:quit()`. Holds: the
-engine's pause, `level.state.held`, `level:hitstop`. Scenario (a run
+engine's pause, `level.state.held`, `world:hitstop`. Scenario (a run
 begun late, set up in code: `scenarios/NAME.lua`) and console (a line
 of Lua between two ticks): every game has both, and a new name is tried
 through them.

@@ -105,8 +105,8 @@ pub struct HeroRules {
     pub invulnerable: u32,
     pub knockback: [f32; 2],
     pub fall_gravity: f32,
-    pub hang: f32,
-    pub hang_speed: f32,
+    pub apex_gravity: f32,
+    pub apex_speed: f32,
     pub corner: u32,
     pub look_ahead: f32,
     pub look_ahead_speed: f32,
@@ -128,7 +128,7 @@ pub struct HeroRules {
     /// Jumps it may make again in the air before it lands (a double jump:
     /// 1), and how high such a jump goes, voxels: from where it is then.
     pub air_jumps: u32,
-    pub air_jump: f32,
+    pub air_jump_height: f32,
 }
 
 impl Default for HeroRules {
@@ -145,8 +145,8 @@ impl Default for HeroRules {
             invulnerable: 60,
             knockback: [100.0, 100.0],
             fall_gravity: 1.5,
-            hang: 0.5,
-            hang_speed: 30.0,
+            apex_gravity: 0.5,
+            apex_speed: 30.0,
             corner: 4,
             look_ahead: 40.0,
             look_ahead_speed: 90.0,
@@ -157,7 +157,7 @@ impl Default for HeroRules {
             face_ladder: true,
             blink: 4,
             air_jumps: 0,
-            air_jump: 20.0,
+            air_jump_height: 20.0,
         }
     }
 }
@@ -287,6 +287,10 @@ const MOVED: [(&str, &str); 7] = [
     ("wins", "a goal is your code's: on_touch, and world:win() when it is time"),
 ];
 
+/// The kit's keys under the names they had before 0.7, and their names
+/// now (`things::check_renamed`).
+pub const RENAMED: [(&str, &str, &str); 3] = [("hero", "hang", "apex_gravity"), ("hero", "hang_speed", "apex_speed"), ("hero", "air_jump", "air_jump_height")];
+
 /// The kit (`kit.toml`): kinds of things to copy into a game.
 pub const KIT: &str = include_str!("kit.toml");
 
@@ -299,6 +303,7 @@ impl Rules {
             .iter()
             .map(|def| -> Result<Kind> {
                 let name = &def.name;
+                things::check_renamed(cfg, def, &RENAMED)?;
                 let mut own = def.params.clone();
                 if let Some((key, instead)) = MOVED.iter().find(|(k, _)| own.contains_key(*k)) {
                     bail!("c.things.{name}.{key} is no more: {instead} (docs/game-model.md)");
@@ -337,9 +342,9 @@ impl Rules {
                         let (f, [up, back]) = (f("hero"), &mut r.knockback);
                         scale(&own, f, &mut [
                             ("speed", &mut r.speed), ("accel", &mut r.accel), ("air_accel", &mut r.air_accel), ("jump", &mut r.jump),
-                            ("climb", &mut r.climb), ("hang_speed", &mut r.hang_speed), ("look_ahead", &mut r.look_ahead),
+                            ("climb", &mut r.climb), ("apex_speed", &mut r.apex_speed), ("look_ahead", &mut r.look_ahead),
                             ("look_ahead_speed", &mut r.look_ahead_speed), ("grab", &mut r.grab), ("grab_ahead", &mut r.grab_ahead),
-                            ("hang_below", &mut r.hang_below), ("air_jump", &mut r.air_jump),
+                            ("hang_below", &mut r.hang_below), ("air_jump_height", &mut r.air_jump_height),
                         ]);
                         scale(&own, f, &mut [("knockback", up), ("knockback", back)]);
                         if !own.contains_key("corner") {
@@ -427,11 +432,11 @@ impl Rules {
                         ("speed", r.speed.to_string()), ("accel", r.accel.to_string()), ("air_accel", r.air_accel.to_string()), ("jump", r.jump.to_string()),
                         ("jump_cut", r.jump_cut.to_string()), ("coyote", r.coyote.to_string()), ("buffer", r.buffer.to_string()), ("climb", r.climb.to_string()),
                         ("invulnerable", r.invulnerable.to_string()), ("knockback", lua_list(&r.knockback)), ("fall_gravity", r.fall_gravity.to_string()),
-                        ("hang", r.hang.to_string()), ("hang_speed", r.hang_speed.to_string()), ("corner", r.corner.to_string()),
+                        ("apex_gravity", r.apex_gravity.to_string()), ("apex_speed", r.apex_speed.to_string()), ("corner", r.corner.to_string()),
                         ("look_ahead", r.look_ahead.to_string()), ("look_ahead_speed", r.look_ahead_speed.to_string()), ("grab", r.grab.to_string()),
                         ("grab_ahead", r.grab_ahead.to_string()), ("hang_below", r.hang_below.to_string()),
                         ("pull", r.pull.to_string()), ("face_ladder", r.face_ladder.to_string()), ("blink", r.blink.to_string()),
-                        ("air_jumps", r.air_jumps.to_string()), ("air_jump", r.air_jump.to_string()),
+                        ("air_jumps", r.air_jumps.to_string()), ("air_jump_height", r.air_jump_height.to_string()),
                     ]),
                     KindRules::Walker(r) => keys.extend([("speed", r.speed.to_string()), ("ledges", r.ledges.to_string())]),
                     KindRules::Hopper(r) => keys.extend([("every", r.every.to_string()), ("hop", lua_list(&r.hop))]),
@@ -459,6 +464,28 @@ mod tests {
         }
         cfg.kit = Some("platformer".into());
         cfg
+    }
+
+    /// The hero's keys under their names before 0.7 are refused naming the
+    /// ones now, through `like` too; a frame set called `hang` (the ledge)
+    /// stays.
+    #[test]
+    fn the_heros_names_before_0_7_are_refused_with_the_new_ones() {
+        for (table, says) in [
+            ("behavior = \"hero\"\nhang = 0.4", "c.things.jumper.hang is called c.things.jumper.apex_gravity now (voxcade upgrade renames it)"),
+            ("behavior = \"hero\"\nhang_speed = 20", "c.things.jumper.hang_speed is called c.things.jumper.apex_speed now"),
+            ("like = \"hero\"\nair_jump = 12", "c.things.jumper.air_jump is called c.things.jumper.air_jump_height now"),
+        ] {
+            let mut cfg = kit();
+            cfg.things.insert("jumper".into(), toml::from_str(table).unwrap());
+            let e = format!("{:#}", Rules::from_game(&cfg, |_| None).unwrap_err());
+            assert!(e.contains(says), "{e}");
+        }
+        let mut cfg = kit();
+        cfg.things.insert("jumper".into(), toml::from_str("like = \"hero\"\napex_gravity = 0.4\napex_speed = 20\nair_jumps = 1\nair_jump_height = 12\nframes = { hang = [8, 8] }").unwrap());
+        let r = Rules::from_game(&cfg, |_| None).unwrap();
+        let KindRules::Hero(h) = &r.kinds[r.find("jumper").unwrap()].rules else { unreachable!() };
+        assert_eq!((h.apex_gravity, h.apex_speed, h.air_jump_height), (0.4, 20.0, 12.0));
     }
 
     /// A figure of another height than the one its behavior was tuned on
