@@ -31,7 +31,7 @@ function conf(c)
     behavior = "hero", model = "hero.vvx", height = 14,
     speed = 60, accel = 900, air_accel = 700, jump = 22, look_ahead = 0, grab = 6, grab_ahead = 3, hang_below = 2, pull = 24,
     climb = 40, corner = 8,
-    knockback = { 100, 100 }, hang_speed = 30, look_ahead_speed = 90,   -- left out, these grow with the hero's height
+    knockback = { 100, 100 }, apex_speed = 30, look_ahead_speed = 90,   -- left out, these grow with the hero's height
     frames = { idle = { 0, 1 }, run = { 2, 5 }, jump = { 6, 6 }, fall = { 7, 7 },
                hang = { 8, 8 }, pull = { first = 9, last = 11, loop = false }, climb = { 12, 13 } },
   }

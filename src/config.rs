@@ -503,7 +503,7 @@ pub struct TitleScreenConfig {
     /// How high each logo line's capitals are, in UI voxels.
     pub logo_heights: Vec<u32>,
     /// Which logo line drips (blood).
-    pub drip: Option<usize>,
+    pub logo_drip: Option<usize>,
     /// Cracks per letter in each logo line, on average.
     pub logo_cracks: Vec<f32>,
     /// A model of the game's (`.vvx`) as the logo, in place of its lines
@@ -552,7 +552,7 @@ impl Default for TitleScreenConfig {
             logo: Vec::new(),
             logo_colors: Vec::new(),
             logo_heights: Vec::new(),
-            drip: None,
+            logo_drip: None,
             logo_cracks: Vec::new(),
             logo_model: None,
             logo_bob: 0.0,
@@ -654,7 +654,7 @@ pub const RANGES: &[Bound] = &[
     within("player.jump", 0.0, 10_000.0),
     above("title_screen.view_width", 0.0, SIDE),
     within("title_screen.logo_heights[]", 1.0, 1000.0),
-    within("title_screen.drip", 0.0, 99.0),
+    within("title_screen.logo_drip", 0.0, 99.0),
     within("title_screen.logo_cracks[]", 0.0, 100.0),
     within("title_screen.logo_bob", 0.0, 100.0),
     within("title_screen.flyby_every", 0.0, 3600.0),

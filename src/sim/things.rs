@@ -216,6 +216,19 @@ pub const HARMS: [&str; 3] = ["round", "melee", "blast"];
 /// tools' words, and their names now.
 pub const RENAMED: [(&str, &str); 2] = [("behaviour", "behavior"), ("turns", "rotates")];
 
+/// A kit's key under the name it had before, written in a kind of its
+/// behavior (`renamed`: behavior, old name, name now; the behavior through
+/// `like`), is a mistake naming the new one: a spawner's `range` is
+/// `wake` now, a soldier's is still his.
+pub fn check_renamed(cfg: &GameConfig, def: &Def, renamed: &[(&str, &str, &str)]) -> Result<()> {
+    let written = cfg.things.get(&def.name);
+    if let Some((_, old, new)) = renamed.iter().find(|(b, old, _)| def.behavior.as_deref() == Some(*b) && written.is_some_and(|t| t.contains_key(*old))) {
+        let name = &def.name;
+        bail!("c.things.{name}.{old} is called c.things.{name}.{new} now (voxcade upgrade renames it)");
+    }
+    Ok(())
+}
+
 /// Behaviors that were and are no more: what to write instead.
 const RETIRED: [(&str, &str); 3] = [
     ("goal", "a goal is a thing your code answers: a kind of its own (the platformer's behavior = \"prop\", stands = true; or none, touched within its reach), and on_touch: world:win(), world:go_to"),

@@ -30,6 +30,9 @@ impl ShooterConfig {
         if let Some((key, now)) = MOVED.iter().find(|(k, _)| cfg.player.game.contains_key(*k)) {
             bail!("conf.lua: c.player.{key} is no more: {now}");
         }
+        if cfg.player.game.contains_key("landing") {
+            bail!("conf.lua: c.player.landing is called c.player.landing_height now (voxcade upgrade renames it)");
+        }
         let player: PlayerConfig = toml::Value::Table(cfg.player.game.clone()).try_into().context("conf.lua: c.player")?;
         if player.facing == Some([0.0, 0.0]) {
             bail!("conf.lua: c.player.facing: a way such as {{ 0, 1 }} (north)");
@@ -76,7 +79,7 @@ pub struct PlayerConfig {
     /// How many specks of dust each puff of its steps has (0: no dust).
     pub step_dust: u32,
     /// Landing from higher than this, in voxels, raises a puff of dust.
-    pub landing: f32,
+    pub landing_height: f32,
     /// How many specks of dust a landing puff has.
     pub landing_dust: u32,
 }
@@ -96,7 +99,7 @@ impl Default for PlayerConfig {
             blink: 4,
             stride: steps.stride,
             step_dust: steps.step_dust,
-            landing: steps.landing,
+            landing_height: steps.landing_height,
             landing_dust: steps.landing_dust,
         }
     }
@@ -105,7 +108,7 @@ impl Default for PlayerConfig {
 impl PlayerConfig {
     /// The dust its steps and landings raise.
     pub fn steps(&self) -> super::kinds::Steps {
-        super::kinds::Steps { stride: self.stride, step_dust: self.step_dust, landing: self.landing, landing_dust: self.landing_dust }
+        super::kinds::Steps { stride: self.stride, step_dust: self.step_dust, landing_height: self.landing_height, landing_dust: self.landing_dust }
     }
 }
 

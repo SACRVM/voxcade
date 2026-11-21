@@ -942,6 +942,10 @@ fn key_shown(key: &Value) -> String {
     }
 }
 
+/// The engine's objects' names that were called otherwise (the object, the
+/// old name, the name now).
+const RENAMED: [(&str, &str, &str); 1] = [("level", "away", "ticks_away")];
+
 /// Reading a name the engine's object `of` (one of `api::OWNERS`, or
 /// `player`) does not have is a mistake, not a nil: it names the object,
 /// the name, the one meant if one is near (a method with `:`, a field with
@@ -949,6 +953,9 @@ fn key_shown(key: &Value) -> String {
 /// object keeps a state.
 pub(super) fn no_such(of: &str, key: &Value, own: Option<&str>) -> mlua::Error {
     let name = key_shown(key);
+    if let Some((_, _, new)) = RENAMED.iter().find(|(o, old, _)| *o == of && *old == name) {
+        return mlua::Error::runtime(format!("{of} has no `{name}`: it is called `{of}.{new}` now (voxcade upgrade renames it)"));
+    }
     let items: Vec<&crate::lua::api::Item> = crate::lua::api::items_of(of).collect();
     let call = |i: &crate::lua::api::Item| match i.what {
         crate::lua::api::What::Method { .. } => format!("{of}:{}", i.name),

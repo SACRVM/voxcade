@@ -527,7 +527,7 @@ end
     },
     Topic {
         title: "ROOMS THAT REMEMBER",
-        text: "Levels whose files say the same location = \"station\" are one place of the game: while the player goes among them, each is as it was left (a lever pulled, a crate pushed, a key taken: its things by their names, where they stood, thing.state, its voxels), and they share one level.state, which goes on from room to room and is fresh when the station is entered from outside. Leaving the station forgets it, but for what is persistent: persistent = true in a level's file keeps all of it for the whole run, c.things.chest.persistent = true a kind's things in any level. Nothing happens in a room nobody is in: level.away says how many ticks it was left, so on_level_start can make up for the time (here a lamp's oil). world:restart() gives the room as it was entered this visit; { fresh = true } on world:go_to or world:restart takes it from its file. A sequence that ends in world:go_to clears its step and its hold before it asks, since level.state goes along into the next room.",
+        text: "Levels whose files say the same location = \"station\" are one place of the game: while the player goes among them, each is as it was left (a lever pulled, a crate pushed, a key taken: its things by their names, where they stood, thing.state, its voxels), and they share one level.state, which goes on from room to room and is fresh when the station is entered from outside. Leaving the station forgets it, but for what is persistent: persistent = true in a level's file keeps all of it for the whole run, c.things.chest.persistent = true a kind's things in any level. Nothing happens in a room nobody is in: level.ticks_away says how many ticks it was left, so on_level_start can make up for the time (here a lamp's oil). world:restart() gives the room as it was entered this visit; { fresh = true } on world:go_to or world:restart takes it from its file. A sequence that ends in world:go_to clears its step and its hold before it asks, since level.state goes along into the next room.",
         conf: r##"c.world.size = nil             -- no world made in code: the levels are in levels/
 c.things.door = { props = { to = "hall", at = "start" }, names = { to = "level", at = "place" } }
 c.things.lever = {}
@@ -592,7 +592,7 @@ function on_level_start(how)
   -- the lamp burned on while nobody was here: make up for the time away
   local lamp = level:thing("lamp_1")
   if lamp then
-    lamp.state.oil = math.max(0, (lamp.state.oil or OIL) - level.away)
+    lamp.state.oil = math.max(0, (lamp.state.oil or OIL) - level.ticks_away)
   end
   -- the station's level.state goes along from room to room
   level.state.rooms = (level.state.rooms or 0) + 1

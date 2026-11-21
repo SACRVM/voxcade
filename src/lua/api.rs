@@ -389,11 +389,11 @@ pub const API: &[Item] = &[
             says (location = \"station\"), nil for none. While the player changes among the levels of one location, each is as it was left \
             (its things by their names: removed ones stay removed, the others where they stood, thing.state, its voxels) and they share level.state. Leaving the \
             location forgets that, but for what is persistent (persistent = true in a level's file, or on a kind). No time passes in a \
-            level nobody is in: level.away." },
-    Item { of: "level", name: "away", what: Field { ty: "integer", set: false }, doc: "The ticks since this level was left, when it comes \
+            level nobody is in: level.ticks_away." },
+    Item { of: "level", name: "ticks_away", what: Field { ty: "integer", set: false }, doc: "The ticks since this level was left, when it comes \
             back as it was left (a level of a location, a persistent one, things of a persistent kind); 0 on a first visit and where it \
             kept nothing. Nothing moves in a level nobody is in: on_level_start can make up what would have happened meanwhile (a timer \
-            in thing.state counted down by level.away)." },
+            in thing.state counted down by level.ticks_away)." },
     Item { of: "level", name: "kept", what: Field { ty: "table", set: false }, doc: "What this level keeps across visits for the whole run \
             (a lever pulled, a puzzle solved): read it in on_level_start. Plain data, no things." },
     Item { of: "level", name: "arrived", what: Field { ty: "Place", set: false }, doc: "Where the player arrived in this level, with its \
@@ -1307,8 +1307,8 @@ const KIT_WORDS: &[(&str, &str, &str, &str, &str, &str)] = &[
     ("platformer", "hero", "blink", "integer", "", "While nothing hurts it, it blinks: it is shown this many ticks, then hidden as many ticks. 0: it does not blink."),
     ("platformer", "hero", "knockback", "number[]", "", "How a hit throws it, { back, up } in voxels a second: back away from what hit it, and up."),
     ("platformer", "hero", "fall_gravity", "number", "", "Gravity is multiplied by this while it falls, so a fall is snappy, not floaty. 1: as strong as on the way up."),
-    ("platformer", "hero", "hang", "number", "", "Gravity is multiplied by this near the top of a jump while the jump button is held: below 1 it floats there a moment. \"Near the top\" is hang_speed."),
-    ("platformer", "hero", "hang_speed", "number", "", "In voxels a second: while it rises or falls more slowly than this it is at the top of a jump, for hang. It catches a ledge (grab) only while it rises more slowly than this too."),
+    ("platformer", "hero", "apex_gravity", "number", "", "Gravity is multiplied by this near the top of a jump (its apex) while the jump button is held: below 1 it floats there a moment. \"Near the top\" is apex_speed."),
+    ("platformer", "hero", "apex_speed", "number", "", "In voxels a second: while it rises or falls more slowly than this it is at the top of a jump, for apex_gravity. It catches a ledge (grab) only while it rises more slowly than this too."),
     ("platformer", "hero", "corner", "integer", "", "A head that hits the edge of a ceiling by up to this many voxels slips past it, so a jump is not stopped by a corner. 0: no such help."),
     ("platformer", "hero", "look_ahead", "number", "", "How far the camera leads ahead of the hero in the way it runs, in voxels. 0: the camera stays centered on it."),
     ("platformer", "hero", "look_ahead_speed", "number", "", "How fast the camera swings over to lead the other way when the hero turns round, in voxels a second."),
@@ -1318,7 +1318,7 @@ const KIT_WORDS: &[(&str, &str, &str, &str, &str, &str)] = &[
     ("platformer", "hero", "pull", "integer", "", "How many ticks it takes to pull itself up onto the ledge it hangs from. Up or jump pulls up; down lets go. Only when grab is above 0."),
     ("platformer", "hero", "face_ladder", "boolean", "", "While it climbs a ladder it turns to the ladder, its back to the camera. false: it keeps the way it faced."),
     ("platformer", "hero", "air_jumps", "integer", "", "How many more jumps it may make in the air before it lands: 0 none, 1 a double jump."),
-    ("platformer", "hero", "air_jump", "number", "", "How high each jump in the air goes, in voxels, from where the hero is when it makes it. Only when air_jumps is above 0."),
+    ("platformer", "hero", "air_jump_height", "number", "", "How high each jump in the air goes, in voxels, from where the hero is when it makes it. Only when air_jumps is above 0."),
     ("platformer", "walker", "speed", "number", "", "Its walking speed, in voxels a second."),
     ("platformer", "walker", "ledges", "boolean", "", "true: it turns round at a ledge as at a wall. false: it walks off the ledge."),
     ("platformer", "hopper", "every", "integer", "", "Ticks between one hop and the next. It hops left and right in turn."),
@@ -1339,19 +1339,19 @@ const KIT_WORDS: &[(&str, &str, &str, &str, &str, &str)] = &[
     ("shooter", "soldier", "sight", "number", "", "How far he sees the player, in voxels. A comrade falling he notices as far."),
     ("shooter", "soldier", "hearing", "number", "", "How far he hears gunfire, in voxels; rounds hitting near him count as half that."),
     ("shooter", "soldier", "blast_hearing", "number", "", "How far he hears an explosion, in voxels."),
-    ("shooter", "soldier", "active", "number", "", "While the player is further from him than this, in voxels, he waits where he is."),
+    ("shooter", "soldier", "wake", "number", "", "While the player is further from him than this, in voxels, he waits where he is."),
     ("shooter", "soldier", "range", "number", "", "How far he shoots, in voxels."),
     ("shooter", "soldier", "distance", "number", "", "The distance he keeps from the player, in voxels."),
     ("shooter", "soldier", "step_dust", "integer", "", "How many specks of dust each puff of his steps has (see stride). 0: no dust."),
-    ("shooter", "soldier", "landing", "number", "", "Landing from higher than this, in voxels, raises a puff of dust."),
-    ("shooter", "soldier", "landing_dust", "integer", "", "How many specks of dust a landing puff has (see landing)."),
+    ("shooter", "soldier", "landing_height", "number", "", "Landing from higher than this, in voxels, raises a puff of dust."),
+    ("shooter", "soldier", "landing_dust", "integer", "", "How many specks of dust a landing puff has (see landing_height)."),
     ("shooter", "soldier", "muzzle", "number[]", "", "Where his shots leave the gun, { ahead, up } from his feet in voxels. Unset: just in front of him at half his height."),
     ("shooter", "soldier", "stride", "number", "", "A puff of dust rises every this many voxels he walks. Unset: half his height."),
     ("shooter", "spawner", "spawns", "string", "", "The kind of thing it sends out: a name of c.things, a kind with the behavior \"soldier\"."),
     ("shooter", "spawner", "count", "integer", "", "How many it sends out in all."),
-    ("shooter", "spawner", "first", "integer", "", "Ticks after the player comes within range before the first one comes out."),
+    ("shooter", "spawner", "first", "integer", "", "Ticks after the player comes within wake before the first one comes out."),
     ("shooter", "spawner", "every", "integer", "", "Ticks between one coming out and the next."),
-    ("shooter", "spawner", "range", "number", "", "It sends them out only while the player is this near, in voxels."),
+    ("shooter", "spawner", "wake", "number", "", "It sends them out only while the player is this near, in voxels."),
     ("shooter", "spawner", "ahead", "number[]", "", "A way { x, y } (x east, y north): it sends them out only while it lies this way of the player, by more than ahead_by. Unset: on any side."),
     ("shooter", "spawner", "not_near", "number", "", "Nobody comes out while the player is nearer than this, in voxels."),
     ("shooter", "spawner", "ahead_by", "number", "", "How far it must lie in the way of ahead, in voxels. Unset: the player's height."),
@@ -1366,7 +1366,7 @@ const KIT_WORDS: &[(&str, &str, &str, &str, &str, &str)] = &[
     ("shooter", "gunship", "offset", "number[]", "", "Where it holds from the player, { x, y } in voxels (x east, y north)."),
     ("shooter", "gunship", "wake", "number", "", "It lifts off when the player comes this close, in voxels."),
     ("shooter", "gunship", "size", "number[]", "", "Its hit box in voxels: { across, along, high }."),
-    ("shooter", "gunship", "gun", "number[]", "", "Where its guns' muzzles are in its model, { across, along, up } in voxels; the gun on the other side is mirrored across."),
+    ("shooter", "gunship", "muzzle", "number[]", "", "Where its guns' muzzles are in its model, { across, along, up } in voxels; the gun on the other side is mirrored across."),
     ("shooter", "gunship", "pods", "number[]", "", "Where the fronts of its rocket pods are in its model, { across, along, up } in voxels; the pod on the other side is mirrored across."),
     ("shooter", "gunship", "side_on", "boolean", "", "true: it turns its side to the player and the gun on that side fires. false: it faces the player and its guns take turns."),
     ("shooter", "gunship", "crash_blast", "number", "", "The crater where it crashes, in voxels, as a weapon's blast."),

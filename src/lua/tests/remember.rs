@@ -1,5 +1,5 @@
 //! Levels that remember (`lua::memory`): a location's levels as left while
-//! the player stays among them, their one `level.state`, `level.away`,
+//! the player stays among them, their one `level.state`, `level.ticks_away`,
 //! `persistent` levels and kinds, restarts, saves, scenarios, snapshots.
 
 use super::*;
@@ -37,7 +37,7 @@ const STATION: &[Room] = &[("forecourt", Some("station"), false), ("hall", Some(
 const SEEN: &str = r#"
 local function seen()
   local crate, key, chest = level:thing("crate_1"), level:thing("key_1"), level:thing("chest_1")
-  return level.name .. ":" .. (level.location or "-") .. ":away" .. level.away .. ":rooms" .. level.state.rooms
+  return level.name .. ":" .. (level.location or "-") .. ":away" .. level.ticks_away .. ":rooms" .. level.state.rooms
     .. ":crate" .. (crate and math.floor(crate.x) or "-") .. ":" .. (key and "key" or "nokey") .. ":" .. (chest.state.open and "open" or "shut")
 end
 
@@ -53,7 +53,7 @@ fn log(g: &mut Session<LuaGame>) -> String {
 
 /// While the player stays among a location's levels each is as it was
 /// left (a crate moved, a key taken, a chest opened) and they share one
-/// `level.state`; `level.away` counts the ticks it was left; leaving the
+/// `level.state`; `level.ticks_away` counts the ticks it was left; leaving the
 /// location forgets it but for what is persistent (the chest's kind).
 #[test]
 fn a_locations_levels_are_as_left_while_the_player_stays_among_them() {

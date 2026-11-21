@@ -571,7 +571,7 @@ pub struct Stage {
     /// belongs to a location: what a restart gives back.
     pub entered: Option<Arc<super::value::Value>>,
     /// The ticks since the level being played was left, as the record laid
-    /// over it says (`level.away`; 0 where none was).
+    /// over it says (`level.ticks_away`; 0 where none was).
     pub away: u64,
     /// What the script asked to happen at the tick's end: the one ask that
     /// counts so far (`Ask::outranks`).

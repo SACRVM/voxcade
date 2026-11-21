@@ -22,7 +22,7 @@ use value::Key;
 /// What a level kept of how it was left.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
-    /// The tick it was left at (`world.tick`): `level.away` counts from it.
+    /// The tick it was left at (`world.tick`): `level.ticks_away` counts from it.
     pub left: u64,
     /// The things its file sets down, by name, in the order of the names.
     pub things: Vec<(String, Left)>,

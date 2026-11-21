@@ -198,7 +198,7 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   layout (0 standing, 1 in the air, the rest walking). A kind's `effect =
   { model = "poof.vvx", fps = 20 }` says its speed too; a shooter pickup
   bobs `bob` voxels, `bob_ticks` each way; a soldier's steps raise dust
-  (`stride`, `step_dust`, `landing`, `landing_dust`; the player's in
+  (`stride`, `step_dust`, `landing_height`, `landing_dust`; the player's in
   `c.player`), and the shooter's player and the jump & run's hero blink
   while nothing hurts them (`blink`: ticks shown, as many not; 0 steady).
 - Figures of parts: a `.vvx` of `[[part]]`s with names (head, body,
@@ -287,7 +287,7 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   it, `push` its speed; it falls, is stood on, walkers turn at it); a
   platform coming down onto a body waits above it, one with `crushes =
   true` hurts the hero instead; the hero may jump again in the air
-  (`air_jumps = 1`, `air_jump` its height: a double jump); a ladder's
+  (`air_jumps = 1`, `air_jump_height` its height: a double jump); a ladder's
   top holds from above (down climbs down);
   action jump. A door, a checkpoint, spikes, a lever, a plate are props
   the code answers (a plate pressed: `plate:touching()` holds the player
@@ -478,7 +478,7 @@ ending in `go_to` clears its step and `held` first). Leaving the location
 forgets that but for what is persistent: `persistent = true` in a level's
 file (all of it, the whole run), `c.things.NAME.persistent = true` (a
 kind's things a file sets down, any level). `level.location`;
-`level.away` (ticks it was left: nothing moves in a room nobody is in,
+`level.ticks_away` (ticks it was left: nothing moves in a room nobody is in,
 `on_level_start` makes up for it); `world:restart()` gives the level as
 entered this visit; `{ fresh = true }` on `go_to`/`restart` takes it from
 its file; a scenario's `as_left = { hall = { key_1 = { removed = true } } }`

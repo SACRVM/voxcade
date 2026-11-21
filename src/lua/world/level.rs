@@ -100,8 +100,8 @@ impl UserData for LevelView {
             level_here(lua, "level.location")?;
             look(lua, |h| Ok(h.levels.list[h.level].location.clone()))
         });
-        f.add_field_function_get("away", |lua, _| {
-            level_here(lua, "level.away")?;
+        f.add_field_function_get("ticks_away", |lua, _| {
+            level_here(lua, "level.ticks_away")?;
             look(lua, |h| Ok(h.away))
         });
         f.add_field_function_get("kept", |lua, _| {

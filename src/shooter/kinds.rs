@@ -173,7 +173,7 @@ pub struct SoldierRules {
     pub hearing: f32,
     pub blast_hearing: f32,
     /// Further from the player he waits where he is.
-    pub active: f32,
+    pub wake: f32,
     /// How far he shoots.
     pub range: f32,
     /// The distance he keeps from the player.
@@ -187,30 +187,30 @@ pub struct SoldierRules {
 /// The dust a figure raises (a soldier's, the player's): a puff of
 /// `step_dust` specks every `stride` voxels walked (half its height
 /// unset), and one of `landing_dust` as it lands from higher than
-/// `landing` voxels (the player's landing is heard too).
+/// `landing_height` voxels (the player's landing is heard too).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Steps {
     pub stride: Option<f32>,
     pub step_dust: u32,
-    pub landing: f32,
+    pub landing_height: f32,
     pub landing_dust: u32,
 }
 
 impl Default for Steps {
     fn default() -> Self {
-        Self { stride: None, step_dust: 3, landing: 2.0, landing_dust: 10 }
+        Self { stride: None, step_dust: 3, landing_height: 2.0, landing_dust: 10 }
     }
 }
 
 /// A hut sends `count` men of kind `spawns`, the first `first` ticks after
-/// the player comes within `range`, then one every `every` ticks.
+/// the player comes within `wake`, then one every `every` ticks.
 #[derive(Clone, Debug)]
 pub struct SpawnerRules {
     pub spawns: usize,
     pub count: u32,
     pub first: u32,
     pub every: u32,
-    pub range: f32,
+    pub wake: f32,
     /// Only while the hut lies this way of the player (x east, y north),
     /// by more than `ahead_by` (unset: his height); none: on any side.
     pub ahead: Option<glam::Vec2>,
@@ -265,7 +265,7 @@ impl TryFrom<FleeSpec> for Flee {
 /// A gunship parked until the player comes within `wake`, then flying at
 /// `altitude` over its pad (at least `clearance` over what stands below),
 /// holding at `offset` from him (x east, y north), firing `weapon` from the guns at
-/// `gun` and `rockets` from the pods at `pods` (across, along, up in its
+/// `muzzle` and `rockets` from the pods at `pods` (across, along, up in its
 /// model; mirrored for the other side). `size` is its hit box (across,
 /// along, high).
 #[derive(Clone, Debug)]
@@ -278,7 +278,7 @@ pub struct GunshipRules {
     pub offset: [f32; 2],
     pub wake: f32,
     pub size: [f32; 3],
-    pub gun: [f32; 3],
+    pub muzzle: [f32; 3],
     pub pods: [f32; 3],
     /// It turns its side to the player and the gun on that side fires
     /// (door gunners); else it faces him and its guns take turns.
@@ -462,7 +462,7 @@ impl Rules {
                     keys.extend([
                         ("weapon", weapon(r.weapon)), ("speed", r.speed.to_string()), ("idle_speed", r.idle_speed.to_string()), ("accel", r.accel.to_string()),
                         ("sight", r.sight.to_string()), ("hearing", r.hearing.to_string()), ("blast_hearing", r.blast_hearing.to_string()),
-                        ("active", r.active.to_string()), ("range", r.range.to_string()), ("distance", r.distance.to_string()),
+                        ("wake", r.wake.to_string()), ("range", r.range.to_string()), ("distance", r.distance.to_string()),
                     ]);
                     if let Some(m) = r.muzzle {
                         keys.push(("muzzle", lua_list(&m)));
@@ -471,11 +471,11 @@ impl Rules {
                         keys.push(("stride", stride.to_string()));
                     }
                     keys.extend([
-                        ("step_dust", r.steps.step_dust.to_string()), ("landing", r.steps.landing.to_string()), ("landing_dust", r.steps.landing_dust.to_string()),
+                        ("step_dust", r.steps.step_dust.to_string()), ("landing_height", r.steps.landing_height.to_string()), ("landing_dust", r.steps.landing_dust.to_string()),
                     ]);
                 }
                 KindRules::Spawner(r) => {
-                    keys.extend([("spawns", text(&self.kinds[r.spawns].name)), ("count", r.count.to_string()), ("first", r.first.to_string()), ("every", r.every.to_string()), ("range", r.range.to_string())]);
+                    keys.extend([("spawns", text(&self.kinds[r.spawns].name)), ("count", r.count.to_string()), ("first", r.first.to_string()), ("every", r.every.to_string()), ("wake", r.wake.to_string())]);
                     if let Some(a) = r.ahead {
                         keys.push(("ahead", lua_list(&[a.x, a.y])));
                     }
@@ -496,7 +496,7 @@ impl Rules {
                     // why: the key's name, c.things.NAME.rockets, not a weapon
                     ("weapon", weapon(r.weapon)), ("rockets", weapon(r.rockets)), ("speed", r.speed.to_string()), ("altitude", r.altitude.to_string()),
                     ("clearance", r.clearance.to_string()), ("offset", lua_list(&r.offset)), ("wake", r.wake.to_string()), ("size", lua_list(&r.size)),
-                    ("gun", lua_list(&r.gun)), ("pods", lua_list(&r.pods)), ("side_on", r.side_on.to_string()), ("crash_blast", r.crash_blast.to_string()),
+                    ("muzzle", lua_list(&r.muzzle)), ("pods", lua_list(&r.pods)), ("side_on", r.side_on.to_string()), ("crash_blast", r.crash_blast.to_string()),
                     ("crash_damage", r.crash_damage.to_string()),
                 ]),
                 KindRules::Pickup(r) => keys.extend([("frame", r.frame.to_string()), ("reach", r.reach.to_string()), ("bob", r.bob.to_string()), ("bob_ticks", r.bob_ticks.to_string())]),
@@ -629,6 +629,7 @@ impl Rules {
                 if let Some((key, instead)) = moved.iter().find(|(k, _)| own.contains_key(*k)) {
                     bail!("c.things.{name}.{key} is no more: {instead} (docs/game-model.md)");
                 }
+                things::check_renamed(cfg, def, &RENAMED)?;
                 let (team, immune) = (def.team.as_deref().map(crate::names::intern), Immune::of(&def.immune));
                 let Some(behavior) = def.behavior.as_deref() else {
                     if let Some(key) = def.params.keys().next() {
@@ -644,7 +645,7 @@ impl Rules {
                         scale(&def.params, factor(), &mut [
                             ("speed", &mut spec.speed), ("idle_speed", &mut spec.idle_speed), ("accel", &mut spec.accel),
                             ("sight", &mut spec.sight), ("hearing", &mut spec.hearing), ("blast_hearing", &mut spec.blast_hearing),
-                            ("active", &mut spec.active), ("range", &mut spec.range), ("distance", &mut spec.distance),
+                            ("wake", &mut spec.wake), ("range", &mut spec.range), ("distance", &mut spec.distance),
                         ]);
                         let gun = weapon(&spec.weapon, &here("weapon"))?;
                         KindRules::Soldier(spec.rules(gun))
@@ -664,7 +665,7 @@ impl Rules {
                             Some(way) if way == glam::Vec2::ZERO => bail!("c.things.{name}.ahead: a way such as {{ 0, 1 }} (north), or none for any side"),
                             way => way.map(glam::Vec2::normalize),
                         };
-                        KindRules::Spawner(SpawnerRules { spawns, count: spec.count, first: spec.first, every: spec.every, range: spec.range, ahead, ahead_by: spec.ahead_by, not_near: spec.not_near })
+                        KindRules::Spawner(SpawnerRules { spawns, count: spec.count, first: spec.first, every: spec.every, wake: spec.wake, ahead, ahead_by: spec.ahead_by, not_near: spec.not_near })
                     }
                     "captive" => {
                         parts(true, true)?;
@@ -723,6 +724,11 @@ fn written<T: serde::de::DeserializeOwned>(table: &toml::Table, what: &str) -> R
     Ok(())
 }
 
+/// The kit's keys under the names they had before 0.7, and their names
+/// now (`things::check_renamed`): one word for how near the player comes
+/// before a thing acts, one for where shots leave a gun.
+pub const RENAMED: [(&str, &str, &str); 4] = [("soldier", "active", "wake"), ("soldier", "landing", "landing_height"), ("spawner", "range", "wake"), ("gunship", "gun", "muzzle")];
+
 /// The kit: its weapons, and kinds of things to copy into a game.
 pub const KIT: &str = include_str!("kit.toml");
 
@@ -738,13 +744,13 @@ struct SoldierSpec {
     sight: f32,
     hearing: f32,
     blast_hearing: f32,
-    active: f32,
+    wake: f32,
     range: f32,
     distance: f32,
     muzzle: Option<[f32; 2]>,
     stride: Option<f32>,
     step_dust: u32,
-    landing: f32,
+    landing_height: f32,
     landing_dust: u32,
 }
 
@@ -758,13 +764,13 @@ impl Default for SoldierSpec {
             sight: 60.0,
             hearing: 70.0,
             blast_hearing: 130.0,
-            active: 150.0,
+            wake: 150.0,
             range: 95.0,
             distance: 32.0,
             muzzle: None,
             stride: Steps::default().stride,
             step_dust: Steps::default().step_dust,
-            landing: Steps::default().landing,
+            landing_height: Steps::default().landing_height,
             landing_dust: Steps::default().landing_dust,
         }
     }
@@ -780,11 +786,11 @@ impl SoldierSpec {
             sight: self.sight,
             hearing: self.hearing,
             blast_hearing: self.blast_hearing,
-            active: self.active,
+            wake: self.wake,
             range: self.range,
             distance: self.distance,
             muzzle: self.muzzle,
-            steps: Steps { stride: self.stride, step_dust: self.step_dust, landing: self.landing, landing_dust: self.landing_dust },
+            steps: Steps { stride: self.stride, step_dust: self.step_dust, landing_height: self.landing_height, landing_dust: self.landing_dust },
         }
     }
 }
@@ -796,7 +802,7 @@ struct SpawnerSpec {
     count: u32,
     first: u32,
     every: u32,
-    range: f32,
+    wake: f32,
     ahead: Option<[f32; 2]>,
     ahead_by: Option<f32>,
     not_near: f32,
@@ -804,7 +810,7 @@ struct SpawnerSpec {
 
 impl Default for SpawnerSpec {
     fn default() -> Self {
-        Self { spawns: String::new(), count: 2, first: 60, every: 420, range: 120.0, ahead: None, ahead_by: None, not_near: 0.0 }
+        Self { spawns: String::new(), count: 2, first: 60, every: 420, wake: 120.0, ahead: None, ahead_by: None, not_near: 0.0 }
     }
 }
 
@@ -819,7 +825,7 @@ struct GunshipSpec {
     offset: [f32; 2],
     wake: f32,
     size: [f32; 3],
-    gun: [f32; 3],
+    muzzle: [f32; 3],
     pods: [f32; 3],
     side_on: bool,
     crash_blast: f32,
@@ -837,7 +843,7 @@ impl Default for GunshipSpec {
             offset: [0.0, 65.0],
             wake: 130.0,
             size: [12.0, 24.0, 8.0],
-            gun: [0.0, 12.0, 1.5],
+            muzzle: [0.0, 12.0, 1.5],
             pods: [5.0, 2.5, 2.5],
             side_on: false,
             crash_blast: 9.0,
@@ -857,7 +863,7 @@ impl GunshipSpec {
             offset: self.offset,
             wake: self.wake,
             size: self.size,
-            gun: self.gun,
+            muzzle: self.muzzle,
             pods: self.pods,
             side_on: self.side_on,
             crash_blast: self.crash_blast,
@@ -926,6 +932,38 @@ mod tests {
         same("bare_hostage", "hostage");
         same("bare_gunship", "gunship");
         same("bare_pickup", "machine_gun");
+    }
+
+    /// A key under its name before 0.7 is refused naming the one now, by
+    /// the kind's behavior through `like`: a spawner's `range` is `wake`, a
+    /// soldier's `range` is still his.
+    #[test]
+    fn the_names_before_0_7_are_refused_with_the_new_ones() {
+        let refused = |name: &str, table: &str| {
+            let mut cfg = kit();
+            cfg.things.insert(name.into(), toml::from_str(table).unwrap());
+            format!("{:#}", rules(&cfg).unwrap_err())
+        };
+        for (name, table, says) in [
+            ("waiting", "behavior = \"soldier\"\nweapon = \"enemy_rifle\"\nactive = 300", "c.things.waiting.active is called c.things.waiting.wake now (voxcade upgrade renames it)"),
+            ("dusty", "like = \"rifleman\"\nlanding = 3", "c.things.dusty.landing is called c.things.dusty.landing_height now"),
+            ("shed", "behavior = \"spawner\"\nspawns = \"rifleman\"\nrange = 200", "c.things.shed.range is called c.things.shed.wake now"),
+            ("barn", "like = \"hut\"\nrange = 200", "c.things.barn.range is called c.things.barn.wake now"),
+            ("hind", "like = \"gunship\"\ngun = [0, 38, 5]", "c.things.hind.gun is called c.things.hind.muzzle now"),
+        ] {
+            let e = refused(name, table);
+            assert!(e.contains(says), "{name}: {e}");
+        }
+        let mut cfg = kit();
+        cfg.things.insert("sniper".into(), toml::from_str("like = \"rifleman\"\nrange = 300\nwake = 400\nlanding_height = 3").unwrap());
+        cfg.things.insert("shed".into(), toml::from_str("like = \"hut\"\nwake = 200").unwrap());
+        let r = rules(&cfg).unwrap();
+        let sniper = r.soldier(r.find("sniper").unwrap());
+        assert_eq!((sniper.range, sniper.wake, sniper.steps.landing_height), (300.0, 400.0, 3.0));
+        assert_eq!(r.spawner(r.find("shed").unwrap()).wake, 200.0);
+        cfg.player.game.insert("landing".into(), 3.into());
+        let e = format!("{:#}", rules(&cfg).unwrap_err());
+        assert!(e.contains("c.player.landing is called c.player.landing_height now"), "{e}");
     }
 
     /// A kind's frames, the player's (`c.player.frames`), a soldier's dust

@@ -967,7 +967,7 @@ impl Shooter {
         let player = thing.is_none_or(|id| self.things.get(id).is_some_and(|t| matches!(t.brain, Brain::Player(_))));
         let stride = steps.stride.unwrap_or(body.height * 0.5).max(1.0);
         let stepped = steps.step_dust > 0 && body.on_ground && (walked_before / stride).floor() != (body.walked / stride).floor();
-        let landed = body.fell > steps.landing;
+        let landed = body.fell > steps.landing_height;
         if !(stepped || landed) {
             return;
         }

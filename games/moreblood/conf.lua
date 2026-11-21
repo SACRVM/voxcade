@@ -153,7 +153,7 @@ function conf(c)
     sight = 240,            -- about what is on screen ahead: they see you when you see them
     hearing = 300,          -- gunfire (rounds hitting near him: half that around the hit)
     blast_hearing = 420,    -- explosions
-    active = 440,           -- further away he waits
+    wake = 440,           -- further away he waits
     range = 260,            -- shooting range
     distance = 64,          -- the distance he keeps from the player
     muzzle = { 7.5, 12.5 },
@@ -180,7 +180,7 @@ function conf(c)
     count = 2,
     first = 60,             -- ticks
     every = 420,
-    range = 240,
+    wake = 240,
     ahead = { 0, 1 },       -- and only while the hut lies north of him: nobody comes out behind his back
   }
 
@@ -210,13 +210,13 @@ function conf(c)
     offset = { 0, 35 },     -- where it holds from the player: north of him, up the screen
     wake = 260,             -- it lifts off when the player comes this close
     size = { 32, 72, 31 },  -- hit box: across, along, high (the model's skids to rotor)
-    gun = { 16, 4, 15 },    -- the door gunners' M60 muzzles (across, mirrored; along; up)
+    muzzle = { 16, 4, 15 },    -- the door gunners' M60 muzzles (across, mirrored; along; up)
     pods = { 13, 15, 7 },   -- the rocket pods' fronts
     side_on = true,         -- it turns its side to the player: the door gunner on that side fires
     crash_blast = 24,
     crash_damage = 2,       -- to those near where it crashes
     props = { worth = 5000 },
-    -- The Hind instead: model = "hind.vvx", size = { 36, 76, 28 }, gun = { 0, 38, 5 }
+    -- The Hind instead: model = "hind.vvx", size = { 36, 76, 28 }, muzzle = { 0, 38, 5 }
     -- (its chin gun), pods = { 14, 7, 7 }, side_on = false.
   }
 
@@ -290,7 +290,7 @@ function conf(c)
   c.title_screen.logo = { "MORE", "BLOOD" }
   c.title_screen.logo_colors = { "#f0e8d0", "#c8181a" }
   c.title_screen.logo_heights = { 24, 46 } -- capitals, in UI voxels
-  c.title_screen.drip = 1                -- BLOOD bleeds
+  c.title_screen.logo_drip = 1                -- BLOOD bleeds
   c.title_screen.logo_cracks = { 0.6, 2.2 } -- cracks per letter: a few in MORE, BLOOD split up
   c.title_screen.props = { { model = "dogtags.vvx", at = { 312, 140 } } }
   c.title_screen.flyby = "huey.vvx"      -- passes over now and then

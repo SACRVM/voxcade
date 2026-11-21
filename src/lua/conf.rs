@@ -210,11 +210,14 @@ fn colors(c: &toml::Value) -> Result<()> {
 }
 
 /// A setting under the name it had before Voxcade took other tools' words
-/// (`turn`, `turns`, `behaviour`) is a mistake naming the new one.
+/// (`turn`, `turns`, `behaviour`, `drip`) is a mistake naming the new one.
 fn renamed(c: &toml::Value) -> Result<()> {
     let say = |old: String, new: String| -> Result<()> { bail!("conf.lua: {old} is called {new} now (voxcade upgrade renames it)") };
     if c.get("camera").and_then(|t| t.get("turns")).is_some() {
         return say("c.camera.turns".into(), "c.camera.rotates".into());
+    }
+    if c.get("title_screen").and_then(|t| t.get("drip")).is_some() {
+        return say("c.title_screen.drip".into(), "c.title_screen.logo_drip".into());
     }
     if let Some(things) = c.get("things").and_then(toml::Value::as_table) {
         for (name, kind) in things {
@@ -393,6 +396,7 @@ mod tests {
     fn an_old_name_says_the_new_one() {
         for (line, says) in [
             ("c.camera.turns = 'free'", "c.camera.turns is called c.camera.rotates now"),
+            ("c.title_screen.drip = 1", "c.title_screen.drip is called c.title_screen.logo_drip now"),
             ("c.things.gem = { behaviour = 'pickup' }", "c.things.gem.behaviour is called c.things.gem.behavior now"),
             ("c.things.gem = { turns = 'free' }", "c.things.gem.turns is called c.things.gem.rotates now"),
             ("c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, turn = 1 } }", "c.title_screen.props[1].turn (quarter turns anticlockwise) is called rotation now, in degrees clockwise: turn = 1 is rotation = 270"),
@@ -400,7 +404,8 @@ mod tests {
             let e = conf(&format!("function conf(c) {line} end")).unwrap_err().to_string();
             assert!(e.contains(says) && e.contains("voxcade upgrade"), "{line}: {e}");
         }
-        let cfg = conf("function conf(c) c.camera.rotates = 'free'; c.things.gem = { behavior = 'pickup', rotates = 'free' }; c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, rotation = 270 } } end").unwrap();
+        let cfg = conf("function conf(c) c.camera.rotates = 'free'; c.things.gem = { behavior = 'pickup', rotates = 'free' }; c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, rotation = 270 } }; c.title_screen.logo_drip = 1 end").unwrap();
+        assert_eq!(cfg.title_screen.logo_drip, Some(1));
         assert_eq!(cfg.camera.rotates, crate::config::Rotates::Free);
         assert_eq!((cfg.title_screen.props[0].rotation, cfg.title_screen.props[0].look()), (270, glam::IVec2::NEG_X));
         assert!(conf("function conf(c) c.title_screen.props = { { model = 'a.vvx', at = { 1, 2 }, rotation = 45 } } end").unwrap_err().to_string().contains("quarter turns"));

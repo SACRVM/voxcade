@@ -59,7 +59,7 @@ impl<K: Kit> LuaGame<K> {
             at["location"] = location.clone().into();
         }
         if stage.away != 0 {
-            at["away"] = stage.away.into();
+            at["ticks_away"] = stage.away.into();
         }
         let mut out = serde_json::json!({ "things": things, "state": state.as_ref().map(value::to_json), "level": level.as_ref().map(value::to_json), "at": at, "kept": kept, "player": player });
         if !stage.records.is_empty() {
