@@ -1068,6 +1068,30 @@ fn compared(name: &str) -> String {
     name.to_lowercase().replace(':', ".")
 }
 
+/// The name `asked` (as `compared` writes it) is nearly: at most two
+/// letters off a name as printed, a part of it that begins it (`c.weapons`,
+/// a name the entries only hold in longer ones) or its last word
+/// (`walk`); the nearest, a whole name before a part of one.
+fn nearest_name(asked: &str, all: &[Entry]) -> Option<String> {
+    let mut best: Option<(usize, usize, String)> = None;
+    for e in all {
+        let whole = compared(&e.name);
+        let at = |i: usize| e.name[..i].to_string();
+        let parts = e.name.match_indices(['.', ':']).map(|(i, _)| at(i));
+        let last = whole.rsplit('.').next().unwrap_or("");
+        let candidates = std::iter::once((whole.as_str().to_string(), 0, e.name.clone()))
+            .chain(parts.map(|p| (compared(&p), 1, p)))
+            .chain(std::iter::once((last.to_string(), 2, e.name.clone())));
+        for (key, rank, shown) in candidates {
+            let d = super::checks::edits(asked, &key);
+            if d <= 2 && best.as_ref().is_none_or(|(bd, br, _)| (d, rank) < (*bd, *br)) {
+                best = Some((d, rank, shown));
+            }
+        }
+    }
+    best.map(|(.., n)| n)
+}
+
 /// The API as text, one name a line with what it does, then the settings
 /// of `conf.lua`, the keys of a kind (`c.things.NAME`) and the types.
 /// Without a filter it begins with what a mistake is, the conventions and
@@ -1091,8 +1115,7 @@ pub fn lookup(filter: Option<&str>) -> Result<String, String> {
             };
             let found: Vec<&Entry> = all.iter().filter(|e| holds(e)).collect();
             if found.is_empty() {
-                let names: Vec<String> = all.iter().flat_map(|e| [compared(&e.name), compared(&e.name).rsplit('.').next().unwrap_or("").to_string()]).collect();
-                let near = crate::audio::words::near(&f, names.iter().map(String::as_str)).map_or(String::new(), |n| format!(" (did you mean {n}?)"));
+                let near = nearest_name(&f, &all).map_or(String::new(), |n| format!(" (did you mean {n}?)"));
                 return Err(format!("no name of the API, setting, kind's key or type is called {}{near}; voxcade api lists them all", filter.unwrap_or("").trim()));
             }
             found
@@ -1913,8 +1936,21 @@ mod tests {
         }
         assert!(!found("thing:walk").contains("world.state"));
         let e = lookup(Some("wlak")).unwrap_err();
-        assert!(e.starts_with("no name of the API, setting, kind's key or type is called wlak (did you mean walk?)"), "{e}");
-        assert!(lookup(Some("zzzzzzzz")).is_err());
+        assert!(e.starts_with("no name of the API, setting, kind's key or type is called wlak (did you mean thing:walk"), "{e}");
+        assert!(lookup(Some("zzzzzzzz")).unwrap_err().ends_with("; voxcade api lists them all"));
+        // Every misspelling names its nearest, a part of a name that only
+        // longer names hold (`c.weapons`) and a wrong middle word as well.
+        for (asked, meant) in [
+            ("frame:drw", "frame:draw"),
+            ("thing:wlak", "thing:walk"),
+            ("c.camera.fow", "c.camera.fov"),
+            ("c.camra.fov", "c.camera.fov"),
+            ("c.wepons", "c.weapons"),
+            ("c.thigns", "c.things"),
+        ] {
+            let e = lookup(Some(asked)).unwrap_err();
+            assert!(e.contains(&format!("(did you mean {meant}")), "{asked}: {e}");
+        }
         let all = lookup(None).unwrap();
         assert!(all.contains("== SETTINGS") && all.contains("== KINDS") && all.contains("level:spawn("));
     }

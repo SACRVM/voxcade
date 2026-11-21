@@ -49,6 +49,9 @@ const STEPS: &[Step] = &[
     Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left) },
 ];
 
+/// The steps that only say what the author should change and write nothing.
+const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls"];
+
 impl Step {
     /// Whether a game stating version `made` (None: none) needs the step.
     fn due(&self, made: Option<&str>, dir: &Path) -> bool {
@@ -182,13 +185,13 @@ pub fn opens(dir: &Path) -> Result<()> {
             Ok(())
         }
         Standing::Older { made, steps } => {
+            // The refusal names the steps, never their words of what the
+            // upgrade will write: a person at the door needs the command.
             // A game of this very version holding something it reads no
             // more (`c.markers` typed anew): what, not "made for an earlier".
-            if made.as_deref() == Some(engine())
-                && let Some(first) = steps.iter().find_map(|s| s.would.first())
-            {
+            if made.as_deref() == Some(engine()) && steps.iter().any(|s| !s.would.is_empty()) {
                 let names = steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ");
-                bail!("{}: Voxcade {} reads this no more ({names}): {first}; `voxcade upgrade {}` brings it over", dir.display(), engine(), dir.display());
+                bail!("{}: Voxcade {} reads this no more ({names}); `voxcade upgrade {}` brings it over", dir.display(), engine(), dir.display());
             }
             let made = match made {
                 Some(v) if v == engine() => format!("an earlier Voxcade {v} (before: {})", steps.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")),
@@ -196,8 +199,8 @@ pub fn opens(dir: &Path) -> Result<()> {
                 // No line: made before it came, and a step has something to
                 // change (else it opens): say the first.
                 None => {
-                    let (step, first) = steps.iter().find_map(|s| s.would.first().map(|w| (s.name, w.as_str()))).unwrap_or(("", ""));
-                    format!("an older Voxcade (conf.lua states none, {VERSION_LINE}; {step}: {first})")
+                    let step = steps.iter().find(|s| !s.would.is_empty()).map_or("", |s| s.name);
+                    format!("an older Voxcade (conf.lua states none, {VERSION_LINE}; {step})")
                 }
             };
             bail!("{}: made for {made}; this is {}: `voxcade upgrade {}` brings it up to date", dir.display(), engine(), dir.display())
@@ -242,7 +245,7 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
         // Only the version line missing: it is written, nothing else.
         Standing::Current if stated(dir)?.is_none() => {
             out.push(format!("{}: its files are for Voxcade {} already", dir.display(), engine()));
-            out.push(set_version_in_file(dir, engine(), dry)?);
+            out.extend(set_version_in_file(dir, engine(), dry)?);
             return Ok(out);
         }
         Standing::Current => {
@@ -261,6 +264,7 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
         Some(k) => format!("the game's files as they were are in {}", k.display()),
         None => "git has the game's files as they were".to_string(),
     };
+    let mut changed = false;
     for plan in &steps {
         let Some(step) = STEPS.iter().find(|s| s.name == plan.name) else { bail!("no step '{}' in this Voxcade", plan.name) };
         out.push(format!("{} (Voxcade {}):", step.name, step.since));
@@ -268,13 +272,14 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
         if said.is_empty() {
             out.push("  nothing to change".into());
         }
+        changed |= !said.is_empty() && !NOTES_ONLY.contains(&step.name);
         out.extend(said.into_iter().map(|l| format!("  {l}")));
     }
-    let line = set_version_in_file(dir, engine(), dry)?;
-    out.push(line);
+    out.extend(set_version_in_file(dir, engine(), dry)?);
     // Replays name the files they were recorded on: refitted, they take
-    // the new ones if they still play exactly as recorded.
-    if !files_ending(&dir.join("replays"), "toml").is_empty() {
+    // the new ones if they still play exactly as recorded. Said only where
+    // a step changed what a replay is fitted to.
+    if changed && !files_ending(&dir.join("replays"), "toml").is_empty() {
         out.push(format!("the replays were recorded on the old files: `voxcade check {} --refit` fits them to the new ones if every one still plays as recorded", dir.display()));
     }
     Ok(out)
@@ -355,8 +360,9 @@ pub fn with_version(text: &str, version: &str) -> Option<String> {
 }
 
 /// Writes the version line into the game's `conf.lua` (a new `conf.lua`
-/// for a game without one); says what it did, or where to put it by hand.
-fn set_version_in_file(dir: &Path, version: &str, dry: bool) -> Result<String> {
+/// for a game without one); says what it did, or where to put it by hand;
+/// None when the line already says it.
+fn set_version_in_file(dir: &Path, version: &str, dry: bool) -> Result<Option<String>> {
     let path = dir.join("conf.lua");
     let line = format!("{VERSION_LINE} = \"{version}\"");
     let verb = if dry { "would say" } else { "says" };
@@ -364,17 +370,17 @@ fn set_version_in_file(dir: &Path, version: &str, dry: bool) -> Result<String> {
         if !dry {
             std::fs::write(&path, format!("-- The game's settings (main.lua has its code).\nfunction conf(c)\n  {line}\nend\n")).with_context(|| format!("writing {}", path.display()))?;
         }
-        return Ok(format!("conf.lua (new) {verb} {line}"));
+        return Ok(Some(format!("conf.lua (new) {verb} {line}")));
     }
     let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     match with_version(&text, version) {
         Some(new) => {
             if !dry && new != text {
-                std::fs::write(&path, new).with_context(|| format!("writing {}", path.display()))?;
+                std::fs::write(&path, &new).with_context(|| format!("writing {}", path.display()))?;
             }
-            Ok(format!("conf.lua {verb} {line}"))
+            Ok((new != text).then(|| format!("conf.lua {verb} {line}")))
         }
-        None => Ok(format!("conf.lua has no `function conf(c)`: put {line} in it by hand, as the first line of conf(c)")),
+        None => Ok(Some(format!("conf.lua has no `function conf(c)`: put {line} in it by hand, as the first line of conf(c)"))),
     }
 }
 
