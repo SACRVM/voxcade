@@ -128,6 +128,9 @@ impl UserData for InputView {
         f.add_field_method_get("pointer", |lua, i| {
             let Some(p) = &i.pointer else { return Ok(Value::Nil) };
             let t = lua.create_table()?;
+            t.raw_set("x", p.x)?;
+            t.raw_set("y", p.y)?;
+            t.raw_set("moved", i.now.pointer_moved(&i.before))?;
             if let Some(panel) = p.panel.as_ref().filter(|panel| !panel.name.is_empty()) {
                 let steps = crate::input::PANEL_STEPS as f64;
                 t.raw_set("hud", panel.name.as_str())?;

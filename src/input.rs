@@ -58,8 +58,8 @@ pub struct Input {
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct Pointer {
     /// Where it is in the HUD's measure (`frame.width` by `frame.height`),
-    /// whole UI voxels from the top left: for the picture only
-    /// (`frame.pointer` played back), never the game's rules.
+    /// whole UI voxels from the top left, as the machine's picture had it
+    /// (`input.pointer.x`, `frame.pointer` played back).
     pub x: i32,
     pub y: i32,
     /// The level's picture that answered (`picture_mark` of
@@ -298,6 +298,14 @@ impl Input {
     /// reading came (the pointer stays, the text typed went once).
     pub fn held_on(&self) -> Self {
         Self { typed: None, pointer: self.pointer.clone().map(|p| Box::new(Pointer { press: false, ..*p })), ..self.clone() }
+    }
+
+    /// Whether its pointer was moved since the tick that held `before`
+    /// (`input.pointer.moved`): it is elsewhere, or that tick had none (the
+    /// run's first, the mouse back on the picture or used after the pad).
+    /// What it is over changing alone is no move.
+    pub fn pointer_moved(&self, before: &Input) -> bool {
+        self.pointer.as_ref().is_some_and(|p| before.pointer.as_ref().is_none_or(|b| (b.x, b.y) != (p.x, p.y)))
     }
 
     /// Whether anything but the directions and actions is in it (what

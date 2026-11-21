@@ -227,7 +227,11 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   `frame:grid` with `name =` is one too, and `input.pointer.hud`,
   `.index` (the row or slot), `.u`, `.v` say what the pointer is over:
   `if input:pressed("click") and input.pointer and input.pointer.hud ==
-  "shop" then buy(input.pointer.index) end`. A grid's slot shows an
+  "shop" then buy(input.pointer.index) end`. `input.pointer.x`, `.y`
+  say where it is (the HUD's measure, as `frame.pointer`'s), `.moved`
+  whether it moved since the tick before (a cursor of your own shown
+  again once it moved after the keys were used; the rules ask `hud`
+  what it is over, since screens differ in width). A grid's slot shows an
   item's model with `model = "key.vvx"`. A name typed:
   `player.state.typing = true`, then `input.typed.text` (add it),
   `.erase` (Backspace), `.done` (Enter: set typing back to false),

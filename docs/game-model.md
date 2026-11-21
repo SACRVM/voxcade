@@ -167,9 +167,22 @@ settings. Several players: `player` is seat 1, the others are in
     system's arrow, or `"own"`, the arrow hidden while the game plays and
     the game draws its own from `frame.pointer`; restart-only, in the
     fingerprint only when set; unset, no pointer, as every game before):
-    what it is over, nil without one, for a player on a pad and when the
-    pad was used last. `hud` the name of the HUD panel under it, the
-    topmost (`frame:hud(name, x, y, width, height)` names a rectangle of
+    where it is and what it is over, nil without one, off the picture (the
+    mouse out of the window or on the black bars), for a player on a pad
+    and when the pad was used last. `x` and `y` where it is, whole UI
+    voxels from the screen's top left, the HUD's measure (`frame.width` by
+    `frame.height`, `c.ui.height`; rounded to the nearest, as
+    `frame.pointer`'s, which says the same of the tick played); `moved`
+    true in a tick whose pointer is elsewhere than the tick before's, or
+    the tick before had none (the run's first tick with it, the mouse
+    back on the picture or used again after the pad), false where it
+    stayed, whatever it is over: a thing walking under it, another level's
+    picture or a button pressed where it stands is no move (a click's
+    place is the press's, as its answers), and a pad's stick never moves
+    it (a
+    point-and-click game shows its own cursor again once it moved after
+    the keys were used; the owner's yes, 2026-11-21). `hud` the name of
+    the HUD panel under it, the topmost (`frame:hud(name, x, y, width, height)` names a rectangle of
     the picture; every `frame:menu` and `frame:grid` is a panel, named with
     `name =`, and covers what lies under it), `index` its row or cell from
     1, `u` and `v` where in it, 0 to 1 from its top left. What it meets in
@@ -197,9 +210,13 @@ settings. Several players: `player` is seat 1, the others are in
     on the wire a pointer is a few whole numbers (the panel's name whole,
     16 bytes at most: bundles are read one by one, so nothing is sent "as
     before"). One mouse a machine, the seat's that has the keyboard; over
-    the network each machine's own answers. No x and y in the tick, on
-    purpose: a HUD's layout hangs on `frame.width`, which differs between
-    machines (a replay keeps where the pointer was, for the picture).
+    the network each machine's own answers. `x` and `y` are that
+    machine's measure too: a HUD's layout hangs on `frame.width`, which
+    differs between machines, so what the pointer is over is asked of a
+    panel (`hud`), not of fixed numbers. They were carried from the start
+    (a replay's `pointer=X,Y`, the wire's), so `x`, `y` and `moved` came
+    without a new word or wire version, and a game that names none of
+    them plays as before.
     With a pointer the engine's menus (the title, the pause, the
     settings' pages) take the mouse too, with no name for it: the row
     under it is chosen, a left click confirms it, a right one goes back.

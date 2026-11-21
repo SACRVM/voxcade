@@ -79,6 +79,60 @@ fn the_pointer_is_answered_from_the_picture_and_checked_by_the_tick() {
     assert_eq!(s[2], "-|nil||0.000,0.000|0.000,0.000||");
 }
 
+/// `input.pointer.x` and `y` are where the pointer is as its machine gave
+/// it, the HUD's measure (what `frame.pointer` says of the tick played);
+/// `moved` is true where it is elsewhere than the tick before or was not
+/// there, false where it stayed, whatever the tick takes of its answers.
+/// Off the picture it is nil, and back on it it moved. A run of it replays
+/// and goes back as recorded.
+#[test]
+fn the_pointer_says_where_it_is_and_whether_it_moved() {
+    let main = r#"
+function on_world_start()
+  world.state.seen = {}
+end
+function on_tick()
+  local p = input.pointer
+  table.insert(world.state.seen, p and string.format("%d,%d,%s,%s", p.x, p.y, tostring(p.moved), p.hud or "-") or "nil")
+end
+function on_draw(frame)
+  frame:hud("map", 0, 0, 40, 20)
+  local p = frame.pointer
+  frame:text(p and (p.x .. "," .. p.y) or "nil", 1, 1)
+end
+"#;
+    let dir = pointing("pointer-moved", POINTER, main);
+    let mut g = game_in(&dir);
+    g.look();
+    let at = |g: &Session<LuaGame>, x: f32, y: f32| Input { pointer: Some(Box::new(g.point(x, y, 16.0 / 9.0))), ..Input::default() };
+    let map = at(&g, 20.0, 10.0);
+    let mut old = map.clone();
+    old.pointer.as_mut().unwrap().picture = Some(map.pointer.as_ref().unwrap().picture.unwrap().wrapping_add(1));
+    for input in [&map, &map, &old, &map, &at(&g, 70.4, 39.6), &Input::default(), &at(&g, 70.0, 40.0)] {
+        g.step(input);
+    }
+    assert_eq!(seen(&mut g), ["20,10,true,map", "20,10,false,map", "nil", "20,10,false,map", "70,40,true,-", "nil", "70,40,true,-"]);
+    g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    assert_eq!(first_text(&g), "70,40", "frame.pointer says the same place");
+    // Recorded from a script's pointer=X,Y, played again, gone back.
+    let dir = pointing("pointer-moved-replay", POINTER, main);
+    let mut g = game_in(&dir);
+    let mut script = crate::replay::Script::new(g.script("none:2;pointer=20,10:3;pointer=21,10:1;none:2;pointer=21,10:2;pointer=300,150:40;none:20").unwrap());
+    let mut recorder = crate::replay::Recorder::default();
+    for _ in 0..70 {
+        let mut input = script.next_input();
+        g.answer(&mut input, 1, 16.0 / 9.0);
+        g.step(&input);
+        g.look();
+        recorder.record(&g);
+    }
+    assert_eq!(seen(&mut g)[..10], ["nil", "nil", "20,10,true,map", "20,10,false,map", "20,10,false,map", "21,10,true,map", "nil", "nil", "21,10,true,map", "21,10,false,map"]);
+    std::fs::create_dir_all(dir.join("replays")).unwrap();
+    recorder.replay(&g).unwrap().save(&dir.join("replays/moved.toml")).unwrap();
+    assert_eq!(crate::replay::play_through::<LuaGame>(&dir, &crate::replay::Replay::load(&dir.join("replays/moved.toml")).unwrap()).unwrap(), crate::replay::Verdict::Same);
+    assert!(crate::replay::check_going_back::<LuaGame>(&dir, 3).unwrap());
+}
+
 fn menu_of(g: &Session<LuaGame>) -> crate::lua::world::Menu {
     g.game.drawn.borrow().iter().find_map(|c| match c { crate::lua::world::Cmd::Menu(m) => Some(m.clone()), _ => None }).expect("a menu")
 }

@@ -49,7 +49,10 @@ const TYPES: &str = "\
 ---@field x number Right (below 0: left), -1 to 1.
 ---@field y number Up the screen (below 0: down), -1 to 1.
 
----@class PointerAt What the pointer is over this tick (input.pointer).
+---@class PointerAt Where the pointer is this tick and what it is over (input.pointer).
+---@field x integer Where it is across, in UI voxels from the screen's left (as frame.pointer.x).
+---@field y integer Where it is down, in UI voxels from the screen's top.
+---@field moved boolean The pointer is elsewhere than the tick before, or was not there then.
 ---@field hud? string The name of the HUD panel under it (frame:hud, a named menu or grid), the topmost; nil over none.
 ---@field index? integer The menu's row or the grid's cell under it, from 1.
 ---@field u? number Where in that panel across, 0 at its left to 1 at its right.
@@ -596,8 +599,12 @@ pub const API: &[Item] = &[
     Item { of: "input", name: "aim", what: Field { ty: "Stick", set: false }, doc: "Where the right stick leans, { x, y } as input.move; \
             with a mouse in a game with a pointer (c.pointer) the way on the screen from the player's figure to the pointer, length 1; \
             { x = 0, y = 0 } with keys alone. A twin-stick shooter's aim, the same code for the pad and the mouse." },
-    Item { of: "input", name: "pointer", what: Field { ty: "PointerAt|nil", set: false }, doc: "What the pointer is over this tick, in a \
-            game with one (c.pointer): nil without, for a player on a pad, and when the pad was used last.\n- hud: the name of the HUD \
+    Item { of: "input", name: "pointer", what: Field { ty: "PointerAt|nil", set: false }, doc: "Where the pointer is this tick and what \
+            it is over, in a game with one (c.pointer): nil without, off the picture, for a player on a pad, and when the pad was used \
+            last.\n- x, y: where it is, in UI voxels from the screen's top left, as frame:text's and frame.pointer's (frame.width by \
+            frame.height). The player's own screen: its width may differ on another machine, so ask hud what it is over.\n- moved: true when it is elsewhere than the tick before, or was not there then (the first tick, the mouse \
+            back on the picture or used again after the pad); what it is over changing alone is no move. Show your own cursor again \
+            when it moved after the keys were used.\n- hud: the name of the HUD \
             panel under it (frame:hud, or a menu or grid with a name), the topmost; nil over none.\n- index: that menu's row or grid's \
             cell, from 1.\n- u, v: where in the panel, 0 to 1 from its top left (a slider, a map).\n- thing: the thing whose drawn voxels \
             it is over (a figure as drawn and posed, a level's piece, a model frame:model drew with it), part: that figure's part by \

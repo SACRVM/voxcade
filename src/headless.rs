@@ -811,7 +811,10 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
     let mut watch = crate::lua::hidden::Watch::default();
     watch.begin(game.game.hidden());
     let mut warnings = Vec::new();
+    // The tick before the last played: whether the pointer moved.
+    let mut before = crate::session::Tick::default();
     for _ in 0..frames {
+        before = game.played().clone();
         seat_scripts.next(&mut game);
         // A script's pointer answered from the picture before.
         seat_scripts.answer(&mut game, 16.0 / 9.0);
@@ -841,7 +844,7 @@ fn inspected<G: Game>(dir: &Path, frames: u32, input: &str, seats: &[(usize, Str
     standing["warnings"] = serde_json::json!(warnings);
     // What the pointer of the last tick answered, as the tick took it.
     if game.has_pointer() {
-        standing["pointer"] = pointer_json(&game);
+        standing["pointer"] = pointer_json(&game, &before);
     }
     Ok(standing)
 }
@@ -853,18 +856,24 @@ fn ends_the_run(asked: &[crate::game::Request]) -> bool {
 }
 
 /// The pointer of the tick played last of every seat that has one, as the
-/// tick took it (`Pointer::checked`): `inspect`'s "pointer".
-fn pointer_json<G: Game>(game: &Session<G>) -> serde_json::Value {
+/// tick took it (`Pointer::checked`), and whether it moved since `before`,
+/// the tick played before that: `inspect`'s "pointer".
+fn pointer_json<G: Game>(game: &Session<G>, before: &crate::session::Tick) -> serde_json::Value {
+    /// Each seat's input in a tick, seat 1 first (None: free).
+    fn seats(t: &crate::session::Tick) -> Vec<Option<&crate::input::Input>> {
+        std::iter::once(Some(&t.input)).chain(t.seats.iter().map(|s| s.input.as_ref())).collect()
+    }
     let picture = crate::input::picture_mark(game.game.level_mark());
-    let tick = game.played();
-    let seats = std::iter::once((1, Some(&tick.input))).chain(tick.seats.iter().enumerate().map(|(n, s)| (n + 2, s.input.as_ref())));
+    let was = seats(before);
     let mut out = serde_json::Map::new();
-    for (seat, input) in seats {
-        let Some(p) = input.and_then(|i| i.pointer.as_ref()) else { continue };
+    for (seat, input) in seats(game.played()).into_iter().enumerate() {
+        let Some(input) = input else { continue };
+        let Some(p) = input.pointer.as_ref() else { continue };
+        let moved = input.pointer_moved(was.get(seat).copied().flatten().unwrap_or(&crate::input::Input::default()));
         let answer = match p.checked(picture) {
-            None => serde_json::json!({ "x": p.x, "y": p.y, "answered": "another level's picture" }),
+            None => serde_json::json!({ "x": p.x, "y": p.y, "moved": moved, "answered": "another level's picture" }),
             Some(p) => {
-                let mut a = serde_json::json!({ "x": p.x, "y": p.y });
+                let mut a = serde_json::json!({ "x": p.x, "y": p.y, "moved": moved });
                 if let Some(panel) = p.panel.as_ref().filter(|panel| !panel.name.is_empty()) {
                     let steps = crate::input::PANEL_STEPS as f64;
                     a["hud"] = serde_json::json!(panel.name);
@@ -895,7 +904,7 @@ fn pointer_json<G: Game>(game: &Session<G>) -> serde_json::Value {
                 a
             }
         };
-        out.insert(seat.to_string(), answer);
+        out.insert((seat + 1).to_string(), answer);
     }
     serde_json::Value::Object(out)
 }

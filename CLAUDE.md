@@ -1076,7 +1076,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `aim=X,Y`, `pointer=X,Y` (answered before the step: `Session::answer`;
   replays write `picture=`, `hud=`, `index=`, `uv=`), `text=` (`%3B`
   escapes), `erase=N`, `typed=done|cancel`, `mouse_left` and the like as
-  the game binds them; `inspect` prints `"pointer"`. The level's answers
+  the game binds them; `inspect` prints `"pointer"` (with `moved`).
+  `input.pointer.x`, `y` (the HUD's measure, as the reading carried it
+  from the start) and `moved` (elsewhere than the tick before's, or none
+  then: `Input::pointer_moved`, raw places, so another level's picture or
+  a thing walking under it is no move; the owner's yes, 2026-11-21; test
+  `the_pointer_says_where_it_is_and_whether_it_moved`): no new word, wire
+  version or replay field. The level's answers
   (`input.pointer.thing`, `part`, `area`, `at`, `cell`; `frame.pointer`'s
   `thing`, `part`, `area`; `input.aim` from the mouse, `Session::mouse_aim`):
   `src/session/pick.rs` from the picture as composed or `look`ed
