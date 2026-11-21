@@ -413,3 +413,40 @@ fn levels_maps_and_worlds_become_text() {
     opens(&blocks).unwrap();
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A game on the old color scale that states this very version: the report
+/// (and the dry run) say the version line only when it changes.
+#[test]
+fn the_report_says_the_version_line_only_when_it_changes() {
+    let dir = crate::scratch::Scratch::new("upgrade-sameline");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.voxcade = \"{}\"\n  c.light.sky = {{ 0.06, 0.07, 0.1 }}\nend\n", engine())).unwrap();
+    for dry in [true, false] {
+        let said = upgrade(&dir, dry).unwrap();
+        assert!(said.iter().any(|l| l.contains("colors from 0 to 255")), "{said:?}");
+        assert!(!said.iter().any(|l| l.contains("c.voxcade")), "dry {dry}: {said:?}");
+    }
+    // From an older version the line does change, and is said.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\nend\n").unwrap();
+    assert!(upgrade(&dir, true).unwrap().iter().any(|l| l.contains("would say c.voxcade")));
+}
+
+/// The line naming `check --refit` comes only where the upgrade changed
+/// something that enters the fingerprint and the game has replays.
+#[test]
+fn the_refit_line_comes_only_where_replays_can_have_moved() {
+    let dir = crate::scratch::Scratch::new("upgrade-refitline");
+    std::fs::create_dir_all(&dir).unwrap();
+    let old = "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.light.sky = { 0.06, 0.07, 0.1 }\nend\n";
+    let refit = |said: &[String]| said.iter().any(|l| l.contains("--refit"));
+    std::fs::write(dir.join("conf.lua"), old).unwrap();
+    assert!(!refit(&upgrade(&dir, true).unwrap()), "no replays");
+    std::fs::create_dir_all(dir.join("replays")).unwrap();
+    std::fs::write(dir.join("replays/a.toml"), "version = 1\n").unwrap();
+    assert!(refit(&upgrade(&dir, true).unwrap()), "a replay and a changed color");
+    assert!(refit(&upgrade(&dir, false).unwrap()));
+    // Nothing changed but the line: no refit.
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.voxcade = \"0.6.0\"\nend\n").unwrap();
+    let said = upgrade(&dir, false).unwrap();
+    assert!(!refit(&said), "{said:?}");
+}
