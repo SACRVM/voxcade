@@ -86,15 +86,17 @@ V: @vox o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
   in speech (sh about 13 dB under the vowel, s 15, f 20).
 - Clusters (`singer`): a coda ends where the next syllable's onset
   begins, both compressed together down to each consonant's least where
-  they do not fit before the next vowel; consonants in a cluster are a
-  quarter shorter; a plosive after s or sh is unaspirated, one after a
-  nasal of its place has a short closure; a v (z) is Klatt's voiced
-  fricative: a voice bar and a weak hiss, not a vowel; a burst is a
-  transient falling into the breath; nothing steps (the voicing set at
+  they do not fit before the next vowel; a plosive after s or sh is
+  unaspirated; a v (z) is Klatt's voiced fricative: a voice bar and a
+  weak hiss, not a vowel; b, d, g release a short hiss before their
+  voicing, a g's longest and compact (so grau is not heard as blau), a
+  voice bar only after a voiced sound; `singer`'s r is the German r
+  (uvular, its F3 high, a light rasp before a vowel, its voice alone in
+  a coda), `voice`'s the English one; nothing steps (the voicing set at
   a pulse's start, hisses ramped over 5 ms, the nasal zero gliding).
   Checked by `the_singer_sings_every_consonant_of_a_cluster` and
-  `the_singers_bursts_fall_away_into_their_breath`; sources in
-  `clear.rs`'s comments (Klatt 1980, 1987 and the like).
+  `the_singer_tells_g_from_b_and_r_from_l`; sources in `clear.rs`'s
+  comments (Klatt 1980, 1987 and the like).
 - `duty`, `pwm`, `pwm_speed` are refused on a voice; every other word
   applies. The attack starts from where the voice was, so a line does
   not drop to silence between syllables.
