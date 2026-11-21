@@ -1502,7 +1502,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   game's (the user: "we are writing an engine, not a moddable game"):
   its `on_draw` draws it (`frame.width`/`height`/`alpha`, `frame:text`
   with a size, `text_width`, `box`, `bar`, `icon` from `c.icons`,
-  `drop_in`; `screen:burst`, the voxels only shown, `HudState`); the
+  `drop_in`; `draw`, a model file as a grid's slot shows it, one voxel a
+  UI voxel, its `frame` and `rotation` in quarter turns, no scale on the
+  HUD, the owner's 2026-11-21: `menus::front`, `ui::hud_model`;
+  `screen:burst`, the voxels only shown, `HudState`; what is drawn
+  first keeps a shared voxel); the
   engine helps with how and where, the kits draw none. Its cubes go to
   the UI pass through `Session::hud_cubes`: covered faces hidden, the
   cubes nothing of which shows from the UI's eye left out

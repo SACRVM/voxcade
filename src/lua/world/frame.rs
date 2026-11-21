@@ -262,6 +262,42 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Grid(g));
             Ok(())
         });
+        m.add_method_mut("draw", |_, o, (file, x, y, options): (String, f32, f32, Option<Given>)| {
+            const WHAT: &str = "frame:draw";
+            let (mut frame, mut quarters) = (0, 0);
+            if let Some(t) = &options {
+                super::menus::known_keys(t, &["frame", "rotation"], WHAT)?;
+                let whole = |key: &str| -> mlua::Result<Option<f64>> {
+                    match t.raw_get::<Value>(key)? {
+                        Value::Nil => Ok(None),
+                        Value::Integer(n) => Ok(Some(n as f64)),
+                        Value::Number(n) if n.is_finite() && n.fract() == 0.0 => Ok(Some(n)),
+                        _ => Err(mlua::Error::runtime(format!("{WHAT}: {key} is a whole number"))),
+                    }
+                };
+                if let Some(r) = whole("rotation")? {
+                    if r % 90.0 != 0.0 {
+                        return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r}: quarter turns only (0, 90, 180, 270)")));
+                    }
+                    quarters = (r / 90.0).rem_euclid(4.0) as u8;
+                }
+                frame = match whole("frame")? {
+                    Some(n) if n >= 0.0 => n as usize,
+                    Some(n) => return Err(mlua::Error::runtime(format!("{WHAT}: frame = {n}: its frames count from 0"))),
+                    None => 0,
+                };
+            }
+            // Any model file of the game, loaded the first time it is drawn.
+            let Some(needed) = &o.needed else { return Err(mlua::Error::runtime(format!("{WHAT}: no model \"{file}\""))) };
+            let model = needed.load(&file).map_err(|e| mlua::Error::runtime(format!("{WHAT}: {e:#}")))?;
+            if frame >= model.frames.len() {
+                return Err(mlua::Error::runtime(format!("{WHAT}: frame = {frame}, but \"{file}\" has {} (from 0)", model.frames.len())));
+            }
+            // One voxel of the model one of the HUD's.
+            let thumb = super::menus::front(&model, frame, quarters, 1);
+            o.cmds.push(Cmd::Draw { thumb: Arc::new(thumb), x, y });
+            Ok(())
+        });
         m.add_method_mut("hud", |_, o, (name, x, y, width, height): (String, f32, f32, f32, f32)| {
             super::menus::check_panel_name(&name, "frame:hud")?;
             if name.is_empty() {

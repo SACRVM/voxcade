@@ -6,6 +6,7 @@ mod colors;
 mod course;
 mod events;
 mod given;
+mod hud;
 mod input;
 mod kits;
 mod mistakes;

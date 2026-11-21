@@ -204,6 +204,7 @@ impl<K: Kit> LuaGame<K> {
                 }
                 Cmd::Menu(m) => ui::game_menu(&mut out, m, &layout, depth, &self.stage.hud.icons, self.stage.host.sim().tick),
                 Cmd::Grid(g) => ui::game_grid(&mut out, g, &layout, depth, &self.stage.hud.icons),
+                Cmd::Draw { thumb, x, y } => ui::hud_model(&mut out, thumb, *x, *y, top),
                 _ => {}
             }
         }

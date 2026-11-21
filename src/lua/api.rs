@@ -170,6 +170,10 @@ const TYPES: &str = "\
 ---@field pitch? number Its nose up (below 0: down).
 ---@field roll? number Its right side down, as when banking right (below 0: its left).
 
+---@class DrawOptions How a model is drawn on the HUD (frame:draw).
+---@field frame? integer Which of its frames, from 0 (0 unless given).
+---@field rotation? integer Which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side.
+
 ---@class SaveInfo What lies in a save slot.
 ---@field level string The level it was saved in.
 ---@field seconds integer The play time when it was saved.
@@ -747,7 +751,8 @@ pub const API: &[Item] = &[
             across, frame.height down).\n- color: a Color, a fourth value see-through.\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \
             in braces is its key as the player sees it: \"PRESS {jump}\" writes PRESS X, or the pad's button (controls:key). {{ writes a \
             brace.\nWritten as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ \
-            ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals." },
+            ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals.\nWhat is drawn first on the HUD lies on top: where \
+            two things share a voxel, the first keeps it (a box drawn later does not cover an icon drawn before)." },
     Item { of: "frame", name: "players", what: Field { ty: "Player[]", set: false }, doc: "The players at the machine this picture is drawn \
             for, in seat order (at one machine every taken seat, the out too; over the network that machine's own): their HUD. A key in \
             braces in a text, and controls in on_draw, are the first of them's (seat 1's where none plays there); another player's is \
@@ -764,13 +769,24 @@ pub const API: &[Item] = &[
     Item { of: "frame", name: "text_width", what: Method { params: &[("text", "string"), ("size?", "integer")], returns: "number" },
         doc: "How many UI voxels wide the text is at that size (for centring and putting it at the right edge)." },
     Item { of: "frame", name: "box", what: Method { params: &[("x", "number"), ("y", "number"), ("width", "number"), ("height", "number"), ("color?", "Color")], returns: "" },
-        doc: "Draws a filled box on the screen, its top left at x, y, in UI voxels. color: a Color, a fourth value see-through." },
+        doc: "Draws a filled box on the screen, its top left at x, y, in UI voxels. color: a Color, a fourth value see-through. What is \
+            drawn first on the HUD lies on top: a box drawn later does not cover an icon or text drawn before." },
     Item { of: "frame", name: "bar", what: Method { params: &[("x", "number"), ("y", "number"), ("width", "number"), ("height", "number"), ("fraction", "number"), ("color?", "Color"), ("back?", "Color")], returns: "" },
         doc: "Draws a bar on the screen filled the fraction (0 to 1) of its width: a boss's health, a timer. color the filled part (red \
-            unless given), back the rest, each a Color, a fourth value see-through." },
+            unless given), back the rest, each a Color, a fourth value see-through. What is drawn first on the HUD lies on top: a \
+            bar drawn later does not cover an icon or text drawn before." },
     Item { of: "frame", name: "icon", what: Method { params: &[("name", "string"), ("x", "number"), ("y", "number")], returns: "" },
         doc: "Draws a small picture of c.icons on the screen, its top left at x, y: c.icons.heart = { rows = { \".RR.RR.\", ... }, colors = \
-            { R = { 214, 36, 44 } } }: a letter's color is a Color, a fourth value see-through." },
+            { R = { 214, 36, 44 } } }: a letter's color is a Color, a fourth value see-through. What is drawn first on the HUD lies \
+            on top: draw an icon before the box it sits on." },
+    Item { of: "frame", name: "draw", what: Method { params: &[("file", "string"), ("x", "number"), ("y", "number"), ("options?", "DrawOptions")], returns: "" },
+        doc: "Draws a model file of the game on the screen, its top left at x, y, in UI voxels: a key in the corner, a face beside what a \
+            figure says. file is any model file of the game by its path in the game folder (\"items/key.vvx\"), loaded the first time it is \
+            drawn; a file that is not there is a mistake. One voxel of the model is one of the HUD's, seen from one side and 2 voxels \
+            deep, as a grid's slot shows it (frame:grid): not lit by the level, its see-through voxels left out.\n- frame: which of \
+            its frames, from 0.\n- rotation: which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front \
+            (+y), 90 its left side, 180 its back, 270 its right side.\nWhat is drawn first on the HUD lies on top: draw the model \
+            before the box it sits on. With c.ui.depth above 2, what is drawn deeper stands in front of it." },
     Item { of: "frame", name: "drop_in", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("ticks", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME \
             OVER, a stage's name. Before 0 nothing shows. color and size as frame:text's." },

@@ -963,7 +963,7 @@ end
     },
     Topic {
         title: "DRAW A HUD",
-        text: "The HUD is your game's: on_draw draws it on the frame, counted from the top left in UI voxels; frame.width and frame.height say how big it is (the width follows the screen's shape). Small pictures are c.icons, a letter a color; frame:icon draws one, screen:burst makes one fly apart. frame:text takes a size (2 and up: big letters), frame:text_width measures for centering, frame:bar shows a share (a boss's health), frame:drop_in lets letters drop in, frame:to_screen says where a thing of the level shows (a name over its head). What changes over time (a heart lost, when a message began) goes into a state in on_tick.",
+        text: "The HUD is your game's: on_draw draws it on the frame, counted from the top left in UI voxels; frame.width and frame.height say how big it is (the width follows the screen's shape). Small pictures are c.icons, a letter a color; frame:icon draws one, screen:burst makes one fly apart. frame:draw draws a model file of the game, one of its voxels one of the HUD's, from the side you ask for. What is drawn first lies on top. frame:text takes a size (2 and up: big letters), frame:text_width measures for centering, frame:bar shows a share (a boss's health), frame:drop_in lets letters drop in, frame:to_screen says where a thing of the level shows (a name over its head). What changes over time (a heart lost, when a message began) goes into a state in on_tick.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = { hp = 3 }
 c.icons.heart = {
@@ -974,7 +974,7 @@ c.icons.empty = {
   rows = { ".KK.KK.", "K..K..K", ".K...K.", "..K.K..", "...K..." },
   colors = { K = { 96, 70, 64 } },
 }"##,
-        files: &[],
+        files: &[("items/key.vvx", "format = \"voxcade voxel 1\"\nsize = [7, 1, 3]\n\n[palette]\na = \"#e8b830\"\n\n[[frame]]\nlayers = \"\"\"\n.a.a.aa\n\naaaaaaa\n\n.....aa\n\"\"\"\n")],
         code: r##"function on_level_start(how)
   level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
   level.state.began = world.tick
@@ -997,6 +997,8 @@ function on_draw(frame)
   local score = string.format("%06d", player.state.score)
   frame:text(score, frame.width - 4 - frame:text_width(score), 4, { 255, 214, 90 })
   frame:bar(4, 14, 40, 2, player.state.hp / 3)
+  -- a key the hero carries, a model file drawn on the HUD
+  frame:draw("items/key.vvx", 50, 12)
   local title = "LEVEL ONE"
   local x = (frame.width - frame:text_width(title, 2)) / 2
   frame:drop_in(title, x, frame.height / 2 - 16, world.tick - level.state.began, { 230, 58, 48 }, 2)

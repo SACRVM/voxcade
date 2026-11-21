@@ -40,6 +40,16 @@ pub(super) fn hud_icon(out: &mut Vec<Instance>, icon: &crate::config::IconConfig
     }
 }
 
+/// A model's side as a grid's slot shows it (`frame:draw` too), two voxels
+/// deep, with its top left at (x, y) counted down from the top `top`.
+pub fn hud_model(out: &mut Vec<Instance>, thumb: &crate::lua::world::Thumb, x: f32, y: f32, top: f32) {
+    for &(col, row, color) in &thumb.voxels {
+        for z in 0..2 {
+            voxel(out, x + col as f32, top - y - 1.0 - row as f32, z as f32, color);
+        }
+    }
+}
+
 pub(super) fn icon_size(icon: &crate::config::IconConfig) -> (f32, f32) {
     (icon.rows.iter().map(|r| r.chars().count()).max().unwrap_or(0) as f32, icon.rows.len() as f32)
 }
@@ -233,11 +243,7 @@ pub fn game_grid(out: &mut Vec<Instance>, g: &crate::lua::world::Grid, layout: &
         }
         if let Some(thumb) = &c.thumb {
             let (ox, oy) = (((cell - thumb.width as f32) / 2.0).floor(), ((cell - thumb.height as f32) / 2.0).floor());
-            for &(col, row, color) in &thumb.voxels {
-                for z in 0..2 {
-                    voxel(out, cx + ox + col as f32, top - cy - oy - 1.0 - row as f32, z as f32, color);
-                }
-            }
+            hud_model(out, thumb, cx + ox, cy + oy, top);
         }
         if let Some(count) = c.count {
             let digits = count.to_string();

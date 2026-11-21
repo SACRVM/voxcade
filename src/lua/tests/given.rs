@@ -150,6 +150,7 @@ const CALLS: &[(&str, &str, &str, &str)] = &[
     ("bar", "color?", "frame:bar(1, 2, 10, 2, 0.5, T)", "{ 50, 60, 70 }"),
     ("bar", "back?", "frame:bar(1, 2, 10, 2, 0.5, nil, T)", "{ 80, 90, 100 }"),
     ("drop_in", "color?", "frame:drop_in('GO', 4, 5, 30, T, 2)", "{ 11, 12, 13 }"),
+    ("draw", "options?", "frame:draw('fig.vvx', 4, 5, T)", "{ frame = 0, rotation = 90 }"),
 ];
 
 /// Where a script finds a table, `{}` the call's number: as a literal, a

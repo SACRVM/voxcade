@@ -311,6 +311,17 @@ settings. Several players: `player` is seat 1, the others are in
   does not lie in memory the whole run. A file that is not there, or no
   model, stops the game with a mistake at the line that draws it. Only
   the picture: a model only drawn counts for no replay, hash or save.
+- `frame:draw(file, x, y, { frame =, rotation = })` draws a model file on
+  the HUD, its top left at x, y in UI voxels (the owner, 2026-11-21): as
+  a grid's slot shows it (`menus::front`, `ui::hud_model`), one of its
+  voxels one of the HUD's, seen from one side, two deep, not lit, its
+  see-through voxels left out; `frame` from 0, `rotation` the side facing
+  the viewer in quarter turns clockwise seen from above (0 its front,
+  +y; 90 its left side). No scale, on it or anywhere on the HUD (the
+  owner: "das HUD hat eine auflösung"). Loaded as `frame:model`'s, only
+  the picture. On the HUD what is drawn first keeps a voxel two things
+  share (a box drawn later does not cover an icon drawn before); what is
+  deeper stands in front (`c.ui.depth` above 2, a model's two).
 - **A model's pivot** is the cell `size / 2` (whole voxels, rounded
   down) across and deep of the model's own box, on the floor: a thing's
   position is that cell, and a model turns about its middle. For an odd

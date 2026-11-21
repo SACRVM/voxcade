@@ -27,6 +27,9 @@ pub enum Cmd {
     Hud { name: String, x: f32, y: f32, width: f32, height: f32 },
     /// Slots in a grid, an inventory's (`frame:grid`).
     Grid(Grid),
+    /// A model on the HUD as a grid's slot shows it (`frame:draw`), from
+    /// its top left in UI voxels.
+    Draw { thumb: Arc<Thumb>, x: f32, y: f32 },
 }
 
 /// `frame:menu`: a list in the engine's look, the game's to move.
@@ -91,27 +94,45 @@ pub struct Thumb {
     pub height: i32,
 }
 
-/// A model's front, seen from its forward (+y), as a slot `inside` voxels
-/// across shows it: every voxel the UI's size, the model taken every
-/// `step` voxels where it is bigger (the nearest opaque voxel of each
-/// block), the colours as they are.
+/// A model's front as a slot `inside` voxels across shows it: `front` of
+/// its first frame, taken every `step` voxels where it is bigger.
 pub fn thumbnail(model: &crate::vox::VoxModel, inside: i32) -> Thumb {
     let size = model.size;
     let step = ((size.x.max(size.z) + inside - 1) / inside.max(1)).max(1);
-    let (width, height) = ((size.x + step - 1) / step, (size.z + step - 1) / step);
-    let mut front: std::collections::BTreeMap<(i32, i32), (i32, [u8; 4])> = std::collections::BTreeMap::new();
-    for &(at, color) in model.frames.first().map_or(&[][..], |f| &f[..]) {
+    front(model, 0, 0, step)
+}
+
+/// A frame of a model seen from the side `quarters` quarter turns
+/// clockwise (seen from above) from its forward (+y): every voxel the UI's
+/// size, the model taken every `step` voxels (the nearest opaque voxel of
+/// each block), the colours as they are; a figure of parts whole, as its
+/// file has it. A grid's slot and `frame:draw` show a model so.
+pub fn front(model: &crate::vox::VoxModel, frame: usize, quarters: u8, step: i32) -> Thumb {
+    let size = model.size;
+    // The model turned: what stands across and how deep, seen so.
+    let (across, deep) = if quarters.is_multiple_of(2) { (size.x, size.y) } else { (size.y, size.x) };
+    let (width, height) = ((across + step - 1) / step, (size.z + step - 1) / step);
+    let mut seen: std::collections::BTreeMap<(i32, i32), (i32, [u8; 4])> = std::collections::BTreeMap::new();
+    for &(at, color) in model.frames.get(frame).map_or(&[][..], |f| &f[..]) {
         if color[3] < 255 {
             continue;
         }
+        // Clockwise seen from above a quarter at a time: north to east.
+        let (x, y) = match quarters % 4 {
+            0 => (at.x, at.y),
+            1 => (at.y, size.x - 1 - at.x),
+            2 => (size.x - 1 - at.x, size.y - 1 - at.y),
+            _ => (size.y - 1 - at.y, at.x),
+        };
+        debug_assert!(x < across && y < deep);
         // Seen from in front, the model's right is the viewer's left.
-        let key = ((size.x - 1 - at.x) / step, (size.z - 1 - at.z) / step);
-        let e = front.entry(key).or_insert((i32::MIN, color));
-        if at.y > e.0 {
-            *e = (at.y, color);
+        let key = ((across - 1 - x) / step, (size.z - 1 - at.z) / step);
+        let e = seen.entry(key).or_insert((i32::MIN, color));
+        if y > e.0 {
+            *e = (y, color);
         }
     }
-    Thumb { voxels: front.into_iter().map(|((c, r), (_, color))| (c, r, color)).collect(), width, height }
+    Thumb { voxels: seen.into_iter().map(|((c, r), (_, color))| (c, r, color)).collect(), width, height }
 }
 
 /// A table's keys checked against those a call takes.
