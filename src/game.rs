@@ -379,6 +379,12 @@ pub trait Game: Sized + 'static {
         None
     }
 
+    /// Whether it stopped its song (`music:stop`): silence then, the
+    /// player's own not coming back (`music` is None).
+    fn music_silent(&self) -> bool {
+        false
+    }
+
     /// The songs of `c.audio.music` changed (a song or the list edited).
     fn set_songs(&mut self, _songs: &[crate::audio::music::Timing]) {}
 

@@ -176,10 +176,11 @@ impl Mixer {
     /// power (the old by the cosine, the new by the sine of a quarter
     /// turn: together as loud as either), both going on as they were. A
     /// song begun only a moment ago (a quarter of a second) is not faded
-    /// out but replaced, as `set_music` does.
+    /// out but replaced, as `set_music` does, unless silence comes (a
+    /// stop fades, however young the song).
     pub fn crossfade_music(&mut self, player: Option<music::Player>, seconds: f32) {
         let length = (seconds * SAMPLE_RATE as f32) as u64;
-        if self.music.is_none() || self.music_age < u64::from(SAMPLE_RATE / 4) || length == 0 {
+        if self.music.is_none() || (player.is_some() && self.music_age < u64::from(SAMPLE_RATE / 4)) || length == 0 {
             return self.set_music(player);
         }
         let old = std::mem::replace(&mut self.music, player);

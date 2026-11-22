@@ -145,6 +145,8 @@ impl<G: Game> Session<G> {
                 player.start_at(cue.intensity);
                 player
             }
+            // Stopped: silence, the player's own not coming back.
+            None if self.game.music_silent() => return None,
             None => self.song(self.song_file()?)?,
         };
         // As loud and as muffled as the game asked, whichever song it is.
@@ -223,9 +225,12 @@ impl<G: Game> Session<G> {
     pub fn hand_music(&mut self, mixer: &mut Mixer, new: NewMusic, held: bool) -> bool {
         let began = new.player.is_some();
         if let Some((player, crossfade)) = new.player {
-            match crossfade {
-                Some(seconds) if seconds > 0.0 => mixer.crossfade_music(player, seconds),
-                _ => mixer.set_music(player),
+            match (player, crossfade) {
+                // Silence (a stop) fades over its own time, 5 ms at least,
+                // so it never clicks.
+                (None, seconds) => mixer.crossfade_music(None, seconds.unwrap_or(0.0).max(audio::music::SHORTEST.0)),
+                (player, Some(seconds)) if seconds > 0.0 => mixer.crossfade_music(player, seconds),
+                (player, _) => mixer.set_music(player),
             }
         } else if let Some(cue) = self.game.music() {
             mixer.follow_music(cue.start + cue.beats);

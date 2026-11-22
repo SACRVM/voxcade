@@ -100,7 +100,7 @@ mod tests;
 mod voice;
 mod clear;
 
-pub use mix::{Glide, Mix, muffle_cutoff};
+pub use mix::{Glide, Mix, SHORTEST, muffle_cutoff};
 pub use parse::{Laid, has_channels, lay, parse, read};
 pub use player::{Digests, Player, Swap};
 pub use song::{FilterMode, Instrument, Song, Timing};

@@ -1234,7 +1234,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `fades = true` and takes the steps without a picture,
   `Session::fade_clock`), a song changed crossfades when asked
   (`music:play`'s `crossfade`, `c.audio.crossfade`; `Mixer::crossfade_music`),
-  else ends with the rest of the fade silent; music is never a kit's),
+  else ends with the rest of the fade silent; `music:stop(from | { from,
+  fade })` silence, the player's own not coming back, `host::Music::silent`,
+  `Game::music_silent`, the session noticing (song, silent) after every
+  step, a stop fading 5 ms at least and however young the song,
+  `Mixer::crossfade_music`; a play over a pending stop replaces it;
+  music is never a kit's),
   the handlers `on_world_start`
   (no level yet), `on_level_start(how)` (build and place there),
   `on_tick`, `on_draw(frame)` (drawing on `frame` only there;

@@ -208,8 +208,11 @@ without a gap. Another song: the old ends as the new begins (the rest of
 a level's fade silent, a short pause), unless it crossfades:
 `music:play("shop", { from = "now", crossfade = 3 })` or
 `c.audio.crossfade = 3` for every change fade the old out as the new
-comes in, equal in power; the clock is the new song's from then. No
-`music:stop` yet.
+comes in, equal in power; the clock is the new song's from then.
+Silence: `music:stop()` (at once, `"beat"`, `"bar"`, or `{ from = "bar",
+fade = 2 }`): no song of the game's, no beats, and the player's own does
+not come back (`music:play()` brings it); a play after it begins its song
+from beat 0; a play asked while a stop is pending replaces it.
 
 Music the game writes itself (a drum machine, a rhythm game's patterns,
 a seeded score): a file of `c.audio.music` with only `@instruments` and

@@ -59,7 +59,7 @@ impl Default for Mix {
 /// The shortest glides the audio makes, the loudness's (5 ms) and the
 /// muffle's (20 ms: the filter's sound blends in over its first quarter):
 /// a change asked "at once" does not click.
-pub(super) const SHORTEST: (f32, f32) = (0.005, 0.02);
+pub const SHORTEST: (f32, f32) = (0.005, 0.02);
 
 /// The low-pass's cutoff for a muffle (0..1), on a musical curve: 300 Hz
 /// times 60 to the power (1 - amount)^1.5: 18 kHz (open) at 0, about

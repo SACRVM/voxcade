@@ -700,13 +700,16 @@ pub enum When {
 }
 
 /// The song the game plays of its own choice (`music:play`; none: the
-/// player's) and its clock: the steps since it began, a step every tick
-/// the game goes (a hit stop's too, so the music never waits), from which
-/// its beats follow without adding up errors; the ask to come (`SongAsk`);
-/// the last beat told (`on_beat`).
+/// player's, or silence after `music:stop`) and its clock: the steps since
+/// it began, a step every tick the game goes (a hit stop's too, so the
+/// music never waits), from which its beats follow without adding up
+/// errors; the ask to come (`SongAsk`); the last beat told (`on_beat`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Music {
     pub song: Option<usize>,
+    /// Stopped (`music:stop`): silence in place of the game's song, the
+    /// player's own not coming back (`song` None, no clock).
+    pub silent: bool,
     /// The bar of its song its beat 0 lies at (`music:play`'s `at`, from
     /// 1: its start).
     pub at: u32,
@@ -734,10 +737,12 @@ pub struct Music {
 /// over how many seconds it crossfades (None: the game's
 /// `c.audio.crossfade`), the bar it begins at, and the channels laid over
 /// it. One for the song that plays is a change within it: only its laid
-/// channels change, its clock going on.
+/// channels change, its clock going on. A stop (`music:stop`) is an ask
+/// for silence, its fade the crossfade.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SongAsk {
     pub song: Option<usize>,
+    pub stop: bool,
     pub when: When,
     pub crossfade: Option<f32>,
     pub at: u32,
@@ -746,7 +751,7 @@ pub struct SongAsk {
 
 impl Default for Music {
     fn default() -> Self {
-        Self { song: None, at: 1, steps: 0, next: None, told: None, laid: None, crossed: None, intensity: 1.0, mix: Default::default() }
+        Self { song: None, silent: false, at: 1, steps: 0, next: None, told: None, laid: None, crossed: None, intensity: 1.0, mix: Default::default() }
     }
 }
 
@@ -782,6 +787,7 @@ impl Music {
                 self.laid = ask.laid;
             } else {
                 (self.song, self.at, self.steps, self.told, self.crossed, self.laid) = (ask.song, ask.at, 0, None, ask.crossfade, ask.laid);
+                self.silent = ask.stop;
             }
         }
     }

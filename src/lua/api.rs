@@ -136,6 +136,10 @@ const TYPES: &str = "\
 ---@field at? integer The bar it begins at, counted from 1 (its start, unless said): 33 skips an intro of 32 bars. Its beat 0 is there.
 ---@field channels? table<string, string> Channels of MML laid over a file of instruments, by letter: { K = '@kick o4 l16 c r r r c r r r c r r r c r r r' }. The whole set that plays.
 
+---@class MusicStop How a song stops (music:stop).
+---@field from? string When: now (unless said), at the next beat or bar of the song that plays.
+---@field fade? number Seconds it fades out over, 0 to 60 (0, unless said: at once, still without a click).
+
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
 ---@field fresh? boolean world:go_to and world:restart only: true enters the level as its file has it, forgetting what it kept of earlier visits (a level of a location, a persistent one, things of a persistent kind).
@@ -659,6 +663,13 @@ pub const API: &[Item] = &[
             sounds when the music comes to it), \"bar\" for the next pattern. Channels of other bars go round by the beats since the song \
             began: music.bar % 4 is a four-bar pattern's bar. at and crossfade are for a song that begins, a mistake on such a change. \
             Without channels the ones laid play on. The same channels again cost only a compare; ask when a step changes." },
+    Item { of: "music", name: "stop", what: Method { params: &[("from?", "string|MusicStop")], returns: "" },
+        doc: "Silence in place of your game's song: a drum machine's STOP, a cutscene's quiet.\n- from: \"now\" (unless said), \"beat\" or \
+            \"bar\" of the song that plays.\n- fade: { from = \"bar\", fade = 2 } fades it out over 2 seconds; at once still without a \
+            click.\nThe player's own song does not come back (music:play() without a song brings it). music.song, music.beat, music.bar \
+            and music.position are nil and on_beat is quiet until music:play begins a song, from its beat 0 (a song stopped and played \
+            again begins anew). A play asked before a stop comes replaces it: the song that plays goes on, another comes at its own from. \
+            nil in music.song alone does not tell a stop from the player's own song: your game knows which it asked." },
     Item { of: "music", name: "volume", what: Method { params: &[("level?", "number"), ("seconds?", "number")], returns: "number|nil" },
         doc: "How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the \
             start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on \
@@ -672,18 +683,18 @@ pub const API: &[Item] = &[
             1) inside. Without an amount it gives the amount you asked for last. Only heard: replays and the game itself do not change with \
             it." },
     Item { of: "music", name: "song", what: Field { ty: "string|nil", set: false }, doc: "The song your game plays (music:play), by its \
-            file's name; nil while the player's own plays." },
+            file's name; nil while the player's own plays or after music:stop." },
     Item { of: "music", name: "beat", what: Field { ty: "integer|nil", set: false }, doc: "Beats since your game's song began, from 0 (its \
-            #tempo), on and on as it goes round; nil while the player's own song plays." },
+            #tempo), on and on as it goes round; nil while the player's own song plays or after music:stop." },
     Item { of: "music", name: "position", what: Field { ty: "number|nil", set: false }, doc: "Beats since your game's song began, with \
             the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil while the player's own song \
-            plays. A running light over 16 sixteenths: math.floor(music.position * 4) % 16." },
+            plays or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16." },
     Item { of: "music", name: "intensity", what: Field { ty: "number", set: true }, doc: "How tense the game is, from 0 (calm) to 1 (all of \
             the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come \
             in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a \
             hit." },
     Item { of: "music", name: "bar", what: Field { ty: "integer|nil", set: false }, doc: "Bars since your game's song began, from 0 (its \
-            #meter beats to a bar, 4 unless the song says); nil while the player's own song plays." },
+            #meter beats to a bar, 4 unless the song says); nil while the player's own song plays or after music:stop." },
     // screen
     Item { of: "screen", name: "shake", what: Method { params: &[("amount", "number")], returns: "" },
         doc: "Shakes the screen: 0..1 more (a small hit 0.1, a blast 0.35, 1 at most); it dies down by itself. Only the camera moves, and \

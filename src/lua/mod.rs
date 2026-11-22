@@ -1099,6 +1099,10 @@ impl<K: Kit> Game for LuaGame<K> {
         Some(crate::game::MusicCue { song: m.song?, beats: m.beats(&self.stage.songs)?, start, intensity: m.intensity, laid: m.laid.clone(), next })
     }
 
+    fn music_silent(&self) -> bool {
+        self.stage.music.silent
+    }
+
     /// A song gone from the list leaves the music to the player's choice;
     /// channels laid over a studio that changed are read against it anew,
     /// and halt the game as `music:play` would where they no longer read.

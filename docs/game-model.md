@@ -283,8 +283,17 @@ settings. Several players: `player` is seat 1, the others are in
   alone), through a level's fade too; `music:volume` and `music:muffle`
   hold over both. The clock is the new song's from the moment it begins
   (`music.beat`, `on_beat` count its beats), the old one only heard as it
-  goes; there is no `music:stop` (a game that wants silence plays a
-  silent song). The game's song wins over the player's choice; music
+  goes. `music:stop(from)` (`"now"` unless said, `"beat"`, `"bar"`, or
+  `{ from, fade = seconds }`) is silence in place of the game's song
+  (stage 2a of `shots/reviews/music-stage2-draft.md` as its review cut
+  it): `music.song`, `beat`, `bar`, `position` nil, no `on_beat`, the
+  clock gone, the player's own song not coming back (`music:play()`
+  brings it); a fade of 0 is still 5 ms, and a stop fades however young
+  the song (the quarter second that turns a crossfade into a cut is for
+  a song that comes). A play after it begins its song at beat 0, at
+  once; a play asked while a stop is pending replaces it (one slot: the
+  song that plays goes on, another comes at its own `from`). In the hash
+  only where a game stops (silence, a stop to come). The game's song wins over the player's choice; music
   belongs to no kit. `music.intensity` (0..1, 1 unless set) is the
   game's tension: a song's layers (`#layer D C 0.35` in it; `compose.py`
   writes them with `adaptive = true`) come in above their threshold and

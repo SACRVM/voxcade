@@ -830,10 +830,10 @@ end
     },
     Topic {
         title: "A DRUM MACHINE",
-        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. A studio is no song a player picks, and its whole text counts for replays.",
+        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. START stops the machine (music:stop: silence at once, the player's own song not coming back) and starts it again from its first beat. A studio is no song a player picks, and its whole text counts for replays.",
         conf: r##"c.audio.music = { "music/kit.mml" }   -- the instruments: music:play calls it "kit"
-c.actions = { "toggle", "pattern" }
-c.keys = { toggle = { "Space" }, pattern = { "Tab" } }"##,
+c.actions = { "toggle", "pattern", "start" }
+c.keys = { toggle = { "Space" }, pattern = { "Tab" }, start = { "Return" } }"##,
         files: &[("music/kit.mml", "; instruments only: the game lays the channels\n#tempo 124\n@kick triangle freq=130 sweep=-34 sweep_time=0.08 decay=0.11 sustain=0 release=0.01 volume=0.85\n@hat noise freq=14000 decay=0.025 sustain=0 release=0.01 lowpass=6500 volume=0.14\n")],
         code: r##"-- Two rows of sixteen steps: a row's channel letter, instrument and color.
 local ROWS = {
@@ -853,6 +853,7 @@ function on_world_start()
     end
   end
   world.state.pattern, world.state.row, world.state.step = 1, 1, 1
+  world.state.playing = true
 end
 
 -- The pattern as channels of MML: a row each, a hit (c) or a rest (r) a sixteenth.
@@ -867,7 +868,7 @@ local function lay(from)
 end
 
 function on_level_start(how)
-  lay("now")
+  if world.state.playing then lay("now") else music:stop() end
 end
 
 function on_tick()
@@ -878,11 +879,15 @@ function on_tick()
   if input:pressed("toggle") then
     local row = s.patterns[s.pattern][s.row]
     row[s.step] = not row[s.step]
-    lay("now")                    -- it sounds when the light comes to it
+    if s.playing then lay("now") end  -- it sounds when the light comes to it
   end
   if input:pressed("pattern") then
     s.pattern = 3 - s.pattern
-    lay("bar")                    -- the other pattern from the next bar
+    if s.playing then lay("bar") end  -- the other pattern from the next bar
+  end
+  if input:pressed("start") then
+    s.playing = not s.playing
+    if s.playing then lay("now") else music:stop() end  -- from its first beat again
   end
 end
 

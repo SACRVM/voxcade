@@ -112,14 +112,15 @@ impl UserData for MusicView {
                         bar_mistake(at, t.bars, t)?;
                     }
                 }
-                let ask = crate::lua::host::SongAsk { song, when, crossfade: cross, at: at.unwrap_or(1), laid };
+                let ask = crate::lua::host::SongAsk { song, stop: false, when, crossfade: cross, at: at.unwrap_or(1), laid };
                 // Asked for what is to come or what plays already, the same
                 // channels too: nothing new to read (what plays goes on,
-                // nothing else asked).
+                // nothing else asked, a stop to come forgotten). Stopped,
+                // nothing plays already.
                 if h.music.next.as_ref() == Some(&ask) {
                     return Ok(());
                 }
-                if song == h.music.song && ask.laid == h.music.laid {
+                if !h.music.silent && song == h.music.song && ask.laid == h.music.laid {
                     h.music.next = None;
                     return Ok(());
                 }
@@ -136,6 +137,47 @@ impl UserData for MusicView {
                     }
                 }
                 h.music.next = Some(ask);
+                Ok(())
+            })
+        });
+        m.add_function("stop", |lua, (_, GivenValue(how)): (AnyUserData, GivenValue)| {
+            // From when as a word, or { from = ..., fade = seconds }.
+            let (when, fade) = match &how {
+                Value::Nil => (None, None),
+                Value::String(s) => (Some(s.to_str()?.to_string()), None),
+                Value::Table(t) => {
+                    known_keys(t, &["from", "fade"], "music:stop")?;
+                    let fade = match t.raw_get::<Value>("fade")? {
+                        Value::Nil => None,
+                        Value::Integer(i) if (0..=60).contains(&i) => Some(i as f32),
+                        Value::Number(n) if (0.0..=60.0).contains(&n) => Some(n as f32),
+                        other => return Err(mlua::Error::runtime(format!("music:stop: fade is seconds from 0 (at once) to 60, not {}", shown(&other)))),
+                    };
+                    let from = match t.raw_get::<Value>("from")? {
+                        Value::Nil => None,
+                        Value::String(s) => Some(s.to_str()?.to_string()),
+                        other => return Err(mlua::Error::runtime(format!("music:stop: from is \"now\", \"beat\" or \"bar\", not {}", shown(&other)))),
+                    };
+                    (from, fade)
+                }
+                other => return Err(mlua::Error::runtime(format!("music:stop: \"now\", \"beat\" or \"bar\", or {{ from = ..., fade = seconds }}, not {}", shown(other)))),
+            };
+            change(lua, "music:stop", |h| {
+                let when = match when.as_deref() {
+                    None | Some("now") => crate::lua::host::When::Now,
+                    Some("beat") => crate::lua::host::When::Beat,
+                    Some("bar") => crate::lua::host::When::Bar,
+                    Some(other) => return Err(mlua::Error::runtime(format!("music:stop: from \"now\", \"beat\" or \"bar\", not \"{other}\""))),
+                };
+                // Stopped already: silence goes on, a song asked since
+                // forgotten.
+                if h.music.silent {
+                    h.music.next = None;
+                    return Ok(());
+                }
+                // At once unless faded: the audio's shortest fade keeps it
+                // from clicking.
+                h.music.next = Some(crate::lua::host::SongAsk { song: None, stop: true, when, crossfade: Some(fade.unwrap_or(0.0)), at: 1, laid: None });
                 Ok(())
             })
         });
