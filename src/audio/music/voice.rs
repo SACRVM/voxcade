@@ -507,13 +507,13 @@ const SR: f64 = SAMPLE_RATE as f64;
 /// A resonator's pole for a peak `bw` Hz wide: its radius doubled (`b`
 /// over the cosine of its frequency) and `c`.
 fn pole(bw: f64) -> (f64, f64) {
-    (2.0 * (-std::f64::consts::PI * bw / SR).exp(), -(-2.0 * std::f64::consts::PI * bw / SR).exp())
+    (2.0 * libm::exp(-std::f64::consts::PI * bw / SR), -libm::exp(-2.0 * std::f64::consts::PI * bw / SR))
 }
 
 /// A resonator's coefficients (Klatt's: unity gain at 0 Hz) for a peak at
 /// `f` Hz on the pole `(r2, c)`.
 fn coefficients(f: f64, (r2, c): (f64, f64)) -> (f64, f64, f64) {
-    let b = r2 * (2.0 * std::f64::consts::PI * f / SR).cos();
+    let b = r2 * libm::cos(2.0 * std::f64::consts::PI * f / SR);
     (1.0 - b - c, b, c)
 }
 
@@ -535,7 +535,7 @@ impl Singer {
             glottal: coefficients(0.0, pole(110.0)),
             high: HIGH.map(|(f, bw)| coefficients(f, pole(bw))),
             poles: BANDWIDTHS.map(pole),
-            keep: GLIDES.map(|ms| (-1000.0 / (SR * ms)).exp()),
+            keep: GLIDES.map(|ms| libm::exp(-1000.0 / (SR * ms))),
             tract: Tract::default(),
         }
     }

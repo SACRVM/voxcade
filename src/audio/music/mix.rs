@@ -65,5 +65,5 @@ pub(super) const SHORTEST: (f32, f32) = (0.005, 0.02);
 /// times 60 to the power (1 - amount)^1.5: 18 kHz (open) at 0, about
 /// 4.3 kHz at 0.25, 1.3 kHz at 0.5, 500 Hz at 0.75, 300 Hz at 1.
 pub fn muffle_cutoff(amount: f32) -> f32 {
-    300.0 * 60f32.powf((1.0 - amount.clamp(0.0, 1.0)).powf(1.5))
+    300.0 * libm::powf(60.0, libm::powf(1.0 - amount.clamp(0.0, 1.0), 1.5))
 }

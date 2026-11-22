@@ -27,7 +27,7 @@ const LOOP_SLACK: u64 = 2;
 /// Frequency of a note: octave 4's A is 440 Hz.
 pub(super) fn note_freq(octave: i32, semitone: i32) -> f32 {
     let midi = (octave + 1) * 12 + semitone;
-    440.0 * 2f32.powf((midi - 69) as f32 / 12.0)
+    440.0 * libm::powf(2.0, (midi - 69) as f32 / 12.0)
 }
 
 fn parse_instrument(spec: &str) -> Result<Instrument> {
