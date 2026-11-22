@@ -57,6 +57,61 @@ pub struct VoxModel {
     /// of its one frame, turned about its joint when posed (`Part`); none
     /// for a model of frames.
     pub parts: Vec<Part>,
+    /// Per part (a figure's) or frame: its opaque visible voxels as bits,
+    /// made the first time a pointer looks at them (`pick_cells`).
+    pick: std::sync::OnceLock<Vec<std::sync::OnceLock<Cells>>>,
+}
+
+/// A part's or a frame's opaque visible voxels as bits in the box round
+/// them, measured from the model's pivot cell (`v - pivot`): what the
+/// pointer's ray walks (`session::pick`). Glass is left out, as the
+/// pointer looks through it.
+#[derive(Clone, Debug, Default)]
+pub struct Cells {
+    /// The box's low corner and its cells each way.
+    pub lo: IVec3,
+    pub size: IVec3,
+    /// A bit a cell, x fastest, then y, then z.
+    bits: Vec<u64>,
+}
+
+impl Cells {
+    /// The voxels `visible` (indices into `frame`) that are opaque, from
+    /// `pivot`.
+    fn of(frame: &[(IVec3, [u8; 4])], visible: &[u32], pivot: IVec3) -> Self {
+        let cells = || visible.iter().map(|&k| &frame[k as usize]).filter(|(_, c)| c[3] == 255).map(|(v, _)| *v - pivot);
+        let (lo, hi) = cells().fold((IVec3::MAX, IVec3::MIN), |(lo, hi), c| (lo.min(c), hi.max(c)));
+        if lo.x > hi.x {
+            return Self::default();
+        }
+        let size = hi - lo + 1;
+        let mut out = Self { lo, size, bits: vec![0; (size.x as usize * size.y as usize * size.z as usize).div_ceil(64)] };
+        for c in cells() {
+            let i = out.index(c);
+            out.bits[i / 64] |= 1 << (i % 64);
+        }
+        out
+    }
+
+    fn index(&self, c: IVec3) -> usize {
+        let d = c - self.lo;
+        (d.z as usize * self.size.y as usize + d.y as usize) * self.size.x as usize + d.x as usize
+    }
+
+    /// Whether the cell `c` (from the pivot) holds an opaque visible voxel.
+    pub fn has(&self, c: IVec3) -> bool {
+        let d = c - self.lo;
+        if d.min_element() < 0 || (self.size - d).min_element() <= 0 {
+            return false;
+        }
+        let i = self.index(c);
+        self.bits[i / 64] >> (i % 64) & 1 == 1
+    }
+
+    /// The bytes its bits take.
+    pub fn bytes(&self) -> usize {
+        self.bits.len() * 8
+    }
 }
 
 /// A part of a figure: its name (the object's in the file), its voxels
@@ -379,7 +434,22 @@ impl VoxModel {
         let glass = visible.iter().zip(&frames).map(|(seen, frame)| seen.iter().copied().filter(|&k| frame[k as usize].1[3] < 255).collect()).collect();
         let smooth_glass = |m: &u8| *m != 0 && *m >> 4 == 0;
         let facets = if metal.iter().flatten().any(smooth_glass) { frames.iter().zip(&metal).map(|(frame, m)| facets(frame, m)).collect() } else { Vec::new() };
-        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, covered, bank: Vec::new(), baked: Vec::new(), parts: Vec::new() }
+        Self { size, frames, metal, glow: Vec::new(), shade: Vec::new(), facets, visible, glass, covered, bank: Vec::new(), baked: Vec::new(), parts: Vec::new(), pick: Default::default() }
+    }
+
+    /// The opaque visible voxels of part `piece` of a figure, or of frame
+    /// `piece` of a model of frames, as bits (`Cells`): made the first
+    /// time they are asked for and kept with the model (a game without a
+    /// pointer never makes them; a model read anew starts without).
+    pub fn pick_cells(&self, piece: usize) -> &Cells {
+        let pieces = self.pick.get_or_init(|| (0..if self.parts.is_empty() { self.frames.len() } else { self.parts.len() }).map(|_| Default::default()).collect());
+        pieces[piece].get_or_init(|| {
+            let pivot = IVec3::new(self.size.x / 2, self.size.y / 2, 0);
+            match self.parts.get(piece) {
+                Some(part) => Cells::of(&self.frames[0], &part.visible, pivot),
+                None => Cells::of(&self.frames[piece], &self.visible[piece], pivot),
+            }
+        })
     }
 
     /// How metal voxel `k` of frame `f` is (`metal`; 0 not at all).

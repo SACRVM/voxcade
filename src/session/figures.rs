@@ -246,16 +246,21 @@ pub(super) fn draw_placed(
     }
 }
 
-/// Every voxel of a model that can be seen, where `draw` puts it (its
-/// middle in the world and its turn) with its part (a figure's, by its
-/// place among the model's parts) and colour: what a pointer meets of a
-/// drawn, posed figure (`Session::point`). The same places as `draw`'s,
-/// test `a_figures_voxels_are_picked_where_they_are_drawn`.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn each_voxel(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, free_turn: Quat, pose: &[PartPose], f: &mut dyn FnMut(Option<usize>, Vec3, Quat, [u8; 4])) {
+/// Where a model's pieces are drawn, as `each_voxel` gives their voxels:
+/// the frame drawn, its quarter turn, and each piece (a part of
+/// a figure by its place among the parts, or the frame whole) with its
+/// visible voxels, its turn and its shift.
+pub(super) struct Pieces<'a> {
+    pub frame: usize,
+    pub turn: u32,
+    pub pieces: Vec<(Option<usize>, &'a [u32], Quat, Vec3)>,
+}
+
+/// A model's pieces as drawn with its feet at the origin facing `look`,
+/// turned by `free_turn` and posed by `pose` (`each_voxel`).
+pub(super) fn pieces<'a>(model: &'a VoxModel, frame: usize, look: IVec2, free_turn: Quat, pose: &[PartPose]) -> Pieces<'a> {
     let quarter_turn = look_turn(look);
     let rot = if free_turn == Quat::IDENTITY { free_turn } else { quarter_turn * free_turn * quarter_turn.inverse() };
-    let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
     let frame = if model.parts.is_empty() { frame.min(model.frames.len() - 1) } else { 0 };
     let turn = match (look.x, look.y) {
         (0, 1) => 0,
@@ -280,16 +285,34 @@ pub(super) fn each_voxel(model: &VoxModel, frame: usize, origin: Vec3, look: IVe
             pieces.push((Some(i), &model.parts[i].visible, rot * seen, shift));
         }
     }
+    Pieces { frame, turn, pieces }
+}
+
+/// Where a voxel `local` (its low corner from the pivot cell's, after the
+/// quarter turns) of a piece turned by `rot` and shifted by `shift` has
+/// its middle, and its turn (`each_voxel`).
+pub(super) fn voxel_middle(origin: Vec3, local: Vec3, rot: Quat, shift: Vec3) -> (Vec3, Quat) {
+    if crate::render::off_grid(rot, shift) { (crate::render::turned_centre(origin, local, shift, rot), rot) } else { (origin + local + 0.5, Quat::IDENTITY) }
+}
+
+/// Every voxel of a model that can be seen, where `draw` puts it (its
+/// middle in the world and its turn) with its part (a figure's, by its
+/// place among the model's parts) and colour: what a pointer meets of a
+/// drawn, posed figure, every voxel tried (the pointer's walk,
+/// `session::pick`, is tested against it). The same places as `draw`'s,
+/// test `a_figures_voxels_are_picked_where_they_are_drawn`.
+#[cfg(test)]
+pub(super) fn each_voxel(model: &VoxModel, frame: usize, origin: Vec3, look: IVec2, free_turn: Quat, pose: &[PartPose], f: &mut dyn FnMut(Option<usize>, Vec3, Quat, [u8; 4])) {
+    let Pieces { frame, turn, pieces } = pieces(model, frame, look, free_turn, pose);
+    let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
     let voxels = &model.frames[frame];
     for (part, visible, rot, shift) in pieces {
-        let free = crate::render::off_grid(rot, shift);
         for &k in visible {
             let (v, color) = &voxels[k as usize];
             let l = *v - pivot;
             let (x, y) = crate::render::quarter(l.x, l.y, turn);
-            let local = IVec3::new(x, y, l.z).as_vec3();
-            let middle = if free { crate::render::turned_centre(origin, local, shift, rot) } else { origin + local + 0.5 };
-            f(part, middle, if free { rot } else { Quat::IDENTITY }, *color);
+            let (middle, rot) = voxel_middle(origin, IVec3::new(x, y, l.z).as_vec3(), rot, shift);
+            f(part, middle, rot, *color);
         }
     }
 }
