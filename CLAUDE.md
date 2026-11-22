@@ -1331,7 +1331,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   files. The speaker (`audio::Speaker`) keeps its mixer
   behind a lock of its own that SDL's callback holds only while mixing,
   `audio::MIX_BLOCK` samples at a time from buffers made once (the audio
-  thread takes no memory, test `the_audio_thread_takes_no_memory`);
+  thread takes no memory and gives none back, counted by the test's
+  allocator, test `the_audio_thread_takes_no_memory`: a finished
+  crossfade's song, `Mixer::spent`, and a sound that ended are let go of
+  on the main thread as the next is handed; a song is read and made
+  before the lock is taken, `Session::new_music`, then `hand_music`);
   the window and the IDE never lock SDL's audio stream, never pause its
   device, and close it on a thread of their own and leave SDL unquit at
   the end (a Bluetooth headset dropping out and PipeWire started anew
@@ -1526,13 +1530,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   write it. `#loop 33 80` (the owner's, 2026-11-20: songs with 32 bars
   of intro and outro for mixing) plays a song from its start once, then
   bars 33 to 80 round and round (counted from 1, both in; `#loop 33` to
-  the end; `#loop no` once), the rest never reached; a note held over
-  the loop's end is cut there as at a song's end (`Song::span`, its ends
-  `LOOP_SLACK` samples before the bar lines so a note on the line, a sum
-  of lengths, is never a sample off; `Player::within` folds a place
-  into the song); the game's clock counts on through it as through a
-  whole song going round, the audio folding the clock's place into the
-  loop (test `the_audio_keeps_with_the_clock_round_a_loop`); `voxcade
+  the end; `#loop no` once), the rest never reached; a note that sounds
+  where a song goes round (its loop's end or its own) or ends is let go
+  there, its release ringing on in its channel's tail (`Player::tails`,
+  made with the song; a voice holds its own copy of its note) while the
+  next round begins on time (the owner, 2026-11-22: for every song, it
+  was cut dead; test `a_note_rings_over_the_seam`; a song played once is
+  over when it has rung out); `Song::span` is exact, a fraction of a
+  sample too, its ends `LOOP_SLACK` samples before the bar lines so a
+  note on the line, a sum of lengths, is never a sample off (a loop of
+  the song's first bars so begins a little before 0); `Player::within`
+  folds a place into the song exactly; the game's clock counts on
+  through it as through a whole song going round, the audio following
+  the clock's beats (`Player::follow`) and going round exactly as long
+  as the bars, so a one-bar loop stays within a sample of the clock for
+  hours (tests `the_audio_keeps_with_the_clock_round_a_loop`,
+  `a_short_loop_never_drifts_from_the_clock`); `voxcade
   music` writes such a song to the loop's end and round into its first
   four bars again, the seam in the file (`Song::once`), and says where.
   A song begun at a bar: `music:play(song, { at = 33 })`, its beat 0

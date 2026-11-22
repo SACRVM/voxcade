@@ -306,8 +306,11 @@ impl<G: Game> App<G> {
             };
             self.front.back_to_title(menu);
             self.game.music_changed = false;
-            if let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock()) {
-                mixer.set_music(self.game.title_music());
+            if let Some(speaker) = self.speaker.as_mut() {
+                let title = self.game.title_music();
+                if let Some(mut mixer) = speaker.lock() {
+                    mixer.set_music(title);
+                }
             }
         }
         Ok(())

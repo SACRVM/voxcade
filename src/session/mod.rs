@@ -54,6 +54,7 @@ pub use figures::*;
 pub use models::*;
 pub use pick::{Pick, PickScene};
 use sound::*;
+pub use sound::NewMusic;
 pub use view::*;
 
 /// The point `t` of the way from `a` to `b`. Exactly `a` when `a == b`,

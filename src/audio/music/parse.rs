@@ -22,7 +22,7 @@ const LENGTHS: (f32, f32) = (1.0, 192.0);
 const OCTAVES: (i32, i32) = (0, 9);
 /// Samples a loop's ends lie before its bar lines (`#loop`): a note on the
 /// bar line, its start a sum of lengths, may lie a sample before it.
-const LOOP_SLACK: u64 = 2;
+const LOOP_SLACK: f64 = 2.0;
 
 /// Frequency of a note: octave 4's A is 440 Hz.
 pub(super) fn note_freq(octave: i32, semitone: i32) -> f32 {
@@ -584,6 +584,8 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
     }
     let mut channels = Vec::new();
     let (mut segments, mut clear) = (Vec::new(), Vec::new());
+    // Where the song ends exactly, a fraction of a sample too.
+    let mut ends = 1.0f64;
     let voices: Vec<Option<Voicing>> = instruments.iter().map(|i: &Instrument| i.voice).collect();
     let letters = order.clone();
     for channel in order {
@@ -599,6 +601,7 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         voice::lay_out(&mut notes, &parser.sings, &mut segments, &mut clear);
         // The channel's end is where its last note or rest ends.
         let end = (state.time * SAMPLE_RATE as f64) as u64;
+        ends = ends.max(state.time * SAMPLE_RATE as f64);
         notes.push(Note { start: end, held: 0, freq: None, instrument: 0, volume: 0.0, pan: 0.0, sung: None });
         channels.push(notes);
     }
@@ -610,8 +613,8 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
     // Bars begun (a sum of note lengths a sample short of a bar line
     // begins none more).
     let bar = f64::from(meter) * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64;
-    let bars = (length.saturating_sub(LOOP_SLACK) as f64 / bar).ceil().clamp(1.0, f64::from(u32::MAX)) as u32;
-    let mut span = (0, length);
+    let bars = ((length as f64 - LOOP_SLACK).max(0.0) / bar).ceil().clamp(1.0, f64::from(u32::MAX)) as u32;
+    let mut span = (0.0, ends);
     if let Some((from, to)) = round {
         let line = loop_line.unwrap_or(0);
         for b in std::iter::once(from).chain(to) {
@@ -622,9 +625,13 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         if let Some(to) = to.filter(|&to| to < from) {
             bail!("line {line}: #loop from bar {from} to bar {to}: the first bar comes first (like #loop {to} {from})");
         }
-        // A note held over the loop's end is cut there, as at a song's end.
-        let end = to.map_or(length, |to| song::bar_start(tempo, meter, to.saturating_add(1)).saturating_sub(LOOP_SLACK));
-        span = (song::bar_start(tempo, meter, from).saturating_sub(LOOP_SLACK), end);
+        // Exactly as long as its bars (the game's clock goes round with
+        // them), its ends a little before their bar lines but where they
+        // are the song's own start and end.
+        let line = |bar: u32| song::bar_line(tempo, meter, bar);
+        let last = to.map_or(ends, |to| line(to.saturating_add(1)));
+        let end = if to.is_some() || from > 1 { last - LOOP_SLACK } else { last };
+        span = (end - (last - line(from)), end);
     }
     Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, clear, length, looping, round, span, bars })
 }

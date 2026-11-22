@@ -106,7 +106,7 @@ impl Default for Instrument {
 }
 
 /// One note on a channel, in samples from the start of the song.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Note {
     pub(super) start: u64,
     /// How long the key is held; the release follows.
@@ -142,9 +142,12 @@ pub struct Song {
     /// The bars that go round (`#loop FROM TO`, counted from 1; no TO:
     /// to the song's end), None without `#loop`.
     pub round: Option<(u32, Option<u32>)>,
-    /// The samples that go round, from where to where: the whole song
-    /// (0 to `length`) unless `#loop` says bars.
-    pub(super) span: (u64, u64),
+    /// The samples that go round, from where to where, exactly (a bar is
+    /// seldom a whole number of samples, and the audio goes round with the
+    /// game's clock for hours): the whole song unless `#loop` says bars,
+    /// whose ends lie `LOOP_SLACK` samples before their bar lines (so a
+    /// loop of the song's first bars begins a little before 0).
+    pub(super) span: (f64, f64),
     /// Bars begun in the song (`#meter` beats of `#tempo` each).
     pub bars: u32,
 }
@@ -164,10 +167,10 @@ pub struct Timing {
 }
 
 /// Samples into a song of `tempo` and `meter` bar `bar` (from 1) begins
-/// at, as its notes are laid: seconds first, then samples.
-pub(super) fn bar_start(tempo: f32, meter: u32, bar: u32) -> u64 {
+/// at, exactly: seconds first, then samples.
+pub(super) fn bar_line(tempo: f32, meter: u32, bar: u32) -> f64 {
     let beats = f64::from(bar.saturating_sub(1)) * f64::from(meter);
-    (beats * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64) as u64
+    beats * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64
 }
 
 impl Timing {
@@ -196,14 +199,9 @@ impl Song {
         Timing { name, tempo: self.tempo, meter: self.meter, round: self.round, bars: self.bars }
     }
 
-    /// Samples into the song bar `bar` (from 1) begins at.
-    pub fn bar_start(&self, bar: u32) -> u64 {
-        bar_start(self.tempo, self.meter, bar)
-    }
-
     /// The seconds the loop goes round from and to (`#loop`), if it has one.
     pub fn round_seconds(&self) -> Option<(f32, f32)> {
-        self.round.map(|_| (self.span.0 as f32 / SAMPLE_RATE as f32, self.span.1 as f32 / SAMPLE_RATE as f32))
+        self.round.map(|_| (self.span.0.max(0.0) as f32 / SAMPLE_RATE as f32, self.span.1 as f32 / SAMPLE_RATE as f32))
     }
 
     /// The samples a render without a length writes: the song once, or
@@ -214,7 +212,7 @@ impl Song {
             None => self.length,
             Some(_) => {
                 let (from, to) = self.span;
-                to + (to - from).min(4 * self.bar_start(2))
+                (to + (to - from).min(4.0 * bar_line(self.tempo, self.meter, 2))) as u64
             }
         }
     }

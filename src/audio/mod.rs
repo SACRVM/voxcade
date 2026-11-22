@@ -105,6 +105,13 @@ struct Voice {
     fade: Option<usize>,
 }
 
+impl Voice {
+    /// Whether it has played to its end or faded out.
+    fn ended(&self) -> bool {
+        self.at >= self.samples.len() || self.fade == Some(0)
+    }
+}
+
 /// A stolen voice fades out over 5 ms.
 const STEAL_FADE: usize = SAMPLE_RATE as usize / 200;
 
@@ -117,6 +124,10 @@ pub struct Mixer {
     /// The song crossfading out as `music` comes in, and where the
     /// crossfade is: samples gone, samples in all (`crossfade_music`).
     leaving: Option<(Option<music::Player>, u64, u64)>,
+    /// The song a finished crossfade let go of, for the main thread to
+    /// drop when it hands the next song (the audio thread gives no memory
+    /// back either).
+    spent: Option<music::Player>,
     /// Each song's own samples while two crossfade.
     apart: (Vec<f32>, Vec<f32>),
     /// The music held where it is (a game that reads its beats, paused).
@@ -141,6 +152,7 @@ impl Default for Mixer {
             music: None,
             music_age: 0,
             leaving: None,
+            spent: None,
             apart: (vec![0.0; MIX_BLOCK], vec![0.0; MIX_BLOCK]),
             music_held: false,
             limiter: limiter::Limiter::new(SAMPLE_RATE),
@@ -157,7 +169,7 @@ impl Mixer {
 
     /// Starts a song from the top (None: silence).
     pub fn set_music(&mut self, player: Option<music::Player>) {
-        (self.music, self.music_age, self.leaving) = (player, 0, None);
+        (self.music, self.music_age, self.leaving, self.spent) = (player, 0, None, None);
     }
 
     /// Starts a song as the one playing fades out over `seconds`, equal in
@@ -171,7 +183,7 @@ impl Mixer {
             return self.set_music(player);
         }
         let old = std::mem::replace(&mut self.music, player);
-        (self.leaving, self.music_age) = (Some((old, 0, length)), 0);
+        (self.leaving, self.music_age, self.spent) = (Some((old, 0, length)), 0, None);
     }
 
     /// Whether no music plays (none set, or a song that plays once
@@ -182,13 +194,14 @@ impl Mixer {
 
     /// Whether nothing sounds: no voice plays and no music is set.
     pub fn idle(&self) -> bool {
-        self.voices.is_empty() && self.music.is_none() && self.leaving.is_none()
+        self.voices.iter().all(Voice::ended) && self.music.is_none() && self.leaving.is_none()
     }
 
-    /// Keeps the music with a game's clock (`music::Player::follow`).
-    pub fn follow_music(&mut self, target: u64) {
+    /// Keeps the music with a game's clock, `beats` since the song began
+    /// (`music::Player::follow`).
+    pub fn follow_music(&mut self, beats: f64) {
         if let Some(m) = &mut self.music {
-            m.follow(target);
+            m.follow(beats);
         }
     }
 
@@ -240,6 +253,8 @@ impl Mixer {
     }
 
     pub fn play(&mut self, name: &'static str, samples: &Arc<[f32]>, gain: f32, pan: f32) {
+        // The voices that ended let go of here, on the main thread.
+        self.voices.retain(|v| !v.ended());
         if gain <= 0.001 {
             return;
         }
@@ -292,8 +307,10 @@ impl Mixer {
         }
         *gone += frames;
         self.music_age += frames;
-        if *gone >= *length {
-            self.leaving = None;
+        // The song faded out is kept for the main thread to drop (its slot
+        // is emptied whenever a song is handed, so it is free here).
+        if *gone >= *length && self.spent.is_none() {
+            self.spent = self.leaving.take().and_then(|(old, _, _)| old);
         }
     }
 
@@ -325,7 +342,8 @@ impl Mixer {
                 v.at += 1;
             }
         }
-        self.voices.retain(|v| v.at < v.samples.len() && v.fade != Some(0));
+        // (A voice that ended is taken out by the main thread, `play`: its
+        // samples may be the last of a sound made anew meanwhile.)
         // When much plays at once, turned down just enough to stay under the
         // ceiling, both sides alike, and back up slowly; a mix under it comes
         // out as it is, 1.5 ms later.
@@ -564,12 +582,63 @@ mod tests {
         assert!(far < gain * 0.3, "far away is not much quieter ({far} vs {gain})");
     }
 
-    /// The audio thread takes no memory: the mixer's crossfade buffers
-    /// and the device's feed are made once, `MIX_BLOCK` big, and a request
-    /// longer than that is mixed block by block into the same samples as
-    /// in one piece (they were resized to every request, on the thread
-    /// that must never wait). A singing voice, driven and crushed, plays
-    /// meanwhile (its syllables laid out as the song is read).
+    /// Counts what the thread that watches takes from the heap and gives
+    /// back to it (`taken_by`): the audio thread's rule checked, not
+    /// trusted. Every other allocation goes to the system as ever.
+    struct Counting;
+
+    thread_local! {
+        static WATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        static TAKEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn count() {
+        if WATCHING.try_with(std::cell::Cell::get).unwrap_or(false) {
+            TAKEN.with(|t| t.set(t.get() + 1));
+        }
+    }
+
+    // SAFETY: it hands every call on to the system's allocator unchanged.
+    unsafe impl std::alloc::GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+            count();
+            unsafe { std::alloc::System.alloc(layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+            count();
+            unsafe { std::alloc::System.alloc_zeroed(layout) }
+        }
+        unsafe fn realloc(&self, at: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+            count();
+            unsafe { std::alloc::System.realloc(at, layout, size) }
+        }
+        unsafe fn dealloc(&self, at: *mut u8, layout: std::alloc::Layout) {
+            count();
+            unsafe { std::alloc::System.dealloc(at, layout) }
+        }
+    }
+
+    #[global_allocator]
+    static COUNTING: Counting = Counting;
+
+    /// How many times `work` took memory or gave it back, on this thread.
+    fn taken_by(work: impl FnOnce()) -> usize {
+        TAKEN.with(|t| t.set(0));
+        WATCHING.with(|w| w.set(true));
+        work();
+        WATCHING.with(|w| w.set(false));
+        TAKEN.with(std::cell::Cell::get)
+    }
+
+    /// The audio thread takes no memory and gives none back: the mixer's
+    /// crossfade buffers and the device's feed are made once, `MIX_BLOCK`
+    /// big, and a request longer than that is mixed block by block into
+    /// the same samples as in one piece (they were resized to every
+    /// request, on the thread that must never wait); a song a finished
+    /// crossfade let go of is kept for the main thread to drop as it hands
+    /// the next (it was dropped as the crossfade ended). A singing voice,
+    /// driven and crushed, plays meanwhile (its syllables laid out as the
+    /// song is read), and its song goes round, its notes ringing on.
     #[test]
     fn the_audio_thread_takes_no_memory() {
         let song = |text: &str| Some(music::Player::new(music::parse(text).unwrap(), 1.0));
@@ -585,7 +654,7 @@ mod tests {
         let (mut whole, mut parts) = (crossfading(), crossfading());
         let buffers = (whole.apart.0.as_ptr(), whole.apart.1.as_ptr(), whole.voices.capacity());
         let mut once = vec![0.0f32; 3 * MIX_BLOCK + 10];
-        whole.mix(&mut once);
+        assert_eq!(taken_by(|| whole.mix(&mut once)), 0, "memory taken or given back while mixing");
         assert!(whole.leaving.is_some(), "still crossfading");
         assert_eq!((whole.apart.0.as_ptr(), whole.apart.1.as_ptr(), whole.voices.capacity()), buffers, "the buffers stayed");
         assert_eq!((whole.apart.0.len(), whole.apart.1.len()), (MIX_BLOCK, MIX_BLOCK));
@@ -609,5 +678,16 @@ mod tests {
             assert!(b.len() <= MIX_BLOCK);
         });
         assert_eq!((handed, blocks, feed.buf.as_ptr(), feed.buf.len()), (5 * MIX_BLOCK + 6, 6, at, MIX_BLOCK));
+        // The crossfade ends (2 s), the new song goes round (2 s) and the
+        // sound ends, the last to hold its samples, on the audio thread:
+        // nothing taken or given back, the old song and the sound kept.
+        let mut long = vec![0.0f32; 5 * SAMPLE_RATE as usize];
+        assert_eq!(taken_by(|| whole.mix(&mut long)), 0, "memory taken or given back as the crossfade and a sound ended");
+        assert!(whole.leaving.is_none() && whole.spent.is_some(), "the song faded out kept for the main thread");
+        assert!(whole.voices.len() == 1 && whole.voices[0].ended(), "the sound that ended kept for the main thread");
+        // Let go of on the main thread, as the next song and sound are handed.
+        whole.set_music(None);
+        whole.play("blip", &Arc::from(vec![0.5f32; 10]), 1.0, 0.0);
+        assert!(whole.spent.is_none() && whole.voices.len() == 1 && !whole.voices[0].ended());
     }
 }

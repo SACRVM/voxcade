@@ -238,8 +238,11 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
     // paused while the menu is open.
     let mut front = Front::new(title_menu(&game));
     let seating = Seating::new(game.cfg.players);
-    if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
-        mixer.set_music(game.title_music());
+    if let Some(speaker) = speaker.as_mut() {
+        let title = game.title_music();
+        if let Some(mut mixer) = speaker.lock() {
+            mixer.set_music(title);
+        }
     }
 
     // Every run is recorded (`Runs`); a replay being watched gives the input
@@ -492,19 +495,30 @@ impl<G: Game> App<G> {
     /// playing; the player's volume on top.
     fn music(&mut self) {
         let App { speaker, game, front, settings, prompt, now_playing, .. } = self;
-        if let Some(mut mixer) = speaker.as_mut().and_then(|s| s.lock()) {
-            if front.title_music {
-                game.music_changed = false;
-                let last = game.cfg.audio.music.files().len().saturating_sub(1);
-                let preview = front.menu.previews_song().then_some(settings.song.min(last));
-                if preview != front.previewing {
-                    front.previewing = preview;
-                    mixer.set_music(match preview {
-                        Some(song) => game.song_at(song),
-                        None => game.title_music(),
-                    });
-                }
-            } else if game.feed_music(&mut mixer, front.menu.is_open() || prompt.open) {
+        let Some(speaker) = speaker else { return };
+        // A song is read and made before the mixer is locked: the audio
+        // device waits on the lock.
+        let (mut title, mut new) = (None, None);
+        if front.title_music {
+            game.music_changed = false;
+            let last = game.cfg.audio.music.files().len().saturating_sub(1);
+            let preview = front.menu.previews_song().then_some(settings.song.min(last));
+            if preview != front.previewing {
+                front.previewing = preview;
+                title = Some(match preview {
+                    Some(song) => game.song_at(song),
+                    None => game.title_music(),
+                });
+            }
+        } else {
+            new = Some(game.new_music());
+        }
+        if let Some(mut mixer) = speaker.lock() {
+            if let Some(song) = title {
+                mixer.set_music(song);
+            } else if let Some(new) = new
+                && game.hand_music(&mut mixer, new, front.menu.is_open() || prompt.open)
+            {
                 // The player's own choice numbered when there are several.
                 let choice = game.cfg.audio.music.files().len() > 1 && !game.steers_music();
                 *now_playing = match mixer.music_title() {
