@@ -153,16 +153,16 @@ impl<G: Game> App<G> {
                 Err(e) => println!("F9: {e:#}"),
             }
         } else if let Some(index) = maker_code.and_then(keys::song_key).filter(|_| !repeat && front.menu.page() != Some(Page::Initials)) {
-            if index < game.cfg.audio.music.files().len() {
+            if index < game.player_songs().len() {
                 settings.song = index;
                 commands.push(Command::Song);
             } else {
-                println!("no song {} (c.audio.music lists {})", index + 1, game.cfg.audio.music.files().len());
+                println!("no song {} (c.audio.music has {} to play)", index + 1, game.player_songs().len());
             }
         } else if front.menu.is_open() {
             front.played_with = Device::Keyboard;
             if let Some(nav) = keys::key_nav(code, settings).filter(|n| !repeat || keys::is_direction(*n)) {
-                commands.extend(front.menu.nav(nav, settings, game.cfg.audio.music.files().len()));
+                commands.extend(front.menu.nav(nav, settings, game.player_songs().len()));
             }
         } else if in_play
             && pauses
@@ -269,7 +269,7 @@ impl<G: Game> App<G> {
             return;
         }
         if self.front.menu.is_open() {
-            let songs = self.game.cfg.audio.music.files().len();
+            let songs = self.game.player_songs().len();
             let App { front, settings, .. } = self;
             match button {
                 sdl3::mouse::MouseButton::Left => {
@@ -322,7 +322,7 @@ impl<G: Game> App<G> {
         if front.menu.is_open() {
             front.played_with = Device::Gamepad;
             if let Some(nav) = keys::pad_nav(button) {
-                commands.extend(front.menu.nav(nav, settings, game.cfg.audio.music.files().len()));
+                commands.extend(front.menu.nav(nav, settings, game.player_songs().len()));
             }
         } else if front.playing && watching.is_none() {
             front.played_with = Device::Gamepad;
@@ -388,7 +388,7 @@ impl<G: Game> App<G> {
             Some(nav) if front.stick != Some(nav) => {
                 front.stick = Some(nav);
                 front.played_with = Device::Gamepad;
-                commands.extend(front.menu.nav(nav, settings, game.cfg.audio.music.files().len()));
+                commands.extend(front.menu.nav(nav, settings, game.player_songs().len()));
             }
             None if v.abs() < 0.3 && front.stick.is_some_and(along) => front.stick = None,
             _ => {}

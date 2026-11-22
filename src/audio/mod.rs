@@ -202,6 +202,24 @@ impl Mixer {
     pub fn follow_music(&mut self, beats: f64) {
         if let Some(m) = &mut self.music {
             m.follow(beats);
+            // What a swap let go of, dropped here on the main thread.
+            drop(m.spent());
+        }
+    }
+
+    /// The digests of the channels a game laid in the song that plays,
+    /// and in those it is to swap to (`music::Player::laid`); None when no
+    /// song plays.
+    pub fn music_laid(&self) -> Option<music::Digests> {
+        self.music.as_ref().map(music::Player::laid)
+    }
+
+    /// The laid channels the song that plays swaps to when they are due,
+    /// in place of any to come before (None: none to come); what the song
+    /// no longer holds is dropped here, on the main thread.
+    pub fn pend_music(&mut self, swap: Option<Box<music::Swap>>) {
+        if let Some(m) = &mut self.music {
+            drop(m.pend(swap));
         }
     }
 
@@ -689,5 +707,22 @@ mod tests {
         whole.set_music(None);
         whole.play("blip", &Arc::from(vec![0.5f32; 10]), 1.0, 0.0);
         assert!(whole.spent.is_none() && whole.voices.len() == 1 && !whole.voices[0].ended());
+        // Channels a game laid swapped in on the audio thread: one the same,
+        // one changed under a ringing note, one laid no more (its note rings
+        // out in a tail), one new, the song of other bars, a layer and the
+        // ducking going on; the old song kept for the main thread.
+        let studio = "#tempo 120\n#layer N 0.5\n@k triangle sidechain=0.5 release=0.4\n@n noise drive=6 crush_bits=6 release=0.3\n@p square duty=0.25 release=0.5\n";
+        let laid = |c: &[(char, &str)]| music::Laid::new(c.iter().map(|(l, t)| (*l, t.to_string())).collect());
+        let (from, to) = (laid(&[('A', "@k c4 c4 c4 c4"), ('B', "@p c1"), ('G', "@n c2 c2")]), laid(&[('A', "@k c4 c4 c4 c4 c4 c4 c4 c4"), ('B', "@p e1 g1"), ('N', "@n c1 c1")]));
+        let mut mixer = Mixer::default();
+        mixer.set_music(Some(music::Player::new(music::lay(studio, &from).unwrap(), 1.0)));
+        mixer.music_intensity(0.7);
+        mixer.pend_music(Some(music::Swap::new(music::lay(studio, &to).unwrap(), 3.5)));
+        let mut long = vec![0.0f32; 2 * 3 * SAMPLE_RATE as usize];
+        assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken or given back as laid channels were swapped in");
+        assert_eq!(mixer.music_laid(), Some((Some(to.digest), None)));
+        assert!(mixer.music.as_ref().is_some_and(|m| m.spent.is_some()), "what was swapped out kept for the main thread");
+        mixer.follow_music(6.0);
+        assert!(mixer.music.as_ref().is_some_and(|m| m.spent.is_none()), "dropped on the main thread");
     }
 }

@@ -12,6 +12,7 @@ impl UserData for MusicView {
         f.add_meta_field(MetaMethod::Type, "music");
         f.add_field_function_get("song", |lua, _| look(lua, |h| Ok(h.music.song.and_then(|s| h.songs.get(s)).map(|t| t.name.clone()))));
         f.add_field_function_get("beat", |lua, _| look(lua, |h| Ok(h.music.beats(&h.songs).map(|b| b.floor() as i64))));
+        f.add_field_function_get("position", |lua, _| look(lua, |h| Ok(h.music.beats(&h.songs))));
         f.add_field_function_get("intensity", |lua, _| look(lua, |h| Ok(h.music.intensity)));
         f.add_field_function_set("intensity", |lua, _, v: f32| {
             if !(0.0..=1.0).contains(&v) {
@@ -35,12 +36,12 @@ impl UserData for MusicView {
         m.add_meta_function(MetaMethod::Index, |_, (_, key): (AnyUserData, Value)| -> mlua::Result<Value> { Err(no_such("music", &key, None)) });
         m.add_meta_function(MetaMethod::NewIndex, |_, (_, key, _): (AnyUserData, Value, Value)| -> mlua::Result<()> { Err(not_settable("music", &key, None)) });
         m.add_function("play", |lua, (_, song, GivenValue(how)): (AnyUserData, Option<String>, GivenValue)| {
-            // From when as a word, or { from = ..., crossfade = seconds, at = bar }.
-            let (when, cross, at) = match &how {
-                Value::Nil => (None, None, None),
-                Value::String(s) => (Some(s.to_str()?.to_string()), None, None),
+            // From when as a word, or { from = ..., crossfade = seconds, at = bar, channels = { K = mml } }.
+            let (when, cross, at, channels) = match &how {
+                Value::Nil => (None, None, None, None),
+                Value::String(s) => (Some(s.to_str()?.to_string()), None, None, None),
                 Value::Table(t) => {
-                    known_keys(t, &["from", "crossfade", "at"], "music:play")?;
+                    known_keys(t, &["from", "crossfade", "at", "channels"], "music:play")?;
                     let cross = match t.raw_get::<Value>("crossfade")? {
                         Value::Nil => None,
                         Value::Integer(i) if (0..=60).contains(&i) => Some(i as f32),
@@ -58,9 +59,14 @@ impl UserData for MusicView {
                         Value::Number(n) if n.fract() == 0.0 && (1.0..=f64::from(u32::MAX)).contains(&n) => Some(n as u32),
                         other => return Err(mlua::Error::runtime(format!("music:play: at is the bar the song begins at, a whole number from 1 (its first bar), not {}", shown(&other)))),
                     };
-                    (from, cross, at)
+                    let channels = match t.raw_get::<GivenValue>("channels")?.0 {
+                        Value::Nil => None,
+                        Value::Table(c) => Some(laid(&c)?),
+                        other => return Err(mlua::Error::runtime(format!("music:play: channels is a table of a letter and its notes, like {{ K = \"@kick c4 c4 c4 c4\" }}, not {}", shown(&other)))),
+                    };
+                    (from, cross, at, channels)
                 }
-                other => return Err(mlua::Error::runtime(format!("music:play: after the song, \"bar\", \"beat\" or \"now\", or {{ from = ..., crossfade = seconds, at = bar }}, not {}", shown(other)))),
+                other => return Err(mlua::Error::runtime(format!("music:play: after the song, \"bar\", \"beat\" or \"now\", or {{ from = ..., crossfade = seconds, at = bar, channels = ... }}, not {}", shown(other)))),
             };
             change(lua, "music:play", |h| {
                 let when = match when.as_deref() {
@@ -80,17 +86,56 @@ impl UserData for MusicView {
                         }
                     },
                 };
-                // A bar within the song: the player's own begins at its start.
+                let timing = song.and_then(|s| h.songs.get(s));
+                let studio = timing.and_then(|t| t.studio.clone());
+                // Channels are laid over a studio; a studio plays only laid
+                // ones (those that play stay where none are given).
+                let laid = match (channels, timing, &studio) {
+                    (Some(_), None, _) => return Err(mlua::Error::runtime("music:play: channels are laid over a file of instruments of c.audio.music, named first: music:play(\"drums\", { channels = ... })")),
+                    (Some(_), Some(t), None) => return Err(mlua::Error::runtime(format!("music:play: {} has channels of its own; channels are laid over a file of instruments only (@instruments and #settings, no channel)", t.name))),
+                    (Some(c), Some(_), Some(_)) => Some(Arc::new(c)),
+                    (None, Some(_), Some(_)) if song == h.music.song && h.music.laid.is_some() => h.music.laid.clone(),
+                    (None, Some(t), Some(_)) => return Err(mlua::Error::runtime(format!("music:play: {} is a file of instruments: lay channels over it, like music:play(\"{}\", {{ channels = {{ K = \"@kick c4 c4 c4 c4\" }} }})", t.name, t.name))),
+                    (None, ..) => None,
+                };
+                // A bar within the song: the player's own begins at its
+                // start; laid channels' bars are counted as they are read.
+                let bar_mistake = |at: u32, bars: u32, t: &crate::audio::music::Timing| match (crate::audio::music::Timing { bars, ..t.clone() }).bar_mistake(at) {
+                    Some(wrong) => Err(mlua::Error::runtime(format!("music:play: at = {at} {wrong}"))),
+                    None => Ok(()),
+                };
                 if let Some(at) = at {
-                    let Some(t) = song.and_then(|s| h.songs.get(s)) else {
+                    let Some(t) = timing else {
                         return Err(mlua::Error::runtime("music:play: at needs a song of yours (the player's own begins at its start)"));
                     };
-                    if let Some(wrong) = t.bar_mistake(at) {
-                        return Err(mlua::Error::runtime(format!("music:play: at = {at} {wrong}")));
+                    if laid.is_none() {
+                        bar_mistake(at, t.bars, t)?;
                     }
                 }
-                // Asked for what plays already: it goes on, nothing else asked.
-                h.music.next = if song == h.music.song { None } else { Some((song, when, cross, at.unwrap_or(1))) };
+                let ask = crate::lua::host::SongAsk { song, when, crossfade: cross, at: at.unwrap_or(1), laid };
+                // Asked for what is to come or what plays already, the same
+                // channels too: nothing new to read (what plays goes on,
+                // nothing else asked).
+                if h.music.next.as_ref() == Some(&ask) {
+                    return Ok(());
+                }
+                if song == h.music.song && ask.laid == h.music.laid {
+                    h.music.next = None;
+                    return Ok(());
+                }
+                if song.is_some() && song == h.music.song && (cross.is_some() || at.is_some()) {
+                    let word = if at.is_some() { "at" } else { "crossfade" };
+                    return Err(mlua::Error::runtime(format!("music:play: {word} is for a song that begins; {} plays, and only its channels change", timing.map_or("", |t| t.name.as_str()))));
+                }
+                // Laid channels read against the studio now, so a mistake
+                // halts at this line.
+                if let (Some(laid), Some(studio), Some(t)) = (&ask.laid, &studio, timing) {
+                    let song = crate::audio::music::lay(studio, laid).map_err(|e| mlua::Error::runtime(format!("music:play: {e:#}")))?;
+                    if let Some(at) = at {
+                        bar_mistake(at, song.bars, t)?;
+                    }
+                }
+                h.music.next = Some(ask);
                 Ok(())
             })
         });
@@ -101,6 +146,34 @@ impl UserData for MusicView {
             mix_ask(lua, "music:muffle", "amount", "0 (clear) to 1 (very dull, as through a wall)", amount, seconds, |m| &mut m.muffle)
         });
     }
+}
+
+/// `music:play`'s `channels`: each a letter and its MML (a table the
+/// script may only read is read as it sees it).
+fn laid(t: &mlua::Table) -> mlua::Result<crate::audio::music::Laid> {
+    let mut channels = Vec::new();
+    for pair in t.pairs::<Value, Value>() {
+        let (key, value) = pair?;
+        let letter = match &key {
+            Value::String(s) => {
+                let s = s.to_string_lossy();
+                let mut chars = s.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) if c.is_ascii_alphabetic() => c,
+                    _ => return Err(mlua::Error::runtime(format!("music:play: a channel is a letter, A to Z or a to z, not \"{s}\""))),
+                }
+            }
+            other => return Err(mlua::Error::runtime(format!("music:play: a channel is a letter, A to Z or a to z, not {}", shown(other)))),
+        };
+        match value {
+            Value::String(text) => channels.push((letter, text.to_str()?.to_string())),
+            other => return Err(mlua::Error::runtime(format!("music:play: channel {letter} is its notes as a text of MML, not {}", shown(&other)))),
+        }
+    }
+    if channels.is_empty() {
+        return Err(mlua::Error::runtime("music:play: channels lays one channel at least, like { K = \"@kick c4 c4 c4 c4\" }"));
+    }
+    Ok(crate::audio::music::Laid::new(channels))
 }
 
 /// A value as a mistake shows it: a text in quotes, a number as it is,

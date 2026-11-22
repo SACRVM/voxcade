@@ -142,6 +142,7 @@ pub struct Song {
     /// The bars that go round (`#loop FROM TO`, counted from 1; no TO:
     /// to the song's end), None without `#loop`.
     pub round: Option<(u32, Option<u32>)>,
+
     /// The samples that go round, from where to where, exactly (a bar is
     /// seldom a whole number of samples, and the audio goes round with the
     /// game's clock for hours): the whole song unless `#loop` says bars,
@@ -150,6 +151,11 @@ pub struct Song {
     pub(super) span: (f64, f64),
     /// Bars begun in the song (`#meter` beats of `#tempo` each).
     pub bars: u32,
+    /// Channels a game laid over a studio (`parse::lay`): each one's text
+    /// as a number (a channel the same in the next laid song plays on
+    /// untouched), and their digest (`Laid`); none for a file's song.
+    pub(super) sources: Vec<u64>,
+    pub(super) laid: Option<[u8; 32]>,
 }
 
 /// When a song's beats fall, for a game that reads them (`music.beat`):
@@ -164,6 +170,9 @@ pub struct Timing {
     /// song begun at a bar, `music:play`'s `at`, begins within them).
     pub round: Option<(u32, Option<u32>)>,
     pub bars: u32,
+    /// A studio's whole text (`Song::studio`): what a game's laid channels
+    /// are read against; None for a song.
+    pub studio: Option<std::sync::Arc<str>>,
 }
 
 /// Samples into a song of `tempo` and `meter` bar `bar` (from 1) begins
@@ -193,10 +202,17 @@ impl Song {
         parse_song("", true).expect("an empty song reads")
     }
 
+    /// Whether it is a studio: a file of instruments without a channel,
+    /// which a game lays its own channels over (`music:play`'s
+    /// `channels`): no song a player hears alone.
+    pub fn studio(&self) -> bool {
+        self.channels.is_empty()
+    }
+
     /// Its beats, for a game: by its file's name.
     pub fn timing(&self, file: &str) -> Timing {
         let name = std::path::Path::new(file).file_stem().map_or_else(|| file.to_string(), |s| s.to_string_lossy().into_owned());
-        Timing { name, tempo: self.tempo, meter: self.meter, round: self.round, bars: self.bars }
+        Timing { name, tempo: self.tempo, meter: self.meter, round: self.round, bars: self.bars, studio: None }
     }
 
     /// The seconds the loop goes round from and to (`#loop`), if it has one.

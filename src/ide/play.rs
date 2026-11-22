@@ -139,7 +139,7 @@ impl<G: Game> Play<G> {
 
     /// The player's song for the game.
     fn music(&mut self) {
-        let songs = self.game.cfg.audio.music.files().len();
+        let songs = self.game.player_songs().len();
         self.game.select_song(self.settings.song.min(songs.saturating_sub(1)));
         self.game.music_changed = true;
     }

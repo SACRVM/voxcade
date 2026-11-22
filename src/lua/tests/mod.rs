@@ -9,6 +9,7 @@ mod given;
 mod hud;
 mod input;
 mod kits;
+mod laid;
 mod mistakes;
 mod names;
 mod music;

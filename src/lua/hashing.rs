@@ -133,19 +133,28 @@ impl<K: Kit> LuaGame<K> {
         // The music's clock, for a game that reads or picks its music.
         if self.code.uses_music {
             let m = &stage.music;
-            let next = m.next.map_or(u64::MAX, |(song, when, _, _)| song.map_or(u64::MAX - 1, |s| s as u64) * 4 + when as u64);
+            let next = m.next.as_ref().map_or(u64::MAX, |a| a.song.map_or(u64::MAX - 1, |s| s as u64) * 4 + a.when as u64);
             s.u64(0x6d75_7369).u64(m.song.map_or(u64::MAX, |s| s as u64)).u64(m.steps).u64(next).u64(m.told.unwrap_or(u64::MAX));
             // The bars songs begin at only once one begins past its start
             // (`music:play`'s `at`), so earlier checks hold.
             if m.at != 1 {
                 s.u64(0x6174).u64(u64::from(m.at));
             }
-            if let Some((_, _, _, at)) = m.next.filter(|n| n.3 != 1) {
-                s.u64(0x6e61).u64(u64::from(at));
+            if let Some(a) = m.next.as_ref().filter(|a| a.at != 1) {
+                s.u64(0x6e61).u64(u64::from(a.at));
             }
             // The tension only once the game sets it (so earlier checks hold).
             if m.intensity != 1.0 {
                 s.f32(m.intensity);
+            }
+            // The channels laid over a studio, playing and to come, by
+            // their texts' digest (never by what is read of them), only
+            // where a game lays some (so earlier checks hold).
+            if let Some(laid) = &m.laid {
+                s.u64(0x6c61_6964).bytes(&laid.digest);
+            }
+            if let Some(laid) = m.next.as_ref().and_then(|a| a.laid.as_ref()) {
+                s.u64(0x6e6c).bytes(&laid.digest);
             }
         }
         mark(PARTS[8], s.finish());

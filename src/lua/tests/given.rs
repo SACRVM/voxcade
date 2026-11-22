@@ -229,3 +229,24 @@ fn every_frame_method_reads_a_view_as_its_literal() {
         assert_eq!(picture.len(), pictures[0].len(), "from {source}");
     }
 }
+
+/// `music:play`'s table and the channels in it, read from a global after
+/// the start (a read-only view, whole or the channels alone), lay what the literal
+/// lays: the same digest, the same mistake for a wrong one.
+#[test]
+fn music_play_reads_a_view_as_its_literal() {
+    let laid = |how: &str| {
+        let dir = folder("given-music", &format!("WHOLE = {{ from = 'now', channels = {{ K = '@k c2 c2', H = 'r1' }} }}\nCHANNELS = {{ K = '@k c2 c2', H = 'r1' }}\nBAD = {{ K = 'c4' }}\nfunction on_tick()\n  if world.tick == 1 then {how} end\nend\n"));
+        std::fs::create_dir_all(dir.join("music")).unwrap();
+        std::fs::write(dir.join("music/drums.mml"), "#tempo 120\n@k square\n").unwrap();
+        std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 16, 16, 8 }\n  c.audio.music = { \"music/drums.mml\" }\nend\n").unwrap();
+        let mut g = game_in(&dir);
+        steps(&mut g, 3);
+        (halted(&g), g.game.music().and_then(|c| c.laid).map(|l| l.digest))
+    };
+    let literal = laid("music:play('drums', { from = 'now', channels = { K = '@k c2 c2', H = 'r1' } })");
+    assert!(literal.0.is_empty() && literal.1.is_some(), "{literal:?}");
+    assert_eq!(laid("music:play('drums', WHOLE)"), literal, "the whole table a view");
+    assert_eq!(laid("music:play('drums', { from = 'now', channels = CHANNELS })"), literal, "the channels a view");
+    assert!(laid("music:play('drums', { from = 'now', channels = BAD })").0.contains("music:play: channel K lasts 1 beat"), "a view's mistake as the literal's");
+}

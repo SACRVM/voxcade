@@ -71,7 +71,7 @@ pub struct Setup<'a> {
 /// The song a game plays of its own choice (`music:play`): its place
 /// among `c.audio.music`, and the beats since it began (on and on through
 /// its loops).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MusicCue {
     pub song: usize,
     pub beats: f64,
@@ -80,6 +80,11 @@ pub struct MusicCue {
     pub start: f64,
     /// The game's tension, 0..1: the song's layers follow it (`#layer`).
     pub intensity: f32,
+    /// The channels the game laid over its studio that play, and those
+    /// to come within it with the beat they are due at (on `beats`' count,
+    /// `start` in it): what the audio swaps to there, exactly.
+    pub laid: Option<std::sync::Arc<crate::audio::music::Laid>>,
+    pub next: Option<(std::sync::Arc<crate::audio::music::Laid>, f64)>,
 }
 
 /// A change of the game's song as the audio needs it (`music:play`): one

@@ -89,6 +89,8 @@
 
 #[cfg(test)]
 mod loop_tests;
+#[cfg(test)]
+mod laid_tests;
 mod mix;
 mod parse;
 mod player;
@@ -99,8 +101,8 @@ mod voice;
 mod clear;
 
 pub use mix::{Glide, Mix, muffle_cutoff};
-pub use parse::parse;
-pub use player::Player;
+pub use parse::{Laid, has_channels, lay, parse, read};
+pub use player::{Digests, Player, Swap};
 pub use song::{FilterMode, Instrument, Song, Timing};
 pub use voice::phonemes;
 
