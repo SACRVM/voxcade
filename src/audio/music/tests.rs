@@ -577,7 +577,9 @@ fn the_singer_tells_minimal_pairs_apart() {
         (voiced - burst) as f32 / SR * 1000.0
     };
     let (p, b) = (vot("p a"), vot("b a"));
-    assert!(p > 40.0 && b < 20.0, "voice onset after p {p:.0} ms, after b {b:.0} ms");
+    // A long lag after p, a short one after b (up to about 25 ms: Lisker &
+    // Abramson 1964).
+    assert!(p > 40.0 && b <= 25.0, "voice onset after p {p:.0} ms, after b {b:.0} ms");
     // Where s and sh hiss: the 70 ms before the beat, 6.3 kHz against 2.9.
     let hiss = |text: &str| {
         let x = play(&clearly(&format!("r4 \"{text}\" c4")), 1.0);
@@ -608,8 +610,7 @@ fn consonants_move_the_consonants() {
 }
 
 /// The clear voice sings every consonant of a cluster, as eighths at 124
-/// with a quarter last: each one its segments, at least 25 ms in all (a
-/// plosive after a nasal of its place no more: the nasal closed already);
+/// with a quarter last: each one its segments, at least 25 ms in all;
 /// each heard, its loudest 10 ms (in its noise's band where it hisses or
 /// bursts) 12 dB over the quietest 10 ms in the word or more (a voiced
 /// plosive's voice bar may be that) and within 30 dB of its loudest vowel, a hiss or
@@ -678,26 +679,58 @@ fn the_singer_sings_every_consonant_of_a_cluster() {
     }
 }
 
-/// A plosive's burst is a transient, not a block of noise (hard joins at t
-/// and g were what the ear caught): 8 ms after its onset the noise above
-/// 2 kHz has fallen under 40 % of its peak, and a voiceless plosive's
-/// breath goes on to the vowel rather than leaving a gap (over its last
-/// 20 ms above 10 % of the burst's peak, the vowel glided into).
+/// The clear voice tells g from b before r, and r from l (grau was heard
+/// as blau): a voiced plosive's release hisses longer the further back its
+/// place, a g's at least 20 ms and a b's at most 15, a g's compact near the
+/// vowel's F2 (its strongest between 1.2 and 2.5 kHz), a b's not; the r a
+/// German one, its F3 high as in l (not an English r's low one) but its F1
+/// higher than l's, and a rasp where l is clean; before ü its F1 no
+/// higher than the vowel's, a vowel before it turning towards it; a g
+/// after ng closed briefly and voiced.
 #[test]
-fn the_singers_bursts_fall_away_into_their_breath() {
-    for text in ["t a", "k a", "p a"] {
-        let x = play(&clearly(&format!("r4 \"{text}\" c4")), 1.0);
-        let high = filtered(&filtered(&x, "high", 2000.0), "high", 2000.0);
-        let env = |at: usize| (high[at..at + 88].iter().map(|s| s * s).sum::<f32>() / 88.0).sqrt();
-        let beat = (0.5 * SR) as usize;
-        let from = beat - (0.15 * SR) as usize;
-        let peak = (from..beat).map(env).fold(0.0, f32::max);
-        let onset = (from..beat).find(|&i| env(i) > peak * 0.3).unwrap();
-        let top = (onset..onset + 132).map(env).fold(0.0, f32::max);
-        let later = env(onset + (0.008 * SR) as usize);
-        assert!(later < top * 0.4, "{text}: 8 ms after its onset the burst is at {:.0} % of its peak", later / top * 100.0);
-        let breath = x[beat - (0.02 * SR) as usize..beat].iter().map(|s| s * s).sum::<f32>() / (0.02 * SR);
-        let burst = x[onset..onset + 132].iter().map(|s| s * s).sum::<f32>() / 132.0;
-        assert!(breath.sqrt() > burst.sqrt() * 0.1, "{text}: the breath before the vowel at {:.0} % of the burst", breath.sqrt() / burst.sqrt() * 100.0);
-    }
+fn the_singer_tells_g_from_b_and_r_from_l() {
+    use super::clear::Seg;
+    let plan = |text: &str| {
+        let song = parse(&clearly(&format!("r4 \"{text}\" c4"))).unwrap();
+        let (a, b) = song.channels[0].iter().find_map(|n| n.sung).unwrap();
+        song.clear[a as usize..b as usize].to_vec()
+    };
+    let release = |segs: &[Seg], p: &str| segs.iter().filter(|s| s.name == p && s.noisy()).map(|s| (s.to - s.from) as f32 / SR * 1000.0).sum::<f32>();
+    let (g, b) = (plan("g r aw"), plan("b r aw"));
+    let (g_ms, b_ms) = (release(&g, "g"), release(&b, "b"));
+    assert!(g_ms >= 20.0 && b_ms <= 15.0, "the release of g {g_ms:.0} ms, of b {b_ms:.0} ms");
+    let g_band = g.iter().find(|s| s.name == "g" && s.noisy()).and_then(|s| s.band()).unwrap();
+    assert!((1200.0..2500.0).contains(&g_band), "g's release at {g_band:.0} Hz");
+    // No voice bar before a g that begins a phrase.
+    assert!(g.iter().filter(|s| s.name == "g").all(|s| s.voicing == 0.0), "a voice bar before g after silence");
+    // The r against the l: F1 to F3 in the middle of each, from the voice.
+    let middle = |text: &str| {
+        let segs = plan(text);
+        let s = segs.iter().find(|s| s.name == text.split(' ').nth(1).unwrap()).unwrap();
+        let start = parse(&clearly(&format!("r4 \"{text}\" c4"))).unwrap().channels[0].iter().find(|n| n.sung.is_some()).unwrap().start;
+        let mut p = Player::new(parse(&clearly(&format!("r4 \"{text}\" c4"))).unwrap(), 1.0);
+        let mut out = vec![0.0; (start + (s.from + s.to) / 2) as usize * 2];
+        p.mix(&mut out);
+        (p.voices[0].clear.formants_now(), s.noisy())
+    };
+    let ((r, rasp), (l, clean)) = (middle("g r aw"), middle("g l aw"));
+    assert!(r[2] > 2200.0 && r[0] > l[0] + 100.0 && rasp && !clean, "r {r:.0?} rasping {rasp}, l {l:.0?} hissing {clean}");
+    // Before a closer vowel the r is no more open than it: its F1 not over ü's.
+    let (r, _) = middle("g r ue");
+    assert!(r[0] < 330.0, "r before ue at F1 {:.0}", r[0]);
+    // A vowel before a coda r turns towards the r, not away and back: at
+    // its end F1 risen and F2 fallen towards the r's.
+    let text = clearly("r4 \"d e r\" c4");
+    let song = parse(&text).unwrap();
+    let (start, end) = song.channels[0].iter().find_map(|n| n.sung.map(|(a, b)| (n.start, song.clear[a as usize..b as usize].iter().filter(|s| s.name == "e").map(|s| s.to).max().unwrap()))).unwrap();
+    let mut p = Player::new(song, 1.0);
+    let mut out = vec![0.0; (start + end) as usize * 2];
+    p.mix(&mut out);
+    let f = p.voices[0].clear.formants_now();
+    assert!(f[0] > 450.0 && f[1] < 1500.0, "the e of d e r ends at {f:.0?}");
+    // A g after ng closes briefly, the voicing going on through it.
+    let song = parse(&clearly("r4 \"t o ng\" c8 \"g r aw\" c4")).unwrap();
+    let closure: u64 = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).map(|s| s.to - s.from).sum();
+    let voiced = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).all(|s| s.voicing > 0.0);
+    assert!(closure as f32 <= 0.021 * SR && voiced, "g after ng closed {:.0} ms, voiced {voiced}", closure as f32 / SR * 1000.0);
 }
