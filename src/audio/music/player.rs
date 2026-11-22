@@ -2,7 +2,7 @@
 
 use super::SAMPLE_RATE;
 use super::parse::LOOP_SLACK;
-use super::mix::{Mix, SHORTEST, muffle_cutoff};
+use super::mix::{Glide, LETTERS, Mix, SHORTEST, letter_index, muffle_cutoff};
 use super::clear::{self, Seg};
 use super::song::{FilterMode, Instrument, Note, Song, Voicing};
 use super::voice::{Segment, Singer};
@@ -31,7 +31,7 @@ const MOST_LETTERS: usize = 52;
 impl Swap {
     pub fn new(song: Song, due: f64) -> Box<Swap> {
         let n = song.channels.len();
-        let voices = (0..n).map(|i| Voice::new(i as u32 * 7919)).collect();
+        let voices = (0..n).map(|i| Voice::new(i as u32 * 7919, song.names[i])).collect();
         let mut tails = Vec::with_capacity(n + MOST_LETTERS);
         tails.resize_with(n, Voice::default);
         Box::new(Swap { voices, tails, loud: vec![1.0; n], due, song })
@@ -47,6 +47,12 @@ pub(super) struct Voice {
     /// The sample of the song the note started at (before 0, wrapped, for
     /// a note ringing on in a round begun since).
     pub(super) started: u64,
+    /// The samples heard since the note began, and those when its key was
+    /// let go: its sound's own time, which a tempo set by the game does not
+    /// stretch (`Player::ratio`), while its start and its length are the
+    /// song's.
+    age: u64,
+    gate: Option<u64>,
     pub(super) osc: Oscillator,
     pub(super) low: OnePole,
     pub(super) filter: Svf,
@@ -72,18 +78,24 @@ pub(super) struct Voice {
     dc: (f32, f32),
     /// What a voice's noise is raised by, joining past the clipper.
     noise_gain: f32,
+    /// Its channel's strip on the desk (`Player::lanes`, by letter): its
+    /// own, so a note ringing out of a channel laid no more keeps it.
+    strip: u8,
 }
 
 impl Voice {
-    fn new(seed: u32) -> Self {
-        Voice { osc: Oscillator::new(0x1234_5678 ^ seed), singer: Singer::new(0x2545_f491 ^ seed), clear: clear::Singer::new(0x5bd1_e995 ^ seed), ..Voice::default() }
+    fn new(seed: u32, letter: char) -> Self {
+        let strip = letter_index(letter).unwrap_or(0) as u8;
+        Voice { osc: Oscillator::new(0x1234_5678 ^ seed), singer: Singer::new(0x2545_f491 ^ seed), clear: clear::Singer::new(0x5bd1_e995 ^ seed), strip, ..Voice::default() }
     }
 
-    /// Takes up note `n` (played by `ins`) from its start; a voice note
-    /// sings its part of `segments` (`voice`'s) or `clear`.
-    fn take_up(&mut self, n: &Note, ins: &Instrument, (segments, clear): (&[Segment], &[Seg])) {
+    /// Takes up note `n` (played by `ins`) from its start, at sample
+    /// `time` of the song; a voice note sings its part of `segments`
+    /// (`voice`'s) or `clear`.
+    fn take_up(&mut self, n: &Note, ins: &Instrument, (segments, clear): (&[Segment], &[Seg]), time: u64) {
         let sounding = self.note.is_some();
         (self.note, self.started, self.osc.phase) = (Some(*n), n.start, 0.0);
+        (self.age, self.gate) = (time.wrapping_sub(n.start), None);
         self.alpha = ins.lowpass.map_or(0.0, OnePole::alpha);
         let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
         self.pan = (libm::cosf(angle), libm::sinf(angle));
@@ -111,11 +123,15 @@ impl Voice {
         let sr = SAMPLE_RATE as f32;
         let n = self.note?;
         let ins = song.instruments.get(n.instrument)?;
-        let t = time.wrapping_sub(self.started) as f32 / sr;
+        // The key is held for a length of the song; the sound's shape goes
+        // by the samples heard (the same at the song's own tempo).
+        let into = time.wrapping_sub(self.started);
+        let (age, t) = (self.age, self.age as f32 / sr);
+        self.age += 1;
         let held = n.held as f32 / sr;
 
         // ADSR (a voice's attack from where it was).
-        let level = if t < held {
+        let level = if (into as f32 / sr) < held {
             let l = if t < ins.attack {
                 if ins.voice.is_some() { self.from + (1.0 - self.from) * (t / ins.attack.max(1e-4)) } else { t / ins.attack.max(1e-4) }
             } else {
@@ -125,7 +141,10 @@ impl Voice {
             self.released_at = l;
             l
         } else {
-            let r = (t - held) / ins.release.max(1e-4);
+            // Released when the key was let go, however far into the
+            // release the song was when it was found let go.
+            let gate = *self.gate.get_or_insert(age - age.min(into.saturating_sub(n.held)));
+            let r = (t - gate as f32 / sr) / ins.release.max(1e-4);
             if r >= 1.0 {
                 (self.note, self.level) = (None, 0.0);
                 return None;
@@ -277,7 +296,9 @@ impl Svf {
     }
 }
 
-/// The ducking the last sidechain note started: since when, how deep, how long.
+/// The ducking the last sidechain note started: since when (the samples
+/// heard, `Player::heard`: a compressor's release is seconds), how deep,
+/// how long.
 #[derive(Clone, Copy)]
 pub(super) struct Duck {
     pub(super) from: u64,
@@ -352,8 +373,8 @@ impl Ramp {
 pub(super) struct Bus {
     pub(super) level: Ramp,
     pub(super) muffle: Ramp,
-    /// The asks last followed (`Glide::asked`), the volume's and the muffle's.
-    pub(super) asked: (u32, u32),
+    /// The asks last followed (`Glide::key`), the volume's and the muffle's.
+    pub(super) asked: [(u32, u32, u32); 2],
     /// Each side's filter state, and its coefficient for the muffle it was
     /// last worked out for.
     pub(super) low: [(f32, f32); 2],
@@ -362,7 +383,7 @@ pub(super) struct Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self { level: Ramp::at(1.0), muffle: Ramp::at(0.0), asked: (0, 0), low: [(0.0, 0.0); 2], g: (-1.0, 0.0) }
+        Self { level: Ramp::at(1.0), muffle: Ramp::at(0.0), asked: [Glide::still(1.0).key(), Glide::still(0.0).key()], low: [(0.0, 0.0); 2], g: (-1.0, 0.0) }
     }
 }
 
@@ -399,6 +420,48 @@ impl Bus {
     }
 }
 
+/// A channel's strip as the player applies it (`Mix::strips`): its level
+/// (the fader, or 0 muted) and its pan, each gliding sample by sample,
+/// and the asks last followed (`Glide::key`).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Lane {
+    pub(super) level: Ramp,
+    pub(super) pan: Ramp,
+    asked: [(u32, u32, u32); 2],
+}
+
+impl Lane {
+    /// As the game's strip is now, gliding on where it still glides.
+    fn at(level: &Glide, pan: &Glide) -> Self {
+        let mut lane = Lane { level: Ramp::at(level.now()), pan: Ramp::at(pan.now()), asked: [level.key(), pan.key()] };
+        lane.level.toward(level.to, level.left(), SHORTEST.0);
+        lane.pan.toward(pan.to, pan.left(), SHORTEST.0);
+        lane
+    }
+
+    /// Follows a new ask, from where it sounds now.
+    fn follow(&mut self, level: &Glide, pan: &Glide) {
+        if level.key() != self.asked[0] {
+            self.level.toward(level.to, level.left(), SHORTEST.0);
+        }
+        if pan.key() != self.asked[1] {
+            self.pan.toward(pan.to, pan.left(), SHORTEST.0);
+        }
+        self.asked = [level.key(), pan.key()];
+    }
+
+    /// Whether it sounds as written and stays so (nothing to apply).
+    fn neutral(&self) -> bool {
+        (self.level.now, self.level.to, self.pan.now, self.pan.to) == (1.0, 1.0, 0.0, 0.0)
+    }
+
+    /// Its gain on each side for this sample, and a step on.
+    fn next(&mut self) -> [f32; 2] {
+        let (level, pan) = (self.level.next(), self.pan.next());
+        [level * (1.0 - pan).min(1.0), level * (1.0 + pan).min(1.0)]
+    }
+}
+
 /// Plays a song, sample by sample; runs in the audio thread.
 pub struct Player {
     pub(super) song: Song,
@@ -416,6 +479,13 @@ pub struct Player {
     /// little before its start: below 0 while `time` is 0).
     pub(super) rate: f64,
     pub(super) carry: f64,
+    /// How fast the song goes against its `#tempo` for the game
+    /// (`music.tempo`; exactly 1 unless set): its notes' starts, lengths,
+    /// its loop, its swaps and its layers' fades go so, each sound's own
+    /// shape (`Voice::age`) and the ducking by the samples heard.
+    pub(super) ratio: f64,
+    /// The samples it made: the ducking's clock.
+    pub(super) heard: u64,
     /// Samples into the song as written played on and on, never folded
     /// round its loop (the game's beats, `follow`): where a swap is due.
     pub(super) position: f64,
@@ -425,13 +495,19 @@ pub struct Player {
     pub(super) pending: Option<Box<Swap>>,
     pub(in crate::audio) spent: Option<Box<Swap>>,
     /// Samples since a jump, fading in up to `FADE_IN`.
-    pub(super) since_jump: u32,
+    pub(in crate::audio) since_jump: u32,
     /// The game's tension (`music.intensity`), and how loud each channel's
     /// layer is now (0..1, moving a bar's worth a bar).
     pub intensity: f32,
     pub(super) loud: Vec<f32>,
     /// The game's say over how it sounds (`Mix`): neutral unless followed.
     pub(super) bus: Bus,
+    /// Each channel's strip by letter (`Mix::strips`), made with the
+    /// player, kept through a swap; whether any is not neutral, and each
+    /// one's gains for the sample being made.
+    pub(super) lanes: [Lane; LETTERS],
+    lanes_live: bool,
+    gains: [[f32; 2]; LETTERS],
 }
 
 impl Player {
@@ -440,32 +516,65 @@ impl Player {
     }
 
     pub fn new(song: Song, volume: f32) -> Self {
-        let voices = (0..song.channels.len()).map(|i| Voice::new(i as u32 * 7919)).collect();
+        let voices = (0..song.channels.len()).map(|i| Voice::new(i as u32 * 7919, song.names[i])).collect();
         let tails = (0..song.channels.len()).map(|_| Voice::default()).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
-        Self { song, voices, tails, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, position: 0.0, pending: None, spent: None, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
+        let lane = Lane::at(&Glide::still(1.0), &Glide::still(0.0));
+        Self {
+            song,
+            voices,
+            tails,
+            time: 0,
+            duck: None,
+            volume,
+            rate: 1.0,
+            carry: 0.0,
+            ratio: 1.0,
+            heard: 0,
+            position: 0.0,
+            pending: None,
+            spent: None,
+            since_jump: FADE_IN,
+            intensity: 1.0,
+            loud,
+            bus: Bus::default(),
+            lanes: [lane; LETTERS],
+            lanes_live: false,
+            gains: [[1.0; 2]; LETTERS],
+        }
     }
 
     /// Sounds as the game's `mix` is now, gliding on where it still glides
-    /// (a song begun, or the game brought back).
+    /// (a song begun, or the game brought back): a channel muted is silent
+    /// from the song's first sample.
     pub fn start_mix(&mut self, mix: &Mix) {
         self.bus.level = Ramp::at(mix.volume.now());
         self.bus.muffle = Ramp::at(mix.muffle.now());
-        self.bus.asked = (mix.volume.asked, mix.muffle.asked);
+        self.bus.asked = [mix.volume.key(), mix.muffle.key()];
         self.bus.level.toward(mix.volume.to, mix.volume.left(), SHORTEST.0);
         self.bus.muffle.toward(mix.muffle.to, mix.muffle.left(), SHORTEST.1);
+        for (i, lane) in self.lanes.iter_mut().enumerate() {
+            let strip = mix.strip(letter(i));
+            *lane = Lane::at(&strip.level, &strip.pan);
+        }
+        self.lanes_live = self.lanes.iter().any(|l| !l.neutral());
     }
 
     /// Follows the game's `mix`: a new ask glides from where the song
     /// sounds now to where it was asked, over what is left of its time.
     pub fn follow_mix(&mut self, mix: &Mix) {
-        if mix.volume.asked != self.bus.asked.0 {
+        if mix.volume.key() != self.bus.asked[0] {
             self.bus.level.toward(mix.volume.to, mix.volume.left(), SHORTEST.0);
         }
-        if mix.muffle.asked != self.bus.asked.1 {
+        if mix.muffle.key() != self.bus.asked[1] {
             self.bus.muffle.toward(mix.muffle.to, mix.muffle.left(), SHORTEST.1);
         }
-        self.bus.asked = (mix.volume.asked, mix.muffle.asked);
+        self.bus.asked = [mix.volume.key(), mix.muffle.key()];
+        for (i, lane) in self.lanes.iter_mut().enumerate() {
+            let strip = mix.strip(letter(i));
+            lane.follow(&strip.level, &strip.pan);
+        }
+        self.lanes_live = self.lanes.iter().any(|l| !l.neutral());
     }
 
     /// Sets how loud each layer is at once, for the tension it starts at
@@ -503,16 +612,25 @@ impl Player {
             v.next = notes.partition_point(|n| n.start <= time);
             v.note = None;
             if let Some(n) = v.next.checked_sub(1).map(|i| &notes[i]).filter(|n| n.freq.is_some()) {
-                v.take_up(n, &self.song.instruments[n.instrument], (&self.song.segments, &self.song.clear));
+                v.take_up(n, &self.song.instruments[n.instrument], (&self.song.segments, &self.song.clear), time);
             }
         }
+    }
+
+    /// Goes `ratio` times as fast as its `#tempo` (the game's tempo,
+    /// `music.tempo`), from now: nothing laid anew, a sound already
+    /// sounding rings on as it was.
+    pub fn set_ratio(&mut self, ratio: f64) {
+        (self.ratio, self.rate) = (ratio, ratio);
     }
 
     /// Keeps time with a game's clock, `beats` since the song began (on
     /// and on, which it folds into the song exactly, so a short loop
     /// never drifts from the game's bars): a jump when it is far off
     /// (after a pause), else a little faster or slower until it is with
-    /// it again, unheard.
+    /// it again, unheard. How far off is measured in samples heard (the
+    /// song's divided by its `ratio`), so a song played faster or slower
+    /// jumps and closes in as it does at its own tempo.
     pub fn follow(&mut self, beats: f64) {
         let (from, to) = self.song.span;
         let length = to - from;
@@ -528,11 +646,12 @@ impl Player {
                 off += length;
             }
         }
+        let off = off / self.ratio;
         if off.abs() > JUMP as f64 {
             self.seek(unwrapped);
-            self.rate = 1.0;
+            self.rate = self.ratio;
         } else {
-            self.rate = 1.0 + (off / (4.0 * SAMPLE_RATE as f64)).clamp(-0.003, 0.003);
+            self.rate = self.ratio * (1.0 + (off / (4.0 * SAMPLE_RATE as f64)).clamp(-0.003, 0.003));
         }
     }
 
@@ -579,9 +698,6 @@ impl Player {
         for tail in &mut self.tails {
             tail.started = tail.started.wrapping_sub(back);
         }
-        if let Some(duck) = &mut self.duck {
-            duck.from = duck.from.wrapping_sub(back);
-        }
         for (v, notes) in self.voices.iter_mut().zip(&self.song.channels) {
             v.next = notes.partition_point(|n| (n.start as f64) < from);
         }
@@ -590,7 +706,7 @@ impl Player {
     /// Adds the next frames to interleaved stereo `out`.
     pub fn mix(&mut self, out: &mut [f32]) {
         // The layers move towards the tension, a bar's worth a bar.
-        let step = self.song.tempo / (60.0 * SAMPLE_RATE as f32 * self.song.meter as f32);
+        let step = self.song.tempo / (60.0 * SAMPLE_RATE as f32 * self.song.meter as f32) * self.ratio as f32;
         for frame in out.as_chunks_mut::<2>().0 {
             // Laid channels swapped in where they are due: a sample or two
             // early rather than late (`LOOP_SLACK`), so a note a sum of
@@ -608,12 +724,21 @@ impl Player {
                     return;
                 }
             }
-            let ducked = self.duck.map_or(0.0, |d| d.amount(self.time));
+            let ducked = self.duck.map_or(0.0, |d| d.amount(self.heard));
             for (loud, &from) in self.loud.iter_mut().zip(&self.song.layers) {
                 let want = if self.intensity >= from { 1.0 } else { 0.0 };
                 *loud = if *loud < want { (*loud + step).min(want) } else { (*loud - step).max(want) };
             }
             let fade = if self.since_jump < FADE_IN { self.since_jump as f32 / FADE_IN as f32 } else { 1.0 };
+            // Each channel's strip, where the game set one (`Mix::strips`).
+            let live = self.lanes_live;
+            if live {
+                for (gain, lane) in self.gains.iter_mut().zip(&mut self.lanes) {
+                    *gain = lane.next();
+                }
+            }
+            let gains = &self.gains;
+            let strip = |v: &Voice, [l, r]: [f32; 2]| if live { [l * gains[v.strip as usize][0], r * gains[v.strip as usize][1]] } else { [l, r] };
             let mut sum = [0.0f32; 2];
             for (ch, (v, tail)) in self.voices.iter_mut().zip(&mut self.tails).enumerate() {
                 let notes = &self.song.channels[ch];
@@ -622,22 +747,23 @@ impl Player {
                     let n = &notes[v.next];
                     if n.freq.is_some() {
                         let ins = &self.song.instruments[n.instrument];
-                        v.take_up(n, ins, (&self.song.segments, &self.song.clear));
+                        v.take_up(n, ins, (&self.song.segments, &self.song.clear), self.time);
                         if ins.sidechain > 0.0 {
-                            self.duck = Some(Duck { from: self.time, depth: ins.sidechain, release: ins.sidechain_release });
+                            self.duck = Some(Duck { from: self.heard, depth: ins.sidechain, release: ins.sidechain_release });
                         }
                     }
                     v.next += 1;
                 }
                 let scale = (self.volume, fade, self.loud[ch]);
-                for [l, r] in [v.sound(&self.song, self.time, ducked, scale), tail.sound(&self.song, self.time, ducked, scale)].into_iter().flatten() {
+                let heard = [v.sound(&self.song, self.time, ducked, scale).map(|s| strip(v, s)), tail.sound(&self.song, self.time, ducked, scale).map(|s| strip(tail, s))];
+                for [l, r] in heard.into_iter().flatten() {
                     sum[0] += l;
                     sum[1] += r;
                 }
             }
             // The notes of channels laid no more, ringing out.
             for tail in &mut self.tails[self.voices.len()..] {
-                if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0)) {
+                if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0)).map(|s| strip(tail, s)) {
                     sum[0] += l;
                     sum[1] += r;
                 }
@@ -647,6 +773,7 @@ impl Player {
             frame[0] += l;
             frame[1] += r;
             self.since_jump = self.since_jump.saturating_add(1);
+            self.heard += 1;
             // A sample on, or a hair more or less when keeping time.
             self.carry += self.rate;
             self.position += self.rate;
@@ -717,9 +844,6 @@ impl Player {
             for v in self.voices.iter_mut().chain(&mut self.tails) {
                 v.started = v.started.wrapping_add(shift);
             }
-            if let Some(duck) = &mut self.duck {
-                duck.from = duck.from.wrapping_add(shift);
-            }
         }
         for (i, (v, notes)) in self.voices.iter_mut().zip(&self.song.channels).enumerate() {
             let letter = self.song.names[i];
@@ -742,4 +866,10 @@ impl Player {
         self.mix(&mut out);
         out
     }
+}
+
+/// The letter of a strip's place among the `LETTERS` (`letter_index`'s
+/// other way).
+fn letter(i: usize) -> char {
+    if i < 26 { (b'A' + i as u8) as char } else { (b'a' + (i - 26) as u8) as char }
 }

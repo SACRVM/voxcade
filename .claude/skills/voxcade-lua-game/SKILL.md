@@ -434,7 +434,18 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   `on_tick`). A song asked for again plays on through a level's fade;
   another crossfades with `music:play("shop", { from = "now", crossfade
   = 3 })` or `c.audio.crossfade = 3` (else the old ends, a short pause,
-  the new begins). Only heard, never in the replays. Music is never a kit's:
+  the new begins). `music:stop()` is silence (`"now"` unless said,
+  `{ from = "bar", fade = 2 }`): no beats, the player's own song not
+  coming back; `music:play` after it begins the song from beat 0.
+  `music:mix("K", { volume = 0.6, mute = true, pan = -0.5 }, seconds)` is
+  channel K's strip on a mixing desk (fader, mute, pan; `false` gives a
+  key or the whole strip back), held by letter whichever song plays;
+  keep the desk in a state and set it again in `on_level_start`.
+  `music.tempo = 140` plays the game's songs at 140 beats a minute (1 to
+  999, `nil` each song's own `#tempo`), its sounds as long as before,
+  `on_beat` and the bars going with it; a state holds the knob, set
+  again in `on_level_start`, and only set when it changes. Volume,
+  muffle and the strips are only heard, never in the replays. Music is never a kit's:
   which song plays when is the game's code.
 - Music from the game's own data (a drum machine, patterns from a level):
   a `.mml` of `c.audio.music` with instruments and no channel is a studio;

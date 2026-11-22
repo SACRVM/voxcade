@@ -208,8 +208,11 @@ without a gap. Another song: the old ends as the new begins (the rest of
 a level's fade silent, a short pause), unless it crossfades:
 `music:play("shop", { from = "now", crossfade = 3 })` or
 `c.audio.crossfade = 3` for every change fade the old out as the new
-comes in, equal in power; the clock is the new song's from then. No
-`music:stop` yet.
+comes in, equal in power; the clock is the new song's from then.
+Silence: `music:stop()` (at once, `"beat"`, `"bar"`, or `{ from = "bar",
+fade = 2 }`): no song of the game's, no beats, and the player's own does
+not come back (`music:play()` brings it); a play after it begins its song
+from beat 0; a play asked while a stop is pending replaces it.
 
 Music the game writes itself (a drum machine, a rhythm game's patterns,
 a seeded score): a file of `c.audio.music` with only `@instruments` and
@@ -242,7 +245,24 @@ game's sounds stay clear) glide there over the seconds (0.3 unless said;
 from level to level, the song going on. One song through three scenes:
 `music:volume(0.6) music:muffle(0.7)` outside the house, `(1)` and `(0)`
 in the room, the muffle back up in the hall behind the door. Only heard
-(no replay changes with it); a film of a replay carries it. Checked by
+(no replay changes with it); a film of a replay carries it. Each channel
+has a strip of its own: `music:mix("K", { volume = 0.6, mute = false,
+pan = -0.5 }, 0.05)` (the fader 0..1, the mute, the pan a balance; a
+key left out stays, `false` gives it back, `music:mix("K", false)` the
+whole strip, `music:mix("K")` reads it back), held by letter through
+every song and stop until given back: a level knob, a mute button.
+
+A tempo of the game's: `music.tempo = 140` plays its song at 140 beats a
+minute from the next tick (1 to 999, kept to a thousandth; read back,
+the song's own `#tempo` until set; `nil` gives each song its own again).
+It holds for every song of the game's until set nil. Only the timing
+changes: each sound keeps its length (a kick's decay is as long at 160
+as at 120), pitch and a singer's vowels stay, sung consonants go with
+the tempo (listen to a sung line at another tempo). `music.beat`,
+`on_beat` and `"bar"` go with it, exactly (the clock counts in integers
+once a tempo is set; unset it is the old formula, so replays stay). A
+song played much faster may cut a release that rang out at its own
+tempo, as the same song written faster would. Checked by
 measurement in `lua::tests::the_music_sounds_as_the_game_asks`.
 
 A loop of its own: `#loop 33 80` in a song plays it from its start once,

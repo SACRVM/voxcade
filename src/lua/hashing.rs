@@ -133,8 +133,26 @@ impl<K: Kit> LuaGame<K> {
         // The music's clock, for a game that reads or picks its music.
         if self.code.uses_music {
             let m = &stage.music;
-            let next = m.next.as_ref().map_or(u64::MAX, |a| a.song.map_or(u64::MAX - 1, |s| s as u64) * 4 + a.when as u64);
+            // (The player's song asked wraps, as it always did in a release
+            // build, never overflowing in a debug one.)
+            let next = m.next.as_ref().map_or(u64::MAX, |a| ask_code(a.song, a.when));
             s.u64(0x6d75_7369).u64(m.song.map_or(u64::MAX, |s| s as u64)).u64(m.steps).u64(next).u64(m.told.unwrap_or(u64::MAX));
+            // Silence and a stop to come only once a game stops its song
+            // (`music:stop`), so earlier checks hold.
+            if m.silent {
+                s.u64(0x7369_6c65);
+            }
+            if m.next.as_ref().is_some_and(|a| a.stop) {
+                s.u64(0x7374_6f70);
+            }
+            // The tempo the game holds and the clock's units only once it
+            // sets one (`music.tempo`), so earlier checks hold.
+            if let Some(tempo) = m.tempo {
+                s.u64(0x7465_6d70).u64(u64::from(tempo));
+            }
+            if let Some(units) = m.units {
+                s.u64(0x756e_6974).u64(units);
+            }
             // The bars songs begin at only once one begins past its start
             // (`music:play`'s `at`), so earlier checks hold.
             if m.at != 1 {
@@ -178,5 +196,26 @@ impl<K: Kit> LuaGame<K> {
             Some(Outcome::Won) => 1,
             Some(Outcome::Lost) => 2,
         });
+    }
+}
+
+/// An ask of the game's music as the hash takes it: its song (the player's
+/// own a number past every song) four times over, and when.
+pub(super) fn ask_code(song: Option<usize>, when: crate::lua::host::When) -> u64 {
+    song.map_or(u64::MAX - 1, |s| s as u64).wrapping_mul(4).wrapping_add(when as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lua::host::When;
+
+    /// An ask of the player's own song hashes as a release build always
+    /// wrapped it (no replay moves), and a debug build no longer panics.
+    #[test]
+    fn an_ask_of_the_players_song_hashes_as_it_always_did() {
+        assert_eq!(ask_code(None, When::Now), u64::MAX - 7);
+        assert_eq!(ask_code(None, When::Bar), u64::MAX - 5);
+        assert_eq!(ask_code(Some(3), When::Beat), 13);
     }
 }

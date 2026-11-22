@@ -258,8 +258,9 @@ pub struct Session<G: Game> {
     /// The beats of the files of `c.audio.music` (`song_timings`), as the
     /// game was told them.
     songs: Vec<audio::music::Timing>,
-    /// The game's own song when the music last changed (`Game::music`).
-    cue: Option<usize>,
+    /// The game's own song when the music last changed (`Game::music`),
+    /// and whether it was stopped (`Game::music_silent`).
+    cue: (Option<usize>, bool),
     /// The channels laid over a studio the song in the mixer plays and is
     /// to swap to (`Mixer::music_laid`), as last handed: what the game's
     /// are compared with (`Session::laid_swap`). None: no song there.

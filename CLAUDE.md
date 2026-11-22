@@ -1257,13 +1257,34 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   in play sounds (a part of its loudness; a low-pass as through a wall),
   gliding a step a tick (`music::Glide`, `Music::mix`, `Game::music_mix`):
   in the snapshot, never in the hash, a replay or a save, the audio
-  gliding too (`music::Player::follow_mix`; the title's and the
-  settings' songs never hear it); a level's fade holds no song, its
+  gliding too (`music::Player::follow_mix`, by `Glide::key`; the title's
+  and the settings' songs never hear it); `music:mix(letter, { volume,
+  mute, pan } | false, seconds)` a channel's strip alike (`Mix::strips`
+  behind an `Arc`, kept by letter through every song, stop and level;
+  the player's `lanes`, a fixed array made with it, started as they are
+  by `start_mix`; a voice's own `strip`; letters checked against a song
+  file's only); a level's fade holds no song, its
   frames step the clock (`Game::music_step`; a replay recorded so says
   `fades = true` and takes the steps without a picture,
   `Session::fade_clock`), a song changed crossfades when asked
   (`music:play`'s `crossfade`, `c.audio.crossfade`; `Mixer::crossfade_music`),
-  else ends with the rest of the fade silent; music is never a kit's),
+  else ends with the rest of the fade silent; `music:stop(from | { from,
+  fade })` silence, the player's own not coming back, `host::Music::silent`,
+  `Game::music_silent`, the session noticing (song, silent) after every
+  step, a stop fading 5 ms at least and however young the song,
+  `Mixer::crossfade_music`; a play over a pending stop replaces it;
+  `music.tempo` the game's tempo, held across songs until nil, kept in
+  thousandths, `host::Music::tempo`; the clock today's formula while no
+  tempo is held in a song, else `Music::units` (beats in `UNITS` a beat,
+  a step adding the tempo), beat, bar, `on_beat` and due tests from one
+  source, `Music::clock`, `told` never lowered; tempo and units in the
+  hash only once set; the audio scaled, not laid anew, `Player::ratio`
+  (`MusicCue::ratio`, exactly 1 unless set): notes, gate, loop, swaps,
+  layers by song time, each sound's shape by `Voice::age`, the ducking
+  by `Player::heard`, `follow` measuring off in samples heard; tests
+  `the_clock_is_todays_while_unset_and_after_a_whole_tempo_is_set`,
+  `a_song_faster_or_slower_never_jumps_on_a_frames_jitter`,
+  `the_audio_keeps_with_a_tempo_for_an_hour`; music is never a kit's),
   the handlers `on_world_start`
   (no level yet), `on_level_start(how)` (build and place there),
   `on_tick`, `on_draw(frame)` (drawing on `frame` only there;

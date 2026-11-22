@@ -85,6 +85,9 @@ pub struct MusicCue {
     /// `start` in it): what the audio swaps to there, exactly.
     pub laid: Option<std::sync::Arc<crate::audio::music::Laid>>,
     pub next: Option<(std::sync::Arc<crate::audio::music::Laid>, f64)>,
+    /// How fast it goes against its `#tempo` (`music.tempo`): exactly 1
+    /// unless the game set a tempo.
+    pub ratio: f64,
 }
 
 /// A change of the game's song as the audio needs it (`music:play`): one
@@ -377,6 +380,12 @@ pub trait Game: Sized + 'static {
     /// player's, as the settings chose it).
     fn music(&self) -> Option<MusicCue> {
         None
+    }
+
+    /// Whether it stopped its song (`music:stop`): silence then, the
+    /// player's own not coming back (`music` is None).
+    fn music_silent(&self) -> bool {
+        false
     }
 
     /// The songs of `c.audio.music` changed (a song or the list edited).

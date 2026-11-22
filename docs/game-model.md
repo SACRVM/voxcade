@@ -287,8 +287,17 @@ settings. Several players: `player` is seat 1, the others are in
   alone), through a level's fade too; `music:volume` and `music:muffle`
   hold over both. The clock is the new song's from the moment it begins
   (`music.beat`, `on_beat` count its beats), the old one only heard as it
-  goes; there is no `music:stop` (a game that wants silence plays a
-  silent song). The game's song wins over the player's choice; music
+  goes. `music:stop(from)` (`"now"` unless said, `"beat"`, `"bar"`, or
+  `{ from, fade = seconds }`) is silence in place of the game's song
+  (stage 2a of `shots/reviews/music-stage2-draft.md` as its review cut
+  it): `music.song`, `beat`, `bar`, `position` nil, no `on_beat`, the
+  clock gone, the player's own song not coming back (`music:play()`
+  brings it); a fade of 0 is still 5 ms, and a stop fades however young
+  the song (the quarter second that turns a crossfade into a cut is for
+  a song that comes). A play after it begins its song at beat 0, at
+  once; a play asked while a stop is pending replaces it (one slot: the
+  song that plays goes on, another comes at its own `from`). In the hash
+  only where a game stops (silence, a stop to come). The game's song wins over the player's choice; music
   belongs to no kit. `music.intensity` (0..1, 1 unless set) is the
   game's tension: a song's layers (`#layer D C 0.35` in it; `compose.py`
   writes them with `adaptive = true`) come in above their threshold and
@@ -303,7 +312,71 @@ settings. Several players: `player` is seat 1, the others are in
   gives the one asked last. Only heard: kept in the snapshot (a game
   brought back sounds as it did), in neither the hash, the replays nor a
   save (a game loaded from one sets them in `on_level_start`); the
-  title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
+  title's and the settings' songs never hear them. `music:mix(letter,
+  { volume, mute, pan } | false, seconds)` is a channel's strip on a
+  mixing desk (stage 2b): its fader (0..1), its mute (one glide with the
+  fader, so `seconds` fades a mute too) and its pan (-1..1, a balance:
+  the far side turned down, never a side louder than written), gliding
+  as `music:volume` does (5 ms at least); a key left out stays, `false`
+  for `volume` or `pan` gives it back (1, the middle), `false` for the
+  settings the whole strip; without settings it reads back what was
+  asked (`{ volume, mute, pan }`). It holds by letter whichever song
+  plays, through a change within the song, another song, a stop and a
+  level change (a desk keeps its faders when the tape changes): a game
+  gives it back when it changes to a song whose letters mean something
+  else. A letter a song file of the game's (playing or asked) lacks is a
+  mistake; over a studio, or with none of the game's songs playing or
+  asked, any letter is taken and waits. Only heard, as volume and muffle:
+  in the snapshot (`Mix::strips` behind an `Arc`), in no hash, replay or
+  save. The player holds a strip for every letter (`Player::lanes`, made
+  with it, no memory taken on the audio thread), each voice its channel's
+  (`Voice::strip`, so a note ringing out of a channel laid no more keeps
+  it), and starts with them as they are (a muted channel never sounds,
+  not even for a song's first milliseconds); it follows an ask by what
+  was asked, where to and over how long (`Glide::key`), so a state
+  brought back that asked as often but elsewhere is followed.
+  `music.tempo` (stage 2c) is the beats a minute of the game's song, 1
+  to 999, settable: its `#tempo` until set, read through thousandths
+  (124.4 reads 124.4), kept to a thousandth (124.4567 reads 124.457: the
+  one place the engine hands back another number than the game set);
+  set, it holds for every song of the game's (a new one plays at it),
+  through a stop and level changes, until set nil (each song its own
+  `#tempo` again); nil while none of the game's plays and none is set.
+  `music.tempo = music.tempo` pins it: set it only to change it. It takes
+  effect at the next step. The clock: without a tempo held in its song,
+  the steps at its `#tempo` as before (every replay recorded then plays
+  the same); from the first step a tempo is held while a song plays,
+  `host::Music::units`, the beats in `UNITS` (3,600,000) a beat, begun at
+  the steps times the song's `#tempo` in thousandths, each step adding
+  the tempo in effect (a song begun under a held tempo from 0): integers
+  alone, so every machine agrees, a u64 lasting millennia. `music.beat`,
+  `bar`, `on_beat`, a pending ask's due test and its due beat all come
+  from one source, `Music::clock` (the integers' quotients with units,
+  the floors of the old formula without), `music.position` and the
+  audio's cue its fraction; the last beat told is never lowered, so a
+  fractional `#tempo` going over to units never tells a beat twice. For
+  every whole tempo the units give the old formula's numbers to the bit
+  (both are one correctly rounded division of the same whole numbers),
+  so a tempo set to a song's own changes nothing. In the hash (part
+  `music`) the tempo and the units only once set. The audio is not laid
+  anew: the player goes `ratio` times as fast as the song's `#tempo`
+  (`MusicCue::ratio`, `Player::set_ratio`; exactly 1 unless set), the
+  notes' starts and lengths (the gate), the loop, a swap's due point and
+  the layers' fades by the song's time; each sound's own shape (attack,
+  decay, release, sweep, vibrato, arpeggio, pulse width, the filter's
+  sweep) by the samples heard since its note began (`Voice::age`, the
+  release from the age its key was let go at), the ducking by the
+  samples heard (`Player::heard`), pitch and filters untouched, a singer's
+  segments by the song's time (its consonants go with the tempo, its
+  vowels' sound does not). At ratio 1 that is the same samples as
+  before, to the bit (the pins and `tests/sounds.txt` unmoved). The
+  player keeping time measures how far off it is in samples heard
+  (`off / ratio`), jumping past 50 ms of those and nudging by 0.3 % of
+  the ratio, so a song at 4 times its tempo does not jump on a frame's
+  jitter nor one at a quarter close in four times slower. A new player
+  starts at the ratio (no bend at a song's start). A channel's own `t`
+  in a song file goes as much faster as the song. A tempo set every tick
+  costs a number: nothing made on either thread. Later: stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
 - Songs from the game's data (stage 1 of `shots/reviews/music-from-data-draft.md`
   as its review revised it): a file of `c.audio.music` with instruments
@@ -338,9 +411,11 @@ settings. Several players: `player` is seat 1, the others are in
   early, a new run) and corrects it. The studio saved while channels are
   laid: its instruments are read anew, the channels kept and read again,
   a channel that no longer reads halting the game as `music:play` would.
-  `inspect` prints the laid channels under `"music"`. Not yet (stage 2
-  on): faders and knobs per channel, a tempo of the game's, slides and
-  knob moves in MML, export. `games/drums` is the example.
+  `inspect` prints the laid channels under `"music"`. Built since:
+  silence, a channel's fader, mute and pan, the game's tempo (stage 2,
+  above). Not yet: an instrument's knobs per channel (2d), slides and
+  knob moves in MML, a song begun anew by a stop and a play in one tick,
+  a STOP that lets notes ring out, export. `games/drums` is the example.
 - `frame.pointer`: this machine's pointer in this picture (`x`, `y` in
   the HUD's measure, `hud`, `index`, `thing`, `part` and `area` of what
   it is over in the picture before), nil with the pad used last or no

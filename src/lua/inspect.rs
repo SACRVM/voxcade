@@ -75,7 +75,7 @@ impl<K: Kit> LuaGame<K> {
         if m.laid.is_some() || next.is_some() {
             let texts = |l: &crate::audio::music::Laid| l.channels.iter().map(|(c, t)| (c.to_string(), serde_json::Value::from(t.as_str()))).collect::<serde_json::Map<_, _>>();
             let name = |s: Option<usize>| s.and_then(|s| stage.songs.get(s)).map(|t| t.name.clone());
-            let mut music = serde_json::json!({ "song": name(m.song), "position": m.beats(&stage.songs) });
+            let mut music = serde_json::json!({ "song": name(m.song), "position": m.clock(&stage.songs).map(|c| c.position) });
             if let Some(laid) = &m.laid {
                 music["channels"] = texts(laid).into();
             }

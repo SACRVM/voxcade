@@ -139,7 +139,7 @@ fn a_name_an_object_lacks_is_a_mistake() {
         ("world.foo = 1", "main.lua:2: world has no `foo` to set: the game's own data goes in world.state"),
         ("world.tick = 1", "main.lua:2: world.tick is only to read: the game's own data goes in world.state"),
         ("player.x = 1", "main.lua:2: player.x cannot be set"),
-        ("music.tempo = 1", "main.lua:2: music has no `tempo` to set"),
+        ("music.loudness = 1", "main.lua:2: music has no `loudness` to set"),
         ("local s = 'x' .. world", "main.lua:2: attempt to concatenate a world value"),
     ] {
         let mut g = game("no-such", &format!("function on_tick()\n  {line}\nend\n"));

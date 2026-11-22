@@ -102,6 +102,15 @@
 ---@field at? integer The bar it begins at, counted from 1 (its start, unless said): 33 skips an intro of 32 bars. Its beat 0 is there.
 ---@field channels? table<string, string> Channels of MML laid over a file of instruments, by letter: { K = '@kick o4 l16 c r r r c r r r c r r r c r r r' }. The whole set that plays.
 
+---@class MusicStop How a song stops (music:stop).
+---@field from? string When: now (unless said), at the next beat or bar of the song that plays.
+---@field fade? number Seconds it fades out over, 0 to 60 (0, unless said: at once, still without a click).
+
+---@class MusicMix A channel's strip on the mixing desk (music:mix).
+---@field volume? number|false Its fader, 0 (silent) to 1 (as written); false: 1.
+---@field mute? boolean true silences it, the fader kept.
+---@field pan? number|false -1 (left) to 1 (right), 0 the middle; false: the middle.
+
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
 ---@field fresh? boolean world:go_to and world:restart only: true enters the level as its file has it, forgetting what it kept of earlier visits (a level of a location, a persistent one, things of a persistent kind).
@@ -785,11 +794,12 @@ local Controls = {}
 function Controls:key(action) end
 
 ---@class Music The song your game plays of its own choice, its beats and bars, and how loud and how muffled it sounds: the game can go with the music (waves on the beat), and replays play it the same.
----@field song string|nil The song your game plays (music:play), by its file's name; nil while the player's own plays.
----@field beat integer|nil Beats since your game's song began, from 0 (its #tempo), on and on as it goes round; nil while the player's own song plays.
----@field position number|nil Beats since your game's song began, with the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil while the player's own song plays. A running light over 16 sixteenths: math.floor(music.position * 4) % 16.
+---@field song string|nil The song your game plays (music:play), by its file's name; nil while the player's own plays or after music:stop.
+---@field beat integer|nil Beats since your game's song began, from 0 (its #tempo), on and on as it goes round; nil while the player's own song plays or after music:stop.
+---@field position number|nil Beats since your game's song began, with the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil while the player's own song plays or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16.
+---@field tempo number|nil The beats a minute of your game's song, 1 to 999: its #tempo until you set it. Set, the song plays faster or slower from the next tick, and music.beat, on_beat and "bar" go with it. Only its timing changes: its sounds keep their length, pitch and a singer's vowels stay as they are, sung consonants go with it. It holds for every song of yours, through a stop and from level to level, until you set nil (each song its own #tempo again): set it only to change it. Kept to a thousandth (124.4567 reads 124.457). nil while none of yours plays and you set none. A channel's own t in a song plays as much faster as the song.
 ---@field intensity number How tense the game is, from 0 (calm) to 1 (all of the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a hit.
----@field bar integer|nil Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil while the player's own song plays.
+---@field bar integer|nil Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil while the player's own song plays or after music:stop.
 local Music = {}
 
 ---Plays a song of c.audio.music by its file's name ("storm" for music/storm.mml) as your game's own. Your game's song wins over the player's choice.
@@ -802,6 +812,24 @@ local Music = {}
 ---@param song? string
 ---@param from? string|MusicPlay
 function Music:play(song, from) end
+
+---Silence in place of your game's song: a drum machine's STOP, a cutscene's quiet.
+---- from: "now" (unless said), "beat" or "bar" of the song that plays.
+---- fade: { from = "bar", fade = 2 } fades it out over 2 seconds; at once still without a click.
+---The player's own song does not come back (music:play() without a song brings it). music.song, music.beat, music.bar and music.position are nil and on_beat is quiet until music:play begins a song, from its beat 0 (a song stopped and played again begins anew). A play asked before a stop comes replaces it: the song that plays goes on, another comes at its own from. nil in music.song alone does not tell a stop from the player's own song: your game knows which it asked.
+---@param from? string|MusicStop
+function Music:stop(from) end
+
+---How a channel of your game's song sounds, as on a mixing desk: the channel is the song's letter ("K" for its K: line).
+---- volume: its fader, from 0 (silent) to 1 (as written, the start).
+---- mute: true silences it, the fader kept; false lets it sound again.
+---- pan: from -1 (left) to 1 (right), 0 the middle: the other side turned down, never a side louder than written.
+---It gets there smoothly over seconds (0.3 unless you say; 0 at once, still without a click), a mute too: music:mix("K", { mute = true }, 0). A key you leave out stays as it was; false for volume or pan gives it back (1, the middle), and music:mix("K", false) the whole strip. Without settings it gives what you asked for last. It holds by letter, whichever song plays, through a stop and from level to level: give it back (music:mix("D", false)) when you change to a song whose letters mean something else. A letter your song file does not have is a mistake; over a file of instruments, or before any song of yours plays, any letter is taken and waits for its channel. Only heard: replays and the game itself do not change with it.
+---@param channel string
+---@param settings? MusicMix|false
+---@param seconds? number
+---@return MusicMix|nil
+function Music:mix(channel, settings, seconds) end
 
 ---How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on top. It holds until you change it, from level to level too, whichever song plays: music:volume(0.25, 2) fades it to a quarter in two seconds. Without a level it gives the level you asked for last. Only heard: replays and the game itself do not change with it.
 ---@param level? number

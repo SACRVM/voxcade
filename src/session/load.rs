@@ -82,7 +82,7 @@ impl<G: Game> Session<G> {
         let piece_models = levels.piece_models();
         let models = Models::load_for::<G>(&files, &cfg, &piece_models)?;
         let game = begun::<G>(&files, &cfg, &models, levels, None, &slots, &songs)?;
-        let cue = game.music().map(|c| c.song);
+        let cue = (game.music().map(|c| c.song), game.music_silent());
         let game_mark = game.level_mark();
         let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg))?;
         let actions = G::actions(&cfg);

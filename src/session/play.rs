@@ -114,7 +114,7 @@ impl<G: Game> Session<G> {
             levels.start = levels.find(level).with_context(|| format!("no level {level}"))?;
         }
         self.game = super::load::begun::<G>(&self.files, &self.cfg, &self.models, Arc::new(levels), place, &self.slots, &self.songs)?;
-        self.cue = self.game.music().map(|c| c.song);
+        self.cue = (self.game.music().map(|c| c.song), self.game.music_silent());
         self.game.set_controls(&self.controls);
         self.game.set_local(&self.local);
         Ok(())
@@ -389,11 +389,12 @@ impl<G: Game> Session<G> {
         self.notice_song();
     }
 
-    /// The game's own song changed (`music:play`): it begins anew, over the
-    /// crossfade asked (or the game's), silent to the end of a fade being
-    /// shown without one.
+    /// The game's own song changed (`music:play`, `music:stop`): it begins
+    /// anew, over the crossfade asked (or the game's), silent to the end of
+    /// a fade being shown without one. Looked at after every step, so a
+    /// song stopped and begun again is seen as two changes.
     pub(super) fn notice_song(&mut self) {
-        let cue = self.game.music().map(|c| c.song);
+        let cue = (self.game.music().map(|c| c.song), self.game.music_silent());
         if cue != self.cue {
             self.cue = cue;
             self.music_changed = true;
