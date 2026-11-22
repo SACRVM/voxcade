@@ -1,0 +1,84 @@
+; Kit C: a drum kit after the all-sampled drum machine of 1984/85: every
+; sound a short recording of a real drum, in 8 bits (crash and ride in
+; 6), played at a fixed rate, the hats and cymbals through analog
+; envelopes. A studio: instruments and no channel. A game lays its
+; channels over it (music:play's channels), one a row of steps:
+; `music:play("kit_c", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
+;
+; This synth has no samples. What can be taken from the machine is how it
+; played them (the rate, the bits, which sounds had an envelope); the
+; drums themselves are made here with oscillators and noise as acoustic
+; drums are commonly built, so every number below without a source is
+; ours, chosen and measured. The bit crusher gives the samples' grain:
+; it holds each sound at 25 kHz and rounds it to 8 bits.
+;
+; Sources:
+; [W]   The machine's article in the English Wikipedia, read 2026-11-22:
+;       released 1985, its maker's first to use only samples; 8-bit
+;       samples, crash and ride 6-bit; analog envelopes and amplifiers on
+;       the cymbals and hi-hats (their decay smooths the quantization
+;       noise); the sounds cannot be tuned; its fifteen sounds: two bass
+;       drums, two snares, three toms, rim shot, cowbell, hand clap,
+;       tambourine, open and closed hi-hat, crash, ride.
+; [HKA] HKA Design, the manual of its cymbal board (2023): its sample
+;       rate is fixed at 25 kHz.
+;
+; The envelopes: the synth's decay is a straight line. A hit in a game's
+; row is a sixteenth, let go after 7/8 of it (0.105 s at 125 a minute);
+; `release` carries the decay's slope on to silence (release = decay -
+; 0.105), so a sixteenth and a longer note sound alike at 125.
+; The crusher works after the envelope: a recorded drum's own fall is in
+; its 8 bits (grain growing as it dies away), as here; the hats' and
+; cymbals' analog envelopes came after the sample, which ours cannot
+; (their grain grows as they die away, the machine's did not).
+#title Kit C
+#tempo 125
+
+; Bass drums ([W]: two). Ours: a sine falling from 110 Hz an octave to
+; 55 Hz in 30 ms, 250 ms; the second shorter and harder, a driven
+; triangle from 150 Hz to 60 Hz in 20 ms, 180 ms.
+@kick sine freq=110 sweep=-12 sweep_time=0.03 drive=4 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.25 sustain=0 release=0.145 volume=0.9
+@kick_2 triangle freq=150 sweep=-16 sweep_time=0.02 drive=9 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.18 sustain=0 release=0.075 volume=0.85
+
+; Snare drums ([W]: two). Ours: the wires as noise in a band about
+; 3 kHz, 180 ms; the shell's tone, a triangle falling from 220 to 185 Hz,
+; 90 ms, on a second channel, the same steps (say S and N:
+; @snare_tone with @snare); the second snare brighter and shorter, noise
+; high-passed at 2 kHz, 120 ms, alone.
+@snare noise freq=20000 filter=bandpass cutoff=3000 resonance=0.1 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.18 sustain=0 release=0.075 volume=0.6
+@snare_tone triangle freq=220 sweep=-3 sweep_time=0.04 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.09 sustain=0 release=0.01 volume=0.6
+@snare_2 noise freq=20000 filter=highpass cutoff=2000 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.12 sustain=0 release=0.015 volume=0.55
+
+; Toms ([W]: three). Ours: a sine falling four semitones over 150 ms to
+; 100, 140 and 190 Hz, decays 350, 300 and 250 ms.
+@tom_low sine freq=126 sweep=-4 sweep_time=0.15 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.35 sustain=0 release=0.245 volume=0.85
+@tom_mid sine freq=176 sweep=-4 sweep_time=0.15 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.3 sustain=0 release=0.195 volume=0.8
+@tom_high sine freq=239 sweep=-4 sweep_time=0.15 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.25 sustain=0 release=0.145 volume=0.75
+
+; Rim shot ([W]). Ours: a driven ring at 1800 Hz, high-passed, 20 ms.
+@rim triangle freq=1800 drive=10 filter=highpass cutoff=800 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.02 sustain=0 release=0.005 volume=0.5
+
+; Cowbell ([W]): a recording of a real one. Ours: a square at 800 Hz in
+; a band pass at 1600 Hz, 250 ms (a real bell's two strong partials need
+; two voices: kit A's two channels show how).
+@cowbell square freq=800 filter=bandpass cutoff=1600 resonance=0.5 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.25 sustain=0 release=0.145 volume=0.45
+
+; Hand clap ([W]). Ours: as kit A's (noise gated by its arpeggio, three
+; bursts 10 ms apart, then the tail), band pass at 1300 Hz, 0.2 s.
+@clap noise freq=20000 arp=0,0,-120,-120,-120,0,0,-120,-120,-120,0,0,-120,-120,-120,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 arp_speed=500 filter=bandpass cutoff=1300 resonance=0.5 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.2 sustain=0 release=0.095 volume=0.85
+
+; Tambourine ([W]). Ours: the jingles as noise high-passed at 7 kHz,
+; shaken: gated by its arpeggio, 4 ms on and 2 ms off, 200 ms.
+@tambourine noise freq=20000 arp=0,0,-120 arp_speed=500 filter=highpass cutoff=7000 resonance=0.3 crush_rate=25000 crush_bits=8 attack=0.001 decay=0.2 sustain=0 release=0.095 volume=0.4
+
+; Closed and open hi-hat ([W]: samples through analog envelopes). Ours:
+; noise high-passed at 7.5 kHz, closed 50 ms, open 400 ms. Put @hat and
+; @open_hat on one channel: a new note stops the one before.
+@hat noise freq=20000 filter=highpass cutoff=7500 resonance=0.2 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.05 sustain=0 release=0.005 volume=0.4
+@open_hat noise freq=20000 filter=highpass cutoff=7000 resonance=0.2 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.4 sustain=0 release=0.295 volume=0.35
+
+; Crash and ride ([W]: 6-bit samples through analog envelopes). Ours:
+; noise high-passed at 4 kHz for the crash, 1.5 s; noise in a resonant
+; band at 6 kHz for the ride, 1.0 s; both at 25 kHz and 6 bits.
+@crash noise freq=20000 filter=highpass cutoff=4000 crush_rate=25000 crush_bits=6 attack=0.001 decay=1.5 sustain=0 release=1.4 volume=0.4
+@ride noise freq=20000 filter=bandpass cutoff=6000 resonance=0.6 crush_rate=25000 crush_bits=6 attack=0.0005 decay=1.0 sustain=0 release=0.9 volume=0.4

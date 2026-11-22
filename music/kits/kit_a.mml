@@ -1,0 +1,157 @@
+; Kit A: a drum kit after the analog drum machine of 1980 with the long
+; booming bass drum, the cowbell and the hand clap. A studio: instruments
+; and no channel. A game lays its channels over it (music:play's channels),
+; one a row of steps: `music:play("kit_a", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
+;
+; Every sound comes from the voice circuits as their sources describe them;
+; the source is named above each line, then what is our own because this
+; synth has one oscillator a voice, linear envelopes and no samples.
+;
+; Sources:
+; [N]  The machine's service notes, first edition, 15 June 1981: p. 14 the
+;      table of each voice's frequency and decay time ("values are typical
+;      and variable", the decay knobs at their middle); pp. 5-6 the voice
+;      circuits in words.
+; [BD] K. J. Werner, J. S. Abel, J. O. Smith III, "A physically-informed,
+;      circuit-bendable, digital model of the [machine's] bass drum
+;      circuit", DAFx-14, Erlangen 2014.
+; [CY] The same authors, "The [machine's] cymbal: a physically-informed,
+;      circuit-bendable, digital model", ICMC|SMC 2014, Athens.
+; [CB] The same authors, "More cowbell: ...", AES 137th Convention 2014
+;      (behind a paywall: only its abstract was read).
+; [AX] "Harmonic and transposition constraints arising from the use of
+;      the [machine's] bass drum", arXiv:2502.07524 (2025): the bass drum
+;      measured on many recordings.
+; [SOS] G. Reid, "Synth Secrets", Sound On Sound 2002: "Practical bass drum
+;      synthesis", "Practical snare drum synthesis", "Synthesizing cowbells
+;      & claves".
+; [KVR] A KVR Audio forum thread on emulating this clap (2016): its band
+;      pass worked out from the schematic by the thread's poster, who was
+;      not sure of it.
+;
+; How to read the envelopes: the synth's decay is a straight line, the
+; circuits' an exponential. [N]'s decay times do not say to which level
+; they are measured; we read them as the fall to a tenth (-20 dB), so our
+; linear decay is [N]'s time / 0.9. A hit in a game's row is a sixteenth,
+; let go after 7/8 of it (0.105 s at 125 a minute); `release` then
+; carries the same slope on to silence (release = decay - 0.105), so a
+; sixteenth and a longer note sound alike at 125. An exponential tail
+; lingers longer under -20 dB than these lines do.
+#title Kit A
+#tempo 125
+
+; Bass drum. [BD]: a 1 ms trigger pulse rings a bridged-T band pass, centre
+; ~49.5 Hz ([N]: 56 Hz, a period of 18 ms); for the first ~6 ms the centre
+; lies more than an octave higher (punchier, not heard as a pitch); then
+; leakage through R161 makes the "pitch sigh", a slight fall. [AX]: f0
+; 49.5 Hz, a fall of about a semitone over the first 0.4 s. [N]: decay 50,
+; 300 or 800 ms (knob short, middle, long); [BD]: up to seconds when
+; modded. Ours: a sine from 52.4 Hz falling one semitone to 49.5 Hz over
+; 0.4 s (the sigh), decay 300 ms read as above. The octave-high first 6 ms
+; needs a second pitch stage the synth lacks: @kick_attack below lays it
+; on a second channel.
+@kick sine freq=52.44 sweep=-1 sweep_time=0.4 attack=0.001 decay=0.33 sustain=0 release=0.225 volume=0.9
+
+; The bass drum's attack ([BD] 8.1: the band pass raised more than an
+; octave for ~6 ms). Ours: 6 ms of a sine an octave and a semitone above
+; the body, 104.9 Hz. Played with @kick on a second channel, the same
+; steps (say K and k); leave it out for a softer kick.
+@kick_attack sine freq=104.9 attack=0.0005 decay=0.006 sustain=0 release=0.002 volume=0.5
+
+; Snare drum, tone. [N]: two bridged-T networks ring at 238 Hz (period
+; 4.2 ms) and 476 Hz (2.1 ms), VR8 sets their ratio; decay 60 ms; "snappy"
+; noise beside them. [SOS]: two bridged-T oscillators, white noise through
+; a VCA and a high pass. Ours: 476 is twice 238, so one saw at 238 Hz
+; low-passed at 520 Hz holds both partials (the octave about 8 dB under
+; the fundamental), decay 60 ms read as above. Played with @snare_noise
+; on a second channel, the same steps (say S and N).
+@snare saw freq=238 filter=lowpass cutoff=520 attack=0.001 decay=0.066 sustain=0 release=0.01 volume=0.75
+
+; Snare drum, "snappy" ([N], [SOS]): white noise through a VCA and a high
+; pass. [N] gives no corner and no time of its own. Ours: noise high-passed
+; at 1.8 kHz, 80 ms.
+@snare_noise noise freq=20000 filter=highpass cutoff=1800 attack=0.001 decay=0.08 sustain=0 release=0.01 volume=0.45
+
+; Hand clap. [N]: white noise through a band pass to two VCAs: a
+; "sawtooth" envelope (Fig. 13: within a 30 ms pulse the envelope falls
+; and rises again, the third time running on into the main fall) and a
+; longer one, "reverberation", decay 100 ms. [KVR]: four bursts about
+; 11 ms apart; the band pass ~1140 Hz, Q 1.95 (worked out, unverified).
+; Ours: no envelope can repeat, so the noise is gated: its arpeggio drops
+; it 120 semitones (to 20 Hz, a rate so slow it stands still and the
+; band pass passes nothing) for 6 ms of every 10 ms, three times, then
+; sounds on as the tail (the list, 158 ms at 500 steps a second, outlasts
+; the note);
+; band pass at 1140 Hz, resonance 0.64 (Q ~1.95); one linear decay of
+; 0.15 s carries bursts and tail, where [N] has two VCAs.
+@clap noise freq=20000 arp=0,0,-120,-120,-120,0,0,-120,-120,-120,0,0,-120,-120,-120,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 arp_speed=500 filter=bandpass cutoff=1140 resonance=0.64 attack=0.001 decay=0.15 sustain=0 release=0.045 volume=0.9
+
+; Rim shot. [N]: two bridged-T networks at 1667 Hz (0.6 ms) and 455 Hz
+; (2.2 ms) through a high pass, decay 10 ms, its VCA built "to provide
+; many high harmonics". Ours: the 1667 Hz ring as a triangle driven into
+; the clipper (the harmonics), high-passed at 600 Hz, 11 ms; the 455 Hz
+; ring is @rim_low on a second channel, the same steps (R and r).
+@rim triangle freq=1667 drive=12 filter=highpass cutoff=600 attack=0.0005 decay=0.011 sustain=0 release=0.005 volume=0.55
+@rim_low triangle freq=455 drive=12 filter=highpass cutoff=300 attack=0.0005 decay=0.011 sustain=0 release=0.005 volume=0.45
+
+; Toms. [N]: a bridged-T network rings, at a higher frequency while its
+; amplitude is large (diodes conduct), falling as it dies away, "as in the
+; case of Bass Drum"; low 90 Hz decay 200 ms, middle 135 Hz 130 ms, high
+; 185 Hz 100 ms (the middles of 80-100, 120-160, 165-220); pink noise
+; with a slightly longer decay under the low tom only. Ours: a sine from
+; three semitones above falling to the table's pitch over 80 ms (the
+; amount and time are not in the sources), decays read as above; the low
+; tom's pink noise is left out (a second channel could carry it).
+@tom_low sine freq=107 sweep=-3 sweep_time=0.08 attack=0.001 decay=0.22 sustain=0 release=0.115 volume=0.85
+@tom_mid sine freq=160.5 sweep=-3 sweep_time=0.08 attack=0.001 decay=0.145 sustain=0 release=0.04 volume=0.8
+@tom_high sine freq=220 sweep=-3 sweep_time=0.08 attack=0.001 decay=0.11 sustain=0 release=0.01 volume=0.75
+
+; Congas. [N]: the toms' circuit without the noise; low 185 Hz decay
+; 180 ms, middle 280 Hz 100 ms, high 400 Hz 80 ms. Ours as the toms.
+@conga_low sine freq=220 sweep=-3 sweep_time=0.06 attack=0.001 decay=0.2 sustain=0 release=0.095 volume=0.7
+@conga_mid sine freq=333 sweep=-3 sweep_time=0.06 attack=0.001 decay=0.11 sustain=0 release=0.01 volume=0.65
+@conga_high sine freq=476 sweep=-3 sweep_time=0.06 attack=0.001 decay=0.09 sustain=0 release=0.01 volume=0.6
+
+; Claves. [N]: one bridged-T network at 2500 Hz (0.4 ms), decay 25 ms,
+; wired for a high Q. Ours: a sine at 2500 Hz, 28 ms.
+@clave sine freq=2500 attack=0.0005 decay=0.028 sustain=0 release=0.005 volume=0.5
+
+; Maracas. [N]: white noise through a high pass; its envelope "rises to a
+; peak with a somewhat long attack"; decay 25 to 35 ms. Ours: noise
+; high-passed at 5 kHz (the corner is ours), 8 ms up, 33 ms down.
+@maracas noise freq=20000 filter=highpass cutoff=5000 attack=0.008 decay=0.033 sustain=0 release=0.005 volume=0.4
+
+; Cowbell. [N]: two square oscillators (Schmitt triggers) at 800 Hz
+; (1.25 ms) and 540 Hz (1.85 ms), each through its VCA, mixed by a band
+; pass filter; the envelope drops abruptly just after the attack "to
+; emphasize attack effect", then decays: 50 ms. [CY]: the same two
+; oscillators belong to the six of the cymbal. [SOS]: the band pass
+; "removes the upper and lower partials". [CB]'s numbers were out of
+; reach. Ours: the 800 Hz square here, the 540 Hz one as @cowbell_low on a
+; second channel, the same steps (B and b); a band pass at 1100 Hz
+; (ours); a fall in 12 ms to a quarter, then held to the note's end and
+; let go over 25 ms: two stages from the linear envelope, but the second
+; is flat and lasts as long as the note (a sixteenth: under -20 dB at
+; ~120 ms, where [N] says 50 ms).
+@cowbell square freq=800 filter=bandpass cutoff=1100 resonance=0.3 attack=0.0005 decay=0.012 sustain=0.25 release=0.025 volume=0.55
+@cowbell_low square freq=540 filter=bandpass cutoff=1100 resonance=0.3 attack=0.0005 decay=0.012 sustain=0.25 release=0.025 volume=0.55
+
+; Closed and open hi-hat. [CY], [N]: six square oscillators at 205.3,
+; 304.4, 369.6, 522.7, 540 and 800 Hz summed; the hats take the high band
+; (band pass #2, centre ~7100 Hz) through a high pass; [N]: closed decay
+; 50 ms, open 90, 450 or 600 ms; a closed hat stops an open one at once.
+; Ours: the six squares cannot be had (one oscillator a voice); noise in
+; their band stands for them, band pass at 7100 Hz. It lacks the six's
+; lines: measured against a model of the six, its spectrum is about five
+; times flatter. Put @hat and @open_hat on one channel: a new note stops
+; the one before, as the closed hat stops the open one.
+@hat noise freq=20000 filter=bandpass cutoff=7100 resonance=0.3 attack=0.0005 decay=0.055 sustain=0 release=0.005 volume=0.45
+@open_hat noise freq=20000 filter=bandpass cutoff=7100 resonance=0.3 attack=0.0005 decay=0.5 sustain=0 release=0.395 volume=0.4
+
+; Cymbal. [CY]: the six squares split into three bands (band pass ~3440
+; Hz, band pass ~7100 Hz and its high pass up to ~10.5 kHz), each with its
+; own envelope: the highest short, the middle a little lower and its
+; decay set by the knob ([N]); [N]: decay 350, 800 or 1200 ms. Ours: noise
+; through one band pass sliding from 9 kHz down to 3440 Hz over 0.4 s, so
+; the highs die first as the short bands do, decay 800 ms read as above.
+@cymbal noise freq=20000 filter=bandpass cutoff=9000 cutoff_end=3440 cutoff_time=0.4 resonance=0.2 attack=0.0005 decay=0.89 sustain=0 release=0.785 volume=0.45

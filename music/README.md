@@ -31,6 +31,28 @@ by day and Quiet Warehouse by night, Voxkeep and the platformer template Under t
 Hot Pursuit, Pulsar Pulsar Drive (each recipe's `out` writes the copies). Every recipe has
 `variation = "most"`: the bars within a section vary.
 
+## Drum kits
+
+`kits/` holds three drum kits as studios: files of instruments without a
+channel, over which a game lays its own channels (`music:play`'s
+`channels`, as `games/drums` does), one a row of steps. Each leans on a
+classic drum machine of the 1980s so its sound can be modeled, made with
+this synth's own voices:
+
+- `kit_a.mml`, after the analog machine of 1980 with the long booming
+  bass drum, the cowbell and the hand clap;
+- `kit_b.mml`, after the machine of 1983 with the hard punchy kick,
+  analog drums and sampled hats and cymbals;
+- `kit_c.mml`, after the all-sampled machine of 1984/85, 8 bits at
+  25 kHz.
+
+Every instrument says above its line what its sources say the sound is
+and what is our own approximation. There are no samples: the sampled hats
+and cymbals are noise, filters and the bit crusher. Where one voice
+cannot make a sound, two instruments played on the same steps make it
+(a snare's tone and its noise, a cowbell's two squares); the comments
+say which.
+
 ## Making one
 
 ```
