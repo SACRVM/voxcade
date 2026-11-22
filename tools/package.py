@@ -38,10 +38,10 @@ def main():
     repo = Path(__file__).resolve().parent.parent
     out, source = Path(args.out), Path(args.source)
     out.mkdir(parents=True)
-    # The Bench (a load test), the Arena (the first test yard) and Lights
-    # (the lamps' and the fog's test hall) are no games to show: they stay
-    # in the source.
-    shutil.copytree(source / "games", out / "games", ignore=shutil.ignore_patterns("bench", "arena", "lights", "shots", ".mcp.json"))
+    # The Bench (a load test), the Arena (the first test yard), Lights
+    # (the lamps' and the fog's test hall) and Drums (songs from a game's
+    # data) are no games to show: they stay in the source.
+    shutil.copytree(source / "games", out / "games", ignore=shutil.ignore_patterns("bench", "arena", "lights", "drums", "shots", ".mcp.json"))
     shutil.copytree(source / "lua", out / "lua")
     for text in ["dist/README.txt", "dist/LIESMICH.txt", "LICENSE.txt", "NOTICE.txt"]:
         # Windows' own editor wants its line ends.

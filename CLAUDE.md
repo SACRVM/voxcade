@@ -602,6 +602,16 @@ nearest; its replay `tests/two_ships`);
   spots, shadows, fog, glass, dancers, posed, beam, out_of_view,
   headlights, load); four of them are picture tests (`lights_*` in
   `tests/pictures.rs`).
+- Songs a game writes: `games/drums`, a drum machine as Lights is a test
+  hall (no cover, not listed, not packaged; `GAMES_OF_VOXCADE` names it):
+  sixteen steps in three rows (kick, snare, hat) over the studio
+  `music/kit.mml`, two patterns, the arrows move the cursor, TOGGLE
+  (Space, Z, the pad's south) sets a step laid "now", PATTERN (Tab, X,
+  north) switches at the next bar, a running light from
+  `music.position`, all drawn with `frame:box` and `frame:text`; its
+  scenarios `second_pattern` and `empty_machine`; its replay
+  `tests/toggle_and_switch` toggles steps, switches the pattern, calls a
+  switch off before the bar and edits a pattern while it waits.
 - Tests on every push (the owner's D1, 2026-11-13;
   `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
   only, mesa's lavapipe standing in for the GPU): the release build,
@@ -641,7 +651,7 @@ nearest; its replay `tests/two_ships`);
   holds the packages back): Linux and Windows
   (macOS Intel only started by hand with it), SDL3 built in (`--features
   static-sdl`); `tools/package.py` puts the folder together (the games
-  but the Arena, the Bench and Lights, `dist/README.txt` and `LIESMICH.txt`, players first; on
+  but the Arena, the Bench, Lights and Drums, `dist/README.txt` and `LIESMICH.txt`, players first; on
   Linux `start-voxcade.sh`; `THIRD-PARTY-LICENSES.txt` from
   `tools/third_party_licenses.py`: the licences of every crate linked,
   SDL, Lua and egui's fonts). The program started without anything opens
@@ -655,7 +665,7 @@ nearest; its replay `tests/two_ships`);
   its picture, `cover.png` in its folder, 480 by 270, a shot of the
   game; without one the card shows its name; of the games beside the
   program only those with a cover are listed, and the package leaves
-  the Arena, the Bench and Lights out: only the games we show, the user). New versions
+  the Arena, the Bench, Lights and Drums out: only the games we show, the user). New versions
   (`src/update.rs`, `voxcade update [--install]`): the feed is the
   website's `release.toml` (the version, each system's package and its
   SHA-256; `VOXCADE_UPDATE_FEED` another, a file's path too), nothing
@@ -1548,6 +1558,31 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_short_loop_never_drifts_from_the_clock`); `voxcade
   music` writes such a song to the loop's end and round into its first
   four bars again, the seam in the file (`Song::once`), and says where.
+  Songs from a game's data (stage 1; `shots/reviews/music-from-data-draft.md`
+  and its review): a file of `c.audio.music` without a channel is a
+  studio (`Song::studio`, `music::read`; `Timing::studio` its whole text,
+  in the fingerprint as a part of its own, `"music/kit.mml"`), no song a
+  player picks (`Session::player_songs`: the maker's keys, SETTINGS, the
+  title, `voxcade music GAME`; a studio that does not read or has a
+  `#loop` is a mistake at load, `song_timings`). `music:play(song, {
+  channels = { K = "mml" }, from })` lays the whole set over it
+  (`music::Laid`, sorted, its digest BLAKE3 of the length-prefixed
+  texts; `music::lay` reads them against the studio: whole bars counted
+  exactly, `parse::Beats`, no `t`, no voice); a change within the song
+  that plays is `host::SongAsk` with the same song, its clock going on;
+  asked the same as pending or playing, nothing is read. The hash's
+  `music` part takes the digests playing and pending only where a game
+  lays some. The cue (`MusicCue::laid`, `next` with its due beat) is
+  compared with what the mixer reports (`Mixer::music_laid`) at every
+  feed (`Session::laid_swap`): a `music::Swap` made on the main thread is
+  handed ahead, called off, or swapped in at once; the player swaps at
+  its unwrapped `position` (`LOOP_SLACK` early), a byte-equal channel
+  untouched, a changed one's note ringing on, a channel gone ringing out
+  in a tail, the old song kept in `Player::spent` for the main thread
+  (`laid_tests.rs`, `src/lua/tests/laid.rs`). `music.position` the beats
+  with the fraction. The studio saved: its instruments read anew, the
+  laid channels read again (`Game::set_songs`), halting where they no
+  longer read. `games/drums` is its test game (below).
   A song begun at a bar: `music:play(song, { at = 33 })`, its beat 0
   there (`lua::host::Music`'s `at`, in the hash only when not 1;
   `MusicCue::start`), and the engine's title's song at

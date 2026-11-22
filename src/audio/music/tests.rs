@@ -142,7 +142,8 @@ fn the_songs_line_up() {
     songs("music".as_ref(), &mut all);
     assert!(all.len() >= 7, "only {} songs found", all.len());
     for path in all {
-        let song = parse(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
+        // (A studio reads too: it has no channels to line up.)
+        let song = read(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
         let total = song.length as f32 / SR;
         for (channel, length) in song.channel_lengths() {
             assert!((length - total).abs() < 0.01, "{}: channel {channel} is {length:.2}s of {total:.2}s", path.display());

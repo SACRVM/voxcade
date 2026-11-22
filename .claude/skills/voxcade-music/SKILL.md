@@ -211,6 +211,28 @@ a level's fade silent, a short pause), unless it crossfades:
 comes in, equal in power; the clock is the new song's from then. No
 `music:stop` yet.
 
+Music the game writes itself (a drum machine, a rhythm game's patterns,
+a seeded score): a file of `c.audio.music` with only `@instruments` and
+`#settings` and no channel is a studio, no song a player picks (keys,
+SETTINGS, the title and `voxcade music GAME` skip it; one that does not
+read, or has a `#loop`, is a mistake as the game loads). The game lays
+channels over it: `music:play("kit", { channels = { K = "@kick o4 l16 c
+r r r c r r r c r r r c r r r", H = "..." }, from = "bar" })`, the whole
+set, a letter and its MML each; every channel fills as many whole bars
+(counted exactly), no `t`, no singing voice (stage 1). Asked again while
+the studio plays, only the channels change, the clock going on: "now"
+for a step edited (it sounds when the music comes to it), "bar" for the
+next pattern; a channel the same plays on untouched, a changed one's
+sounding note rings on until its next note, exactly on the sample (the
+audio gets the change ahead with its beat). `music.position` is the
+beats with their fraction (`math.floor(music.position * 4) % 16` the
+sixteenth sounding). Ask when a step changes, not every tick. The
+studio's whole text counts for replays; saved while channels are laid,
+its instruments are read anew. HELP's "A DRUM MACHINE" and
+`games/drums` are the examples; `voxcade music` cannot write a laid song
+(it has no game): film a replay instead (`voxcade film`) and look at the
+sound's spectrogram around the bar line.
+
 How it sounds where the player is: `music:volume(level, seconds)` (0..1
 of the song's own loudness, under the player's volume) and
 `music:muffle(amount, seconds)` (a low-pass of 12 dB an octave over the
