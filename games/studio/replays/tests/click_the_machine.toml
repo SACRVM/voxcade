@@ -1,7 +1,7 @@
 # Voxcade replay: Studio, 460 ticks, quit, score 0
 version = 1
 game = "Studio"
-fingerprint = "62dab850335bd4b3"
+fingerprint = "b3ece1868b523fd2"
 ticks = 460
 outcome = "quit"
 score = 0
@@ -12,7 +12,7 @@ final_state = "666c1748bdfdf9e8"
 [fingerprint_parts]
 "conf.lua" = "bb8e9c89a4860381"
 "levels/studio.toml" = "e3860ffe658096bb"
-"machine.vvx" = "bb0f17b1ce76acb6"
+"machine.vvx" = "5c3c38c284bc467f"
 "main.lua" = "f24882602559e5a5"
 music = "376b42609fde1210"
 "music/kit.mml" = "a3a96074551c2121"

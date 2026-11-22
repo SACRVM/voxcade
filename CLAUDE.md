@@ -620,8 +620,8 @@ nearest; its replay `tests/two_ships`);
   (`pick_kick`/`_snare`/`_hat` under its level knob `knob_kick`/`_snare`/
   `_hat`), `pattern_a`/`_b`, `start`, `knob_tempo` (shown only),
   `knob_volume` (`music:volume`) and a lamp `led_*` for each button; its
-  labels and the nameplate (`NAME`, the placeholder RUMMS 80, the owner
-  names it) painted into the case's top in 3 by 5 voxel letters. A knob is
+  labels and the nameplate (`NAME`, HARALD RG-80: the owner's invented
+  maker and its Rhythmus-Gerät, RM in English) painted into the case's top in 3 by 5 voxel letters. A knob is
   one value turned by the hand alone (the owner: a knob that turns by
   itself cannot be). `c.pointer = "system"`: a click reads
   `input.pointer.part`; the machine answers by `thing.state.parts` set
