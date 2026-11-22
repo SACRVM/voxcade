@@ -7,7 +7,7 @@ return {
     world.state.shown, world.state.playing = 2, 2
     knobs.knob_kick, knobs.knob_snare, knobs.knob_hat = 0.6, 0.4, 0.3
     knobs.knob_volume = 0.7
-    music:volume(0.7, 0)
+    apply_knobs(0)
     start_stop()
   end,
 }

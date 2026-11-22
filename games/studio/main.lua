@@ -9,13 +9,18 @@
 -- edits one instrument at a time, its sixteen buttons that one's steps.
 -- A knob is one value, turned by the hand alone (a drag or the wheel on
 -- it): each voice has its own level knob, so picking another voice moves
--- none.
+-- none. The game sets the sound from the knobs (music:mix, music.tempo,
+-- music:volume), never the knobs from the sound.
 
 local ROWS = {
   { name = "kick", channel = "K" },
   { name = "snare", channel = "S" },
   { name = "hat", channel = "H" },
 }
+
+-- The tempo knob's 0 to 1 is 90 to 180 beats a minute; the song file's
+-- #tempo (124) is where it starts.
+local SLOWEST, FASTEST, FILE_TEMPO = 90, 180, 124
 
 -- The parts one plays, by their names in machine.vvx.
 local KNOBS = { "knob_kick", "knob_snare", "knob_hat", "knob_tempo", "knob_volume" }
@@ -40,16 +45,17 @@ function on_world_start()
   world.state.step = 1       -- the keys' cursor
   world.state.running = true
   -- The knobs by their parts' names, 0 to 1: each voice's level, the
-  -- tempo (shown only: a game cannot set a song's tempo yet), the volume.
-  world.state.knobs = { knob_kick = 0.8, knob_snare = 0.8, knob_hat = 0.8, knob_tempo = 0.5, knob_volume = 1 }
+  -- tempo, the volume.
+  world.state.knobs = { knob_kick = 0.8, knob_snare = 0.8, knob_hat = 0.8,
+    knob_tempo = (FILE_TEMPO - SLOWEST) / (FASTEST - SLOWEST), knob_volume = 1 }
 end
 
--- The pattern shown as channels of MML, a row each: its instrument and
--- level, sixteenths.
+-- The pattern shown as channels of MML, a row each: its instrument,
+-- sixteenths (the level is the channel's fader, music:mix).
 local function channels()
   local s, out = world.state, {}
   for r, row in ipairs(ROWS) do
-    local notes = { "@" .. row.name .. " v" .. math.floor(s.knobs["knob_" .. row.name] * 15 + 0.5) .. " o4 l16" }
+    local notes = { "@" .. row.name .. " o4 l16" }
     for i = 1, 16 do notes[#notes + 1] = s.patterns[s.shown][r][i] and "c" or "r" end
     out[row.channel] = table.concat(notes, " ")
   end
@@ -64,8 +70,19 @@ function lay_pattern()
   music:play("kit", { from = s.shown == s.playing and "now" or "bar", channels = channels() })
 end
 
--- Starts or stops the machine (a global, for the scenarios): stopped, a
--- silent studio plays; started, the kit begins anew at its first step.
+-- The sound as the knobs stand (a global, for the scenarios): each voice's
+-- fader, the tempo and the volume.
+function apply_knobs(seconds)
+  local k = world.state.knobs
+  for _, row in ipairs(ROWS) do
+    music:mix(row.channel, { volume = k["knob_" .. row.name] }, seconds or 0.02)
+  end
+  music.tempo = SLOWEST + k.knob_tempo * (FASTEST - SLOWEST)
+  music:volume(k.knob_volume, seconds or 0.05)
+end
+
+-- Starts or stops the machine (a global, for the scenarios): stopped, the
+-- music is stopped; started, the kit begins anew at its first step.
 function start_stop()
   local s = world.state
   s.running = not s.running
@@ -73,14 +90,14 @@ function start_stop()
     s.playing = s.shown
     music:play("kit", { from = "now", channels = channels() })
   else
-    music:play("off", { from = "now", channels = { R = "@rest v0 c1" } })
+    music:stop()
   end
 end
 
 function on_level_start(how)
   world.state.playing = world.state.shown
-  lay_pattern()
-  music:volume(world.state.knobs.knob_volume, 0)
+  apply_knobs(0)
+  if world.state.running then lay_pattern() else music:stop() end
 end
 
 function on_beat(beat)
@@ -91,11 +108,7 @@ end
 local function turn(knob, by)
   local s = world.state
   s.knobs[knob] = math.max(0, math.min(1, s.knobs[knob] + by))
-  if knob == "knob_volume" then
-    music:volume(s.knobs[knob], 0.05)
-  elseif knob ~= "knob_tempo" then
-    lay_pattern()
-  end
+  apply_knobs()
 end
 
 -- What pressing a part does (the mouse's click, or the keys').
