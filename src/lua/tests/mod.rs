@@ -14,6 +14,7 @@ mod mistakes;
 mod names;
 mod music;
 mod music_bars;
+mod music_mix;
 mod music_stop;
 mod picture;
 mod pointer;

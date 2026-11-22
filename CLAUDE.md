@@ -1228,8 +1228,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   in play sounds (a part of its loudness; a low-pass as through a wall),
   gliding a step a tick (`music::Glide`, `Music::mix`, `Game::music_mix`):
   in the snapshot, never in the hash, a replay or a save, the audio
-  gliding too (`music::Player::follow_mix`; the title's and the
-  settings' songs never hear it); a level's fade holds no song, its
+  gliding too (`music::Player::follow_mix`, by `Glide::key`; the title's
+  and the settings' songs never hear it); `music:mix(letter, { volume,
+  mute, pan } | false, seconds)` a channel's strip alike (`Mix::strips`
+  behind an `Arc`, kept by letter through every song, stop and level;
+  the player's `lanes`, a fixed array made with it, started as they are
+  by `start_mix`; a voice's own `strip`; letters checked against a song
+  file's only); a level's fade holds no song, its
   frames step the clock (`Game::music_step`; a replay recorded so says
   `fades = true` and takes the steps without a picture,
   `Session::fade_clock`), a song changed crossfades when asked

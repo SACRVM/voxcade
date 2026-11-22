@@ -245,7 +245,12 @@ game's sounds stay clear) glide there over the seconds (0.3 unless said;
 from level to level, the song going on. One song through three scenes:
 `music:volume(0.6) music:muffle(0.7)` outside the house, `(1)` and `(0)`
 in the room, the muffle back up in the hall behind the door. Only heard
-(no replay changes with it); a film of a replay carries it. Checked by
+(no replay changes with it); a film of a replay carries it. Each channel
+has a strip of its own: `music:mix("K", { volume = 0.6, mute = false,
+pan = -0.5 }, 0.05)` (the fader 0..1, the mute, the pan a balance; a
+key left out stays, `false` gives it back, `music:mix("K", false)` the
+whole strip, `music:mix("K")` reads it back), held by letter through
+every song and stop until given back: a level knob, a mute button. Checked by
 measurement in `lua::tests::the_music_sounds_as_the_game_asks`.
 
 A loop of its own: `#loop 33 80` in a song plays it from its start once,

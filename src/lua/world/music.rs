@@ -181,6 +181,84 @@ impl UserData for MusicView {
                 Ok(())
             })
         });
+        m.add_function("mix", |lua, (_, channel, GivenValue(settings), seconds): (AnyUserData, Value, GivenValue, Value)| {
+            let letter = match &channel {
+                Value::String(s) => {
+                    let s = s.to_string_lossy();
+                    let mut chars = s.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(c), None) if c.is_ascii_alphabetic() => c,
+                        _ => return Err(mlua::Error::runtime(format!("music:mix: a channel is a letter, A to Z or a to z, not \"{s}\""))),
+                    }
+                }
+                other => return Err(mlua::Error::runtime(format!("music:mix: a channel is a letter, A to Z or a to z, not {}", shown(other)))),
+            };
+            // Without settings: the strip as asked last.
+            if settings.is_nil() {
+                if !seconds.is_nil() {
+                    return Err(mlua::Error::runtime("music:mix: the settings first ({ volume, mute, pan } or false), then the seconds"));
+                }
+                let strip = look(lua, |h| Ok(h.music.mix.strip(letter)))?;
+                let t = lua.create_table()?;
+                t.raw_set("volume", strip.volume)?;
+                t.raw_set("mute", strip.mute)?;
+                t.raw_set("pan", strip.pan.to)?;
+                return Ok(Value::Table(t));
+            }
+            let over = glide_seconds("music:mix", &seconds)?;
+            let number = |key: &str, v: Value, lo: f64, hi: f64, range: &str| -> mlua::Result<Option<Option<f32>>> {
+                match v {
+                    Value::Nil => Ok(None),
+                    Value::Boolean(false) => Ok(Some(None)),
+                    Value::Integer(i) if (lo..=hi).contains(&(i as f64)) => Ok(Some(Some(i as f32))),
+                    Value::Number(n) if (lo..=hi).contains(&n) => Ok(Some(Some(n as f32))),
+                    other => Err(mlua::Error::runtime(format!("music:mix: {key} is {range}, or false for {}, not {}", if key == "pan" { "the middle" } else { "1" }, shown(&other)))),
+                }
+            };
+            // The keys asked (None: kept); false gives a key, or the whole
+            // strip, back.
+            let (volume, mute, pan) = match &settings {
+                Value::Boolean(false) => (Some(None), Some(false), Some(None)),
+                Value::Table(t) => {
+                    known_keys(t, &["volume", "mute", "pan"], "music:mix")?;
+                    let volume = number("volume", t.raw_get("volume")?, 0.0, 1.0, "a number from 0 (silent) to 1 (as written)")?;
+                    let pan = number("pan", t.raw_get("pan")?, -1.0, 1.0, "a number from -1 (left) to 1 (right)")?;
+                    let mute = match t.raw_get::<Value>("mute")? {
+                        Value::Nil => None,
+                        Value::Boolean(b) => Some(b),
+                        other => return Err(mlua::Error::runtime(format!("music:mix: mute is true or false, not {}", shown(&other)))),
+                    };
+                    (volume, mute, pan)
+                }
+                other => return Err(mlua::Error::runtime(format!("music:mix: after the channel, {{ volume = 0..1, mute = true|false, pan = -1..1 }} or false (as written), not {}", shown(other)))),
+            };
+            change(lua, "music:mix", |h| {
+                // A song file's channels are its own; a studio's are laid
+                // by the game, and with none of its songs playing or asked
+                // any letter waits for the song to come.
+                let songs: Vec<&crate::audio::music::Timing> = [h.music.song, h.music.next.as_ref().filter(|a| !a.stop).and_then(|a| a.song)].into_iter().flatten().filter_map(|s| h.songs.get(s)).collect();
+                if !songs.is_empty() && songs.iter().all(|t| t.studio.is_none()) && !songs.iter().any(|t| t.letters.contains(&letter)) {
+                    let has: Vec<String> = songs.iter().map(|t| format!("{} has {}", t.name, t.letters.iter().map(char::to_string).collect::<Vec<_>>().join(", "))).collect();
+                    return Err(mlua::Error::runtime(format!("music:mix: no channel {letter} in your song ({})", has.join("; "))));
+                }
+                let strips = Arc::make_mut(&mut h.music.mix.strips);
+                let strip = strips.entry(letter).or_default();
+                if let Some(v) = volume {
+                    strip.volume = v.unwrap_or(1.0);
+                }
+                if let Some(m) = mute {
+                    strip.mute = m;
+                }
+                if volume.is_some() || mute.is_some() {
+                    let to = if strip.mute { 0.0 } else { strip.volume };
+                    strip.level.ask(to, over);
+                }
+                if let Some(p) = pan {
+                    strip.pan.ask(p.unwrap_or(0.0), over);
+                }
+                Ok(Value::Nil)
+            })
+        });
         m.add_function("volume", |lua, (_, level, seconds): (AnyUserData, Value, Value)| {
             mix_ask(lua, "music:volume", "level", "0 (silent) to 1 (as loud as the song is)", level, seconds, |m| &mut m.volume)
         });
@@ -250,7 +328,7 @@ fn mix_ask(
         if !seconds.is_nil() {
             return Err(mlua::Error::runtime(format!("{what}: the {name} first, from {range}, then the seconds")));
         }
-        let mut mix = look(lua, |h| Ok(h.music.mix))?;
+        let mut mix = look(lua, |h| Ok(h.music.mix.clone()))?;
         return Ok(Some(f64::from(glide(&mut mix).to)));
     }
     let to = match number(&value) {
@@ -258,14 +336,21 @@ fn mix_ask(
         Some(v) => return Err(mlua::Error::runtime(format!("{what}: {name} from {range}, not {v}"))),
         None => return Err(mlua::Error::runtime(format!("{what}: {name} is a number from {range}, not {}", shown(&value)))),
     };
-    let over = match (&seconds, number(&seconds)) {
-        (Value::Nil, _) => 0.3,
-        (_, Some(s)) if s >= 0.0 && s.is_finite() => s as f32,
-        (_, Some(s)) => return Err(mlua::Error::runtime(format!("{what}: seconds is 0 (at once) or more, not {s}"))),
-        (other, None) => return Err(mlua::Error::runtime(format!("{what}: seconds is a number, 0 (at once) or more, not {}", shown(other)))),
-    };
+    let over = glide_seconds(what, &seconds)?;
     change(lua, what, |h| {
         glide(&mut h.music.mix).ask(to, over);
         Ok(None)
     })
+}
+
+/// The seconds a glide of the music's sound takes (`music:volume`,
+/// `music:muffle`, `music:mix`): 0.3 unless said, 0 at once.
+fn glide_seconds(what: &str, seconds: &Value) -> mlua::Result<f32> {
+    match seconds {
+        Value::Nil => Ok(0.3),
+        Value::Integer(i) if *i >= 0 => Ok(*i as f32),
+        Value::Number(s) if *s >= 0.0 && s.is_finite() => Ok(*s as f32),
+        Value::Integer(_) | Value::Number(_) => Err(mlua::Error::runtime(format!("{what}: seconds is 0 (at once) or more, not {}", shown(seconds)))),
+        other => Err(mlua::Error::runtime(format!("{what}: seconds is a number, 0 (at once) or more, not {}", shown(other)))),
+    }
 }

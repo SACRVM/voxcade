@@ -719,6 +719,14 @@ mod tests {
         mixer.set_music(Some(music::Player::new(music::lay(studio, &from).unwrap(), 1.0)));
         mixer.music_intensity(0.7);
         mixer.pend_music(Some(music::Swap::new(music::lay(studio, &to).unwrap(), 3.5)));
+        // Strips gliding under it (`music:mix`), one on a channel laid no
+        // more, one on a channel to come.
+        let mut mix = music::Mix::default();
+        let mut strip = music::Strip { mute: true, ..Default::default() };
+        strip.level.ask(0.0, 0.1);
+        strip.pan.ask(0.7, 0.2);
+        Arc::make_mut(&mut mix.strips).extend([('G', strip), ('N', strip), ('A', music::Strip::default())]);
+        mixer.music_mix(&mix);
         let mut long = vec![0.0f32; 2 * 3 * SAMPLE_RATE as usize];
         assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken or given back as laid channels were swapped in");
         assert_eq!(mixer.music_laid(), Some((Some(to.digest), None)));

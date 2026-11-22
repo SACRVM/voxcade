@@ -308,7 +308,29 @@ settings. Several players: `player` is seat 1, the others are in
   gives the one asked last. Only heard: kept in the snapshot (a game
   brought back sounds as it did), in neither the hash, the replays nor a
   save (a game loaded from one sets them in `on_level_start`); the
-  title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
+  title's and the settings' songs never hear them. `music:mix(letter,
+  { volume, mute, pan } | false, seconds)` is a channel's strip on a
+  mixing desk (stage 2b): its fader (0..1), its mute (one glide with the
+  fader, so `seconds` fades a mute too) and its pan (-1..1, a balance:
+  the far side turned down, never a side louder than written), gliding
+  as `music:volume` does (5 ms at least); a key left out stays, `false`
+  for `volume` or `pan` gives it back (1, the middle), `false` for the
+  settings the whole strip; without settings it reads back what was
+  asked (`{ volume, mute, pan }`). It holds by letter whichever song
+  plays, through a change within the song, another song, a stop and a
+  level change (a desk keeps its faders when the tape changes): a game
+  gives it back when it changes to a song whose letters mean something
+  else. A letter a song file of the game's (playing or asked) lacks is a
+  mistake; over a studio, or with none of the game's songs playing or
+  asked, any letter is taken and waits. Only heard, as volume and muffle:
+  in the snapshot (`Mix::strips` behind an `Arc`), in no hash, replay or
+  save. The player holds a strip for every letter (`Player::lanes`, made
+  with it, no memory taken on the audio thread), each voice its channel's
+  (`Voice::strip`, so a note ringing out of a channel laid no more keeps
+  it), and starts with them as they are (a muted channel never sounds,
+  not even for a song's first milliseconds); it follows an ask by what
+  was asked, where to and over how long (`Glide::key`), so a state
+  brought back that asked as often but elsewhere is followed. Later: stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
 - Songs from the game's data (stage 1 of `shots/reviews/music-from-data-draft.md`
   as its review revised it): a file of `c.audio.music` with instruments

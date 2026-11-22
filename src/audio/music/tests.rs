@@ -773,3 +773,25 @@ fn the_music_does_its_own_math() {
     }
     assert!(found.is_empty(), "the system's math in the music (use libm):\n{}", found.join("\n"));
 }
+
+/// The player follows the game's mix by what was asked, where to and over
+/// how long, not by how often alone: a state brought back that asked as
+/// often but elsewhere is followed, the song's loudness and a strip alike.
+#[test]
+fn a_mix_brought_back_elsewhere_is_followed() {
+    let mut p = Player::new(parse("#tempo 120\nA: c1\n").unwrap(), 1.0);
+    let asked = |volume: f32| {
+        let mut mix = Mix::default();
+        mix.volume.ask(volume, 0.0);
+        let mut strip = Strip::default();
+        strip.level.ask(volume, 0.0);
+        std::sync::Arc::make_mut(&mut mix.strips).insert('A', strip);
+        mix
+    };
+    let (a, b) = (asked(0.5), asked(0.2));
+    assert_eq!(a.volume.asked, b.volume.asked);
+    p.follow_mix(&a);
+    assert_eq!((p.bus.level.to, p.lanes[0].level.to), (0.5, 0.5));
+    p.follow_mix(&b);
+    assert_eq!((p.bus.level.to, p.lanes[0].level.to), (0.2, 0.2));
+}

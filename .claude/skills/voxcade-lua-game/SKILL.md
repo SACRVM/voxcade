@@ -431,7 +431,11 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   the new begins). `music:stop()` is silence (`"now"` unless said,
   `{ from = "bar", fade = 2 }`): no beats, the player's own song not
   coming back; `music:play` after it begins the song from beat 0.
-  Volume and muffle are only heard, never in the replays. Music is never a kit's:
+  `music:mix("K", { volume = 0.6, mute = true, pan = -0.5 }, seconds)` is
+  channel K's strip on a mixing desk (fader, mute, pan; `false` gives a
+  key or the whole strip back), held by letter whichever song plays;
+  keep the desk in a state and set it again in `on_level_start`. Volume,
+  muffle and the strips are only heard, never in the replays. Music is never a kit's:
   which song plays when is the game's code.
 - Music from the game's own data (a drum machine, patterns from a level):
   a `.mml` of `c.audio.music` with instruments and no channel is a studio;

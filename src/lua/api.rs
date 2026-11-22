@@ -140,6 +140,11 @@ const TYPES: &str = "\
 ---@field from? string When: now (unless said), at the next beat or bar of the song that plays.
 ---@field fade? number Seconds it fades out over, 0 to 60 (0, unless said: at once, still without a click).
 
+---@class MusicMix A channel's strip on the mixing desk (music:mix).
+---@field volume? number|false Its fader, 0 (silent) to 1 (as written); false: 1.
+---@field mute? boolean true silences it, the fader kept.
+---@field pan? number|false -1 (left) to 1 (right), 0 the middle; false: the middle.
+
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
 ---@field fresh? boolean world:go_to and world:restart only: true enters the level as its file has it, forgetting what it kept of earlier visits (a level of a location, a persistent one, things of a persistent kind).
@@ -670,6 +675,17 @@ pub const API: &[Item] = &[
             and music.position are nil and on_beat is quiet until music:play begins a song, from its beat 0 (a song stopped and played \
             again begins anew). A play asked before a stop comes replaces it: the song that plays goes on, another comes at its own from. \
             nil in music.song alone does not tell a stop from the player's own song: your game knows which it asked." },
+    Item { of: "music", name: "mix", what: Method { params: &[("channel", "string"), ("settings?", "MusicMix|false"), ("seconds?", "number")], returns: "MusicMix|nil" },
+        doc: "How a channel of your game's song sounds, as on a mixing desk: the channel is the song's letter (\"K\" for its K: line).\n- \
+            volume: its fader, from 0 (silent) to 1 (as written, the start).\n- mute: true silences it, the fader kept; false lets it sound \
+            again.\n- pan: from -1 (left) to 1 (right), 0 the middle: the other side turned down, never a side louder than written.\nIt \
+            gets there smoothly over seconds (0.3 unless you say; 0 at once, still without a click), a mute too: music:mix(\"K\", { mute = \
+            true }, 0). A key you leave out stays as it was; false for volume or pan gives it back (1, the middle), and \
+            music:mix(\"K\", false) the whole strip. Without settings it gives what you asked for last. It holds by letter, whichever \
+            song plays, through a stop and from level to level: give it back (music:mix(\"D\", false)) when you change to a song whose \
+            letters mean something else. A letter your song file does not have is a mistake; over a file of instruments, or before any \
+            song of yours plays, any letter is taken and waits for its channel. Only heard: replays and the game itself do not change with \
+            it." },
     Item { of: "music", name: "volume", what: Method { params: &[("level?", "number"), ("seconds?", "number")], returns: "number|nil" },
         doc: "How loud your game's music sounds, as a part of the song's own loudness: from 0 (silent) to 1 (as loud as the song is, the \
             start), reached smoothly over seconds (0.3 unless you say; 0 at once, still without a click). The player's music volume stays on \

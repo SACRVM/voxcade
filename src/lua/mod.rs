@@ -1075,7 +1075,7 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     fn music_mix(&self) -> crate::audio::music::Mix {
-        self.stage.music.mix
+        self.stage.music.mix.clone()
     }
 
     fn music_step(&mut self) {
@@ -1110,7 +1110,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.songs = Arc::new(songs.to_vec());
         let m = &mut self.stage.music;
         if m.song.is_some_and(|s| s >= songs.len()) || m.next.as_ref().is_some_and(|a| a.song.is_some_and(|s| s >= songs.len())) {
-            *m = host::Music { intensity: m.intensity, mix: m.mix, ..host::Music::default() };
+            *m = host::Music { intensity: m.intensity, mix: std::mem::take(&mut m.mix), ..host::Music::default() };
         }
         let laid = [(m.song, m.laid.as_ref()), m.next.as_ref().map_or((None, None), |a| (a.song, a.laid.as_ref()))];
         let wrong = laid.into_iter().find_map(|(song, laid)| {

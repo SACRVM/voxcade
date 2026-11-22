@@ -2,7 +2,7 @@
 
 use super::SAMPLE_RATE;
 use super::parse::LOOP_SLACK;
-use super::mix::{Mix, SHORTEST, muffle_cutoff};
+use super::mix::{Glide, LETTERS, Mix, SHORTEST, letter_index, muffle_cutoff};
 use super::clear::{self, Seg};
 use super::song::{FilterMode, Instrument, Note, Song, Voicing};
 use super::voice::{Segment, Singer};
@@ -31,7 +31,7 @@ const MOST_LETTERS: usize = 52;
 impl Swap {
     pub fn new(song: Song, due: f64) -> Box<Swap> {
         let n = song.channels.len();
-        let voices = (0..n).map(|i| Voice::new(i as u32 * 7919)).collect();
+        let voices = (0..n).map(|i| Voice::new(i as u32 * 7919, song.names[i])).collect();
         let mut tails = Vec::with_capacity(n + MOST_LETTERS);
         tails.resize_with(n, Voice::default);
         Box::new(Swap { voices, tails, loud: vec![1.0; n], due, song })
@@ -72,11 +72,15 @@ pub(super) struct Voice {
     dc: (f32, f32),
     /// What a voice's noise is raised by, joining past the clipper.
     noise_gain: f32,
+    /// Its channel's strip on the desk (`Player::lanes`, by letter): its
+    /// own, so a note ringing out of a channel laid no more keeps it.
+    strip: u8,
 }
 
 impl Voice {
-    fn new(seed: u32) -> Self {
-        Voice { osc: Oscillator::new(0x1234_5678 ^ seed), singer: Singer::new(0x2545_f491 ^ seed), clear: clear::Singer::new(0x5bd1_e995 ^ seed), ..Voice::default() }
+    fn new(seed: u32, letter: char) -> Self {
+        let strip = letter_index(letter).unwrap_or(0) as u8;
+        Voice { osc: Oscillator::new(0x1234_5678 ^ seed), singer: Singer::new(0x2545_f491 ^ seed), clear: clear::Singer::new(0x5bd1_e995 ^ seed), strip, ..Voice::default() }
     }
 
     /// Takes up note `n` (played by `ins`) from its start; a voice note
@@ -352,8 +356,8 @@ impl Ramp {
 pub(super) struct Bus {
     pub(super) level: Ramp,
     pub(super) muffle: Ramp,
-    /// The asks last followed (`Glide::asked`), the volume's and the muffle's.
-    pub(super) asked: (u32, u32),
+    /// The asks last followed (`Glide::key`), the volume's and the muffle's.
+    pub(super) asked: [(u32, u32, u32); 2],
     /// Each side's filter state, and its coefficient for the muffle it was
     /// last worked out for.
     pub(super) low: [(f32, f32); 2],
@@ -362,7 +366,7 @@ pub(super) struct Bus {
 
 impl Default for Bus {
     fn default() -> Self {
-        Self { level: Ramp::at(1.0), muffle: Ramp::at(0.0), asked: (0, 0), low: [(0.0, 0.0); 2], g: (-1.0, 0.0) }
+        Self { level: Ramp::at(1.0), muffle: Ramp::at(0.0), asked: [Glide::still(1.0).key(), Glide::still(0.0).key()], low: [(0.0, 0.0); 2], g: (-1.0, 0.0) }
     }
 }
 
@@ -399,6 +403,48 @@ impl Bus {
     }
 }
 
+/// A channel's strip as the player applies it (`Mix::strips`): its level
+/// (the fader, or 0 muted) and its pan, each gliding sample by sample,
+/// and the asks last followed (`Glide::key`).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Lane {
+    pub(super) level: Ramp,
+    pub(super) pan: Ramp,
+    asked: [(u32, u32, u32); 2],
+}
+
+impl Lane {
+    /// As the game's strip is now, gliding on where it still glides.
+    fn at(level: &Glide, pan: &Glide) -> Self {
+        let mut lane = Lane { level: Ramp::at(level.now()), pan: Ramp::at(pan.now()), asked: [level.key(), pan.key()] };
+        lane.level.toward(level.to, level.left(), SHORTEST.0);
+        lane.pan.toward(pan.to, pan.left(), SHORTEST.0);
+        lane
+    }
+
+    /// Follows a new ask, from where it sounds now.
+    fn follow(&mut self, level: &Glide, pan: &Glide) {
+        if level.key() != self.asked[0] {
+            self.level.toward(level.to, level.left(), SHORTEST.0);
+        }
+        if pan.key() != self.asked[1] {
+            self.pan.toward(pan.to, pan.left(), SHORTEST.0);
+        }
+        self.asked = [level.key(), pan.key()];
+    }
+
+    /// Whether it sounds as written and stays so (nothing to apply).
+    fn neutral(&self) -> bool {
+        (self.level.now, self.level.to, self.pan.now, self.pan.to) == (1.0, 1.0, 0.0, 0.0)
+    }
+
+    /// Its gain on each side for this sample, and a step on.
+    fn next(&mut self) -> [f32; 2] {
+        let (level, pan) = (self.level.next(), self.pan.next());
+        [level * (1.0 - pan).min(1.0), level * (1.0 + pan).min(1.0)]
+    }
+}
+
 /// Plays a song, sample by sample; runs in the audio thread.
 pub struct Player {
     pub(super) song: Song,
@@ -432,6 +478,12 @@ pub struct Player {
     pub(super) loud: Vec<f32>,
     /// The game's say over how it sounds (`Mix`): neutral unless followed.
     pub(super) bus: Bus,
+    /// Each channel's strip by letter (`Mix::strips`), made with the
+    /// player, kept through a swap; whether any is not neutral, and each
+    /// one's gains for the sample being made.
+    pub(super) lanes: [Lane; LETTERS],
+    lanes_live: bool,
+    gains: [[f32; 2]; LETTERS],
 }
 
 impl Player {
@@ -440,32 +492,63 @@ impl Player {
     }
 
     pub fn new(song: Song, volume: f32) -> Self {
-        let voices = (0..song.channels.len()).map(|i| Voice::new(i as u32 * 7919)).collect();
+        let voices = (0..song.channels.len()).map(|i| Voice::new(i as u32 * 7919, song.names[i])).collect();
         let tails = (0..song.channels.len()).map(|_| Voice::default()).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
-        Self { song, voices, tails, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, position: 0.0, pending: None, spent: None, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
+        let lane = Lane::at(&Glide::still(1.0), &Glide::still(0.0));
+        Self {
+            song,
+            voices,
+            tails,
+            time: 0,
+            duck: None,
+            volume,
+            rate: 1.0,
+            carry: 0.0,
+            position: 0.0,
+            pending: None,
+            spent: None,
+            since_jump: FADE_IN,
+            intensity: 1.0,
+            loud,
+            bus: Bus::default(),
+            lanes: [lane; LETTERS],
+            lanes_live: false,
+            gains: [[1.0; 2]; LETTERS],
+        }
     }
 
     /// Sounds as the game's `mix` is now, gliding on where it still glides
-    /// (a song begun, or the game brought back).
+    /// (a song begun, or the game brought back): a channel muted is silent
+    /// from the song's first sample.
     pub fn start_mix(&mut self, mix: &Mix) {
         self.bus.level = Ramp::at(mix.volume.now());
         self.bus.muffle = Ramp::at(mix.muffle.now());
-        self.bus.asked = (mix.volume.asked, mix.muffle.asked);
+        self.bus.asked = [mix.volume.key(), mix.muffle.key()];
         self.bus.level.toward(mix.volume.to, mix.volume.left(), SHORTEST.0);
         self.bus.muffle.toward(mix.muffle.to, mix.muffle.left(), SHORTEST.1);
+        for (i, lane) in self.lanes.iter_mut().enumerate() {
+            let strip = mix.strip(letter(i));
+            *lane = Lane::at(&strip.level, &strip.pan);
+        }
+        self.lanes_live = self.lanes.iter().any(|l| !l.neutral());
     }
 
     /// Follows the game's `mix`: a new ask glides from where the song
     /// sounds now to where it was asked, over what is left of its time.
     pub fn follow_mix(&mut self, mix: &Mix) {
-        if mix.volume.asked != self.bus.asked.0 {
+        if mix.volume.key() != self.bus.asked[0] {
             self.bus.level.toward(mix.volume.to, mix.volume.left(), SHORTEST.0);
         }
-        if mix.muffle.asked != self.bus.asked.1 {
+        if mix.muffle.key() != self.bus.asked[1] {
             self.bus.muffle.toward(mix.muffle.to, mix.muffle.left(), SHORTEST.1);
         }
-        self.bus.asked = (mix.volume.asked, mix.muffle.asked);
+        self.bus.asked = [mix.volume.key(), mix.muffle.key()];
+        for (i, lane) in self.lanes.iter_mut().enumerate() {
+            let strip = mix.strip(letter(i));
+            lane.follow(&strip.level, &strip.pan);
+        }
+        self.lanes_live = self.lanes.iter().any(|l| !l.neutral());
     }
 
     /// Sets how loud each layer is at once, for the tension it starts at
@@ -614,6 +697,15 @@ impl Player {
                 *loud = if *loud < want { (*loud + step).min(want) } else { (*loud - step).max(want) };
             }
             let fade = if self.since_jump < FADE_IN { self.since_jump as f32 / FADE_IN as f32 } else { 1.0 };
+            // Each channel's strip, where the game set one (`Mix::strips`).
+            let live = self.lanes_live;
+            if live {
+                for (gain, lane) in self.gains.iter_mut().zip(&mut self.lanes) {
+                    *gain = lane.next();
+                }
+            }
+            let gains = &self.gains;
+            let strip = |v: &Voice, [l, r]: [f32; 2]| if live { [l * gains[v.strip as usize][0], r * gains[v.strip as usize][1]] } else { [l, r] };
             let mut sum = [0.0f32; 2];
             for (ch, (v, tail)) in self.voices.iter_mut().zip(&mut self.tails).enumerate() {
                 let notes = &self.song.channels[ch];
@@ -630,14 +722,15 @@ impl Player {
                     v.next += 1;
                 }
                 let scale = (self.volume, fade, self.loud[ch]);
-                for [l, r] in [v.sound(&self.song, self.time, ducked, scale), tail.sound(&self.song, self.time, ducked, scale)].into_iter().flatten() {
+                let heard = [v.sound(&self.song, self.time, ducked, scale).map(|s| strip(v, s)), tail.sound(&self.song, self.time, ducked, scale).map(|s| strip(tail, s))];
+                for [l, r] in heard.into_iter().flatten() {
                     sum[0] += l;
                     sum[1] += r;
                 }
             }
             // The notes of channels laid no more, ringing out.
             for tail in &mut self.tails[self.voices.len()..] {
-                if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0)) {
+                if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0)).map(|s| strip(tail, s)) {
                     sum[0] += l;
                     sum[1] += r;
                 }
@@ -742,4 +835,10 @@ impl Player {
         self.mix(&mut out);
         out
     }
+}
+
+/// The letter of a strip's place among the `LETTERS` (`letter_index`'s
+/// other way).
+fn letter(i: usize) -> char {
+    if i < 26 { (b'A' + i as u8) as char } else { (b'a' + (i - 26) as u8) as char }
 }

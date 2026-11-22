@@ -768,8 +768,7 @@ impl Music {
     /// once when none plays), at its beat 0; the loudness and the muffle
     /// glide a tick on.
     pub fn step(&mut self, songs: &[crate::audio::music::Timing]) {
-        self.mix.volume.step();
-        self.mix.muffle.step();
+        self.mix.step();
         let before = self.beats(songs);
         if self.song.is_some() {
             self.steps += 1;

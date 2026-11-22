@@ -173,6 +173,8 @@ pub struct Timing {
     /// A studio's whole text (`Song::studio`): what a game's laid channels
     /// are read against; None for a song.
     pub studio: Option<std::sync::Arc<str>>,
+    /// A song's channels, by letter (`music:mix` names them).
+    pub letters: Vec<char>,
 }
 
 /// Samples into a song of `tempo` and `meter` bar `bar` (from 1) begins
@@ -212,7 +214,7 @@ impl Song {
     /// Its beats, for a game: by its file's name.
     pub fn timing(&self, file: &str) -> Timing {
         let name = std::path::Path::new(file).file_stem().map_or_else(|| file.to_string(), |s| s.to_string_lossy().into_owned());
-        Timing { name, tempo: self.tempo, meter: self.meter, round: self.round, bars: self.bars, studio: None }
+        Timing { name, tempo: self.tempo, meter: self.meter, round: self.round, bars: self.bars, studio: None, letters: self.names.clone() }
     }
 
     /// The seconds the loop goes round from and to (`#loop`), if it has one.
