@@ -47,16 +47,9 @@
 ; 49.5 Hz, a fall of about a semitone over the first 0.4 s. [N]: decay 50,
 ; 300 or 800 ms (knob short, middle, long); [BD]: up to seconds when
 ; modded. Ours: a sine from 52.4 Hz falling one semitone to 49.5 Hz over
-; 0.4 s (the sigh), decay 300 ms read as above. The octave-high first 6 ms
-; needs a second pitch stage the synth lacks: @kick_attack below lays it
-; on a second channel.
+; 0.4 s (the sigh), decay 300 ms read as above.
+; The octave-high first 6 ms, tried as a sine on a second channel, was not heard (2026-11-22).
 @kick sine freq=52.44 sweep=-1 sweep_time=0.4 attack=0.001 decay=0.33 sustain=0 release=0.225 volume=0.9
-
-; The bass drum's attack ([BD] 8.1: the band pass raised more than an
-; octave for ~6 ms). Ours: 6 ms of a sine an octave and a semitone above
-; the body, 104.9 Hz. Played with @kick on a second channel, the same
-; steps (say K and k); leave it out for a softer kick.
-@kick_attack sine freq=104.9 attack=0.0005 decay=0.006 sustain=0 release=0.002 volume=0.5
 
 ; Snare drum, tone. [N]: two bridged-T networks ring at 238 Hz (period
 ; 4.2 ms) and 476 Hz (2.1 ms), VR8 sets their ratio; decay 60 ms; "snappy"
@@ -128,13 +121,15 @@
 ; oscillators belong to the six of the cymbal. [SOS]: the band pass
 ; "removes the upper and lower partials". [CB]'s numbers were out of
 ; reach. Ours: the 800 Hz square here, the 540 Hz one as @cowbell_low on a
-; second channel, the same steps (B and b); a band pass at 1100 Hz
-; (ours); a fall in 12 ms to a quarter, then held to the note's end and
-; let go over 25 ms: two stages from the linear envelope, but the second
-; is flat and lasts as long as the note (a sixteenth: under -20 dB at
-; ~120 ms, where [N] says 50 ms).
-@cowbell square freq=800 filter=bandpass cutoff=1100 resonance=0.3 attack=0.0005 decay=0.012 sustain=0.25 release=0.025 volume=0.55
-@cowbell_low square freq=540 filter=bandpass cutoff=1100 resonance=0.3 attack=0.0005 decay=0.012 sustain=0.25 release=0.025 volume=0.55
+; second channel, the same steps (B and b); a band pass (ours) at 1100 Hz
+; sliding to 300 Hz in the first 12 ms, which takes about 5 dB off the
+; two tones by 10 ms and 8 by 20 ms (the abrupt drop; the sound comes out
+; darker, its centroid ~630 Hz where the fixed band's was ~860); under it one
+; linear decay of 62 ms, under -20 dB at ~50 ms as [N] says, whatever
+; the note's length. (Until 2026-11-22 a fall to a quarter held to the
+; note's end: ~120 ms.)
+@cowbell square freq=800 filter=bandpass cutoff=1100 cutoff_end=300 cutoff_time=0.012 resonance=0.3 attack=0.0005 decay=0.062 sustain=0 release=0.005 volume=0.6
+@cowbell_low square freq=540 filter=bandpass cutoff=1100 cutoff_end=300 cutoff_time=0.012 resonance=0.3 attack=0.0005 decay=0.062 sustain=0 release=0.005 volume=0.6
 
 ; Closed and open hi-hat. [CY], [N]: six square oscillators at 205.3,
 ; 304.4, 369.6, 522.7, 540 and 800 Hz summed; the hats take the high band
