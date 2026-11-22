@@ -134,7 +134,7 @@ const TYPES: &str = "\
 ---@field from? string When it begins: at the next bar of the one playing (bar, unless said), beat or now.
 ---@field crossfade? number Seconds the old song fades out as this one fades in, 0 to 60 (0: the old ends, this begins); unless said, c.audio.crossfade.
 ---@field at? integer The bar it begins at, counted from 1 (its start, unless said): 33 skips an intro of 32 bars. Its beat 0 is there.
----@field channels? table<string, string> Channels of MML laid over a file of instruments, by letter: { K = '@kick o4 l16 c r r r c r r r c r r r c r r r' }. The whole set that plays.
+---@field channels? table<string,string> Channels of MML laid over a file of instruments, by letter: { K = '@kick o4 l16 c r r r c r r r c r r r c r r r' }. The whole set that plays.
 
 ---@class MusicStop How a song stops (music:stop).
 ---@field from? string When: now (unless said), at the next beat or bar of the song that plays.
