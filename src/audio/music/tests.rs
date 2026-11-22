@@ -685,7 +685,8 @@ fn the_singer_sings_every_consonant_of_a_cluster() {
 /// vowel's F2 (its strongest between 1.2 and 2.5 kHz), a b's not; the r a
 /// German one, its F3 high as in l (not an English r's low one) but its F1
 /// higher than l's, and a rasp where l is clean; before ü its F1 no
-/// higher than the vowel's; a g after ng closed briefly and voiced.
+/// higher than the vowel's, a vowel before it turning towards it; a g
+/// after ng closed briefly and voiced.
 #[test]
 fn the_singer_tells_g_from_b_and_r_from_l() {
     use super::clear::Seg;
@@ -717,6 +718,16 @@ fn the_singer_tells_g_from_b_and_r_from_l() {
     // Before a closer vowel the r is no more open than it: its F1 not over ü's.
     let (r, _) = middle("g r ue");
     assert!(r[0] < 330.0, "r before ue at F1 {:.0}", r[0]);
+    // A vowel before a coda r turns towards the r, not away and back: at
+    // its end F1 risen and F2 fallen towards the r's.
+    let text = clearly("r4 \"d e r\" c4");
+    let song = parse(&text).unwrap();
+    let (start, end) = song.channels[0].iter().find_map(|n| n.sung.map(|(a, b)| (n.start, song.clear[a as usize..b as usize].iter().filter(|s| s.name == "e").map(|s| s.to).max().unwrap()))).unwrap();
+    let mut p = Player::new(song, 1.0);
+    let mut out = vec![0.0; (start + end) as usize * 2];
+    p.mix(&mut out);
+    let f = p.voices[0].clear.formants_now();
+    assert!(f[0] > 450.0 && f[1] < 1500.0, "the e of d e r ends at {f:.0?}");
     // A g after ng closes briefly, the voicing going on through it.
     let song = parse(&clearly("r4 \"t o ng\" c8 \"g r aw\" c4")).unwrap();
     let closure: u64 = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).map(|s| s.to - s.from).sum();

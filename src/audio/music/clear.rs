@@ -469,11 +469,15 @@ pub(super) fn plan(out: &mut Vec<Seg>, s: &Syllable, part: Part, beat: i64, off:
     vowel.turn = (part == Part::Whole && first != last).then_some(last);
     match s.coda.first() {
         Some(p) if !matches!(p.kind, Kind::Breath { .. }) => {
-            // The last part of the vowel turns towards the coda's locus.
+            // The last part of the vowel turns towards the coda: its locus,
+            // or a liquid's or a glide's own formants. Towards an alveolar
+            // locus before an r, F1 went 400 to 285 to 560 Hz and F2 2000 to
+            // 2120 to 1250 in "d e r": a turn the r then took back (measured).
             let out_ms = transition(p).min(40.0);
             let turn_at = (vowel_end - ms(out_ms)).max(beat + (vowel_end - beat) / 2);
             add(Seg { to: turn_at as u64, ..vowel });
-            add(Seg { name: s.vowel.name, voicing: vowel.voicing, ..Seg::new(turn_at, vowel_end, locus(p.place, end_v), vw, out_ms) });
+            let goal = own_five(p, end_v).unwrap_or_else(|| locus(p.place, end_v));
+            add(Seg { name: s.vowel.name, voicing: vowel.voicing, ..Seg::new(turn_at, vowel_end, goal, vw, out_ms) });
         }
         _ => add(vowel),
     }
@@ -482,6 +486,16 @@ pub(super) fn plan(out: &mut Vec<Seg>, s: &Syllable, part: Part, beat: i64, off:
     for (i, (p, before, then)) in row(&s.coda, None, Then::End).enumerate() {
         let after_voice = i == 0 || before.is_some_and(voiced);
         t = consonant(&mut add, Sound { p, before, then, vowel: end_v, scale: join.coda, onset: false, after_voice }, t);
+    }
+}
+
+/// A liquid's, a glide's or the trill's own five formants as a coda sings
+/// them (the r the German one, `UVULAR`), or none.
+fn own_five(p: &Phoneme, v: Five) -> Option<Five> {
+    match p.kind {
+        _ if p.name == "r" => Some([UVULAR[0], UVULAR[1], UVULAR[2], v[3], v[4]]),
+        Kind::Sonorant { formants, .. } | Kind::Trill { formants, .. } if !nasal(p) => Some([formants[0], formants[1], formants[2], v[3], v[4]]),
+        _ => None,
     }
 }
 
