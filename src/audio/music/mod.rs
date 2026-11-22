@@ -97,6 +97,8 @@ mod player;
 mod song;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tempo_tests;
 mod voice;
 mod clear;
 

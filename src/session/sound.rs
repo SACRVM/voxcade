@@ -141,6 +141,8 @@ impl<G: Game> Session<G> {
                     Some(laid) => audio::music::Player::new(self.laid_song(cue.song, laid)?, self.cfg.audio.music_volume),
                     None => self.song(self.cfg.audio.music.files().get(cue.song)?)?,
                 };
+                // At the game's tempo from its first sample, not ramping to it.
+                player.set_ratio(cue.ratio);
                 player.seek(player.at_beat(cue.start + cue.beats));
                 player.start_at(cue.intensity);
                 player
@@ -233,7 +235,7 @@ impl<G: Game> Session<G> {
                 (player, _) => mixer.set_music(player),
             }
         } else if let Some(cue) = self.game.music() {
-            mixer.follow_music(cue.start + cue.beats);
+            mixer.follow_music(cue.start + cue.beats, cue.ratio);
             mixer.music_intensity(cue.intensity);
         }
         if let Some(swap) = new.swap {

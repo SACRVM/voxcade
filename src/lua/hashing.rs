@@ -145,6 +145,14 @@ impl<K: Kit> LuaGame<K> {
             if m.next.as_ref().is_some_and(|a| a.stop) {
                 s.u64(0x7374_6f70);
             }
+            // The tempo the game holds and the clock's units only once it
+            // sets one (`music.tempo`), so earlier checks hold.
+            if let Some(tempo) = m.tempo {
+                s.u64(0x7465_6d70).u64(u64::from(tempo));
+            }
+            if let Some(units) = m.units {
+                s.u64(0x756e_6974).u64(units);
+            }
             // The bars songs begin at only once one begins past its start
             // (`music:play`'s `at`), so earlier checks hold.
             if m.at != 1 {

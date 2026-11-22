@@ -434,7 +434,11 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   `music:mix("K", { volume = 0.6, mute = true, pan = -0.5 }, seconds)` is
   channel K's strip on a mixing desk (fader, mute, pan; `false` gives a
   key or the whole strip back), held by letter whichever song plays;
-  keep the desk in a state and set it again in `on_level_start`. Volume,
+  keep the desk in a state and set it again in `on_level_start`.
+  `music.tempo = 140` plays the game's songs at 140 beats a minute (1 to
+  999, `nil` each song's own `#tempo`), its sounds as long as before,
+  `on_beat` and the bars going with it; a state holds the knob, set
+  again in `on_level_start`, and only set when it changes. Volume,
   muffle and the strips are only heard, never in the replays. Music is never a kit's:
   which song plays when is the game's code.
 - Music from the game's own data (a drum machine, patterns from a level):

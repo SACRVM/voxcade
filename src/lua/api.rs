@@ -705,6 +705,12 @@ pub const API: &[Item] = &[
     Item { of: "music", name: "position", what: Field { ty: "number|nil", set: false }, doc: "Beats since your game's song began, with \
             the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil while the player's own song \
             plays or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16." },
+    Item { of: "music", name: "tempo", what: Field { ty: "number|nil", set: true }, doc: "The beats a minute of your game's song, 1 to \
+            999: its #tempo until you set it. Set, the song plays faster or slower from the next tick, and music.beat, on_beat and \
+            \"bar\" go with it. Only its timing changes: its sounds keep their length, pitch and a singer's vowels stay as they are, \
+            sung consonants go with it. It holds for every song of yours, through a stop and from level to level, until you set nil \
+            (each song its own #tempo again): set it only to change it. Kept to a thousandth (124.4567 reads 124.457). nil while none \
+            of yours plays and you set none. A channel's own t in a song plays as much faster as the song." },
     Item { of: "music", name: "intensity", what: Field { ty: "number", set: true }, doc: "How tense the game is, from 0 (calm) to 1 (all of \
             the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come \
             in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a \

@@ -85,6 +85,9 @@ pub struct MusicCue {
     /// `start` in it): what the audio swaps to there, exactly.
     pub laid: Option<std::sync::Arc<crate::audio::music::Laid>>,
     pub next: Option<(std::sync::Arc<crate::audio::music::Laid>, f64)>,
+    /// How fast it goes against its `#tempo` (`music.tempo`): exactly 1
+    /// unless the game set a tempo.
+    pub ratio: f64,
 }
 
 /// A change of the game's song as the audio needs it (`music:play`): one

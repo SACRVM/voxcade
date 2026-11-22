@@ -250,7 +250,19 @@ has a strip of its own: `music:mix("K", { volume = 0.6, mute = false,
 pan = -0.5 }, 0.05)` (the fader 0..1, the mute, the pan a balance; a
 key left out stays, `false` gives it back, `music:mix("K", false)` the
 whole strip, `music:mix("K")` reads it back), held by letter through
-every song and stop until given back: a level knob, a mute button. Checked by
+every song and stop until given back: a level knob, a mute button.
+
+A tempo of the game's: `music.tempo = 140` plays its song at 140 beats a
+minute from the next tick (1 to 999, kept to a thousandth; read back,
+the song's own `#tempo` until set; `nil` gives each song its own again).
+It holds for every song of the game's until set nil. Only the timing
+changes: each sound keeps its length (a kick's decay is as long at 160
+as at 120), pitch and a singer's vowels stay, sung consonants go with
+the tempo (listen to a sung line at another tempo). `music.beat`,
+`on_beat` and `"bar"` go with it, exactly (the clock counts in integers
+once a tempo is set; unset it is the old formula, so replays stay). A
+song played much faster may cut a release that rang out at its own
+tempo, as the same song written faster would. Checked by
 measurement in `lua::tests::the_music_sounds_as_the_game_asks`.
 
 A loop of its own: `#loop 33 80` in a song plays it from its start once,

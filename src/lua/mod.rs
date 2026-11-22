@@ -1096,21 +1096,23 @@ impl<K: Kit> Game for LuaGame<K> {
         let start = f64::from(m.at.saturating_sub(1)) * f64::from(meter);
         // A change within the song: the channels to come and their beat.
         let next = m.next.as_ref().filter(|a| a.song == m.song).and_then(|a| Some((a.laid.clone()?, start + m.due(&self.stage.songs)?)));
-        Some(crate::game::MusicCue { song: m.song?, beats: m.beats(&self.stage.songs)?, start, intensity: m.intensity, laid: m.laid.clone(), next })
+        let beats = m.clock(&self.stage.songs)?.position;
+        Some(crate::game::MusicCue { song: m.song?, beats, start, intensity: m.intensity, laid: m.laid.clone(), next, ratio: m.ratio(&self.stage.songs) })
     }
 
     fn music_silent(&self) -> bool {
         self.stage.music.silent
     }
 
-    /// A song gone from the list leaves the music to the player's choice;
+    /// A song gone from the list leaves the music to the player's choice,
+    /// keeping what the game holds (its tension, mix and strips, tempo);
     /// channels laid over a studio that changed are read against it anew,
     /// and halt the game as `music:play` would where they no longer read.
     fn set_songs(&mut self, songs: &[crate::audio::music::Timing]) {
         self.stage.songs = Arc::new(songs.to_vec());
         let m = &mut self.stage.music;
         if m.song.is_some_and(|s| s >= songs.len()) || m.next.as_ref().is_some_and(|a| a.song.is_some_and(|s| s >= songs.len())) {
-            *m = host::Music { intensity: m.intensity, mix: std::mem::take(&mut m.mix), ..host::Music::default() };
+            *m = host::Music { intensity: m.intensity, mix: std::mem::take(&mut m.mix), tempo: m.tempo, ..host::Music::default() };
         }
         let laid = [(m.song, m.laid.as_ref()), m.next.as_ref().map_or((None, None), |a| (a.song, a.laid.as_ref()))];
         let wrong = laid.into_iter().find_map(|(song, laid)| {

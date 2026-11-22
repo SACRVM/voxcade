@@ -16,6 +16,7 @@ mod music;
 mod music_bars;
 mod music_mix;
 mod music_stop;
+mod music_tempo;
 mod picture;
 mod pointer;
 mod pieces;

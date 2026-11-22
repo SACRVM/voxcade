@@ -11,8 +11,22 @@ impl UserData for MusicView {
     fn add_fields<F: UserDataFields<Self>>(f: &mut F) {
         f.add_meta_field(MetaMethod::Type, "music");
         f.add_field_function_get("song", |lua, _| look(lua, |h| Ok(h.music.song.and_then(|s| h.songs.get(s)).map(|t| t.name.clone()))));
-        f.add_field_function_get("beat", |lua, _| look(lua, |h| Ok(h.music.beats(&h.songs).map(|b| b.floor() as i64))));
-        f.add_field_function_get("position", |lua, _| look(lua, |h| Ok(h.music.beats(&h.songs))));
+        f.add_field_function_get("beat", |lua, _| look(lua, |h| Ok(h.music.clock(&h.songs).map(|c| c.beat as i64))));
+        f.add_field_function_get("position", |lua, _| look(lua, |h| Ok(h.music.clock(&h.songs).map(|c| c.position))));
+        // The tempo held, else the song's own, both kept to a thousandth.
+        f.add_field_function_get("tempo", |lua, _| look(lua, |h| Ok(h.music.tempo.or_else(|| h.music.milli_tempo(&h.songs)).map(|m| f64::from(m) / 1000.0))));
+        f.add_field_function_set("tempo", |lua, _, v: Value| {
+            let tempo = match v {
+                Value::Nil => None,
+                Value::Integer(i) if (1..=999).contains(&i) => Some(crate::lua::host::milli(i as f64)),
+                Value::Number(n) if (1.0..=999.0).contains(&n) => Some(crate::lua::host::milli(n)),
+                other => return Err(mlua::Error::runtime(format!("music.tempo: beats a minute from 1 to 999, or nil for each song's own #tempo, not {}", shown(&other)))),
+            };
+            change(lua, "music.tempo", |h| {
+                h.music.tempo = tempo;
+                Ok(())
+            })
+        });
         f.add_field_function_get("intensity", |lua, _| look(lua, |h| Ok(h.music.intensity)));
         f.add_field_function_set("intensity", |lua, _, v: f32| {
             if !(0.0..=1.0).contains(&v) {
@@ -23,12 +37,7 @@ impl UserData for MusicView {
                 Ok(())
             })
         });
-        f.add_field_function_get("bar", |lua, _| {
-            look(lua, |h| {
-                let meter = h.music.song.and_then(|s| h.songs.get(s)).map_or(4, |t| t.meter) as f64;
-                Ok(h.music.beats(&h.songs).map(|b| (b / meter).floor() as i64))
-            })
-        });
+        f.add_field_function_get("bar", |lua, _| look(lua, |h| Ok(h.music.clock(&h.songs).map(|c| c.bar as i64))));
     }
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {

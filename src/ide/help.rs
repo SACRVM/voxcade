@@ -830,10 +830,10 @@ end
     },
     Topic {
         title: "A DRUM MACHINE",
-        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. START stops the machine (music:stop: silence at once, the player's own song not coming back) and starts it again from its first beat. MUTE silences the row under the cursor and lets it sound again, as a mixing desk's button (music:mix: each channel's fader, mute and pan by its letter, only heard); the game keeps what the desk shows in its state and sets it again as a level starts. A studio is no song a player picks, and its whole text counts for replays.",
+        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. START stops the machine (music:stop: silence at once, the player's own song not coming back) and starts it again from its first beat. MUTE silences the row under the cursor and lets it sound again, as a mixing desk's button (music:mix: each channel's fader, mute and pan by its letter, only heard); the game keeps what the desk shows in its state and sets it again as a level starts. SLOWER and FASTER turn the tempo (music.tempo, beats a minute): the music goes slower or faster from the next tick, every sound as long as before, and music.position, on_beat and \"bar\" go with it. A studio is no song a player picks, and its whole text counts for replays.",
         conf: r##"c.audio.music = { "music/kit.mml" }   -- the instruments: music:play calls it "kit"
-c.actions = { "toggle", "pattern", "start", "mute" }
-c.keys = { toggle = { "Space" }, pattern = { "Tab" }, start = { "Return" }, mute = { "M" } }"##,
+c.actions = { "toggle", "pattern", "start", "mute", "slower", "faster" }
+c.keys = { toggle = { "Space" }, pattern = { "Tab" }, start = { "Return" }, mute = { "M" }, slower = { "Q" }, faster = { "E" } }"##,
         files: &[("music/kit.mml", "; instruments only: the game lays the channels\n#tempo 124\n@kick triangle freq=130 sweep=-34 sweep_time=0.08 decay=0.11 sustain=0 release=0.01 volume=0.85\n@hat noise freq=14000 decay=0.025 sustain=0 release=0.01 lowpass=6500 volume=0.14\n")],
         code: r##"-- Two rows of sixteen steps: a row's channel letter, instrument and color.
 local ROWS = {
@@ -853,7 +853,7 @@ function on_world_start()
     end
   end
   world.state.pattern, world.state.row, world.state.step = 1, 1, 1
-  world.state.playing, world.state.muted = true, { false, false }
+  world.state.playing, world.state.muted, world.state.tempo = true, { false, false }, 124
 end
 
 -- The pattern as channels of MML: a row each, a hit (c) or a rest (r) a sixteenth.
@@ -869,6 +869,7 @@ end
 
 function on_level_start(how)
   for r, row in ipairs(ROWS) do music:mix(row.channel, { mute = world.state.muted[r] }, 0) end
+  music.tempo = world.state.tempo
   if world.state.playing then lay("now") else music:stop() end
 end
 
@@ -894,13 +895,16 @@ function on_tick()
     s.muted[s.row] = not s.muted[s.row]
     music:mix(ROWS[s.row].channel, { mute = s.muted[s.row] }, 0.02)
   end
+  if input:repeated("slower") then s.tempo = math.max(60, s.tempo - 2) end
+  if input:repeated("faster") then s.tempo = math.min(200, s.tempo + 2) end
+  if s.tempo ~= music.tempo then music.tempo = s.tempo end
 end
 
 function on_draw(frame)
   local s = world.state
   local light = music.position and math.floor(music.position * 4) % 16 + 1
   local x0, y0 = math.floor(frame.width / 2) - 88, math.floor(frame.height / 2) - 12
-  frame:text("PATTERN " .. s.pattern, x0, y0 - 14)
+  frame:text("PATTERN " .. s.pattern .. "   " .. s.tempo .. " BPM", x0, y0 - 14)
   for r, row in ipairs(ROWS) do
     for i = 1, 16 do
       local x, y = x0 + (i - 1) * 11, y0 + (r - 1) * 12

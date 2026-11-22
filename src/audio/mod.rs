@@ -198,10 +198,12 @@ impl Mixer {
         self.voices.iter().all(Voice::ended) && self.music.is_none() && self.leaving.is_none()
     }
 
-    /// Keeps the music with a game's clock, `beats` since the song began
-    /// (`music::Player::follow`).
-    pub fn follow_music(&mut self, beats: f64) {
+    /// Keeps the music with a game's clock, `beats` since the song began,
+    /// going `ratio` times as fast as its `#tempo` (`music::Player::follow`,
+    /// `set_ratio`).
+    pub fn follow_music(&mut self, beats: f64, ratio: f64) {
         if let Some(m) = &mut self.music {
+            m.set_ratio(ratio);
             m.follow(beats);
             // What a swap let go of, dropped here on the main thread.
             drop(m.spent());
@@ -731,7 +733,32 @@ mod tests {
         assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken or given back as laid channels were swapped in");
         assert_eq!(mixer.music_laid(), Some((Some(to.digest), None)));
         assert!(mixer.music.as_ref().is_some_and(|m| m.spent.is_some()), "what was swapped out kept for the main thread");
-        mixer.follow_music(6.0);
+        mixer.follow_music(6.0, 1.0);
         assert!(mixer.music.as_ref().is_some_and(|m| m.spent.is_none()), "dropped on the main thread");
+        // A tempo set every tick for 10 s (`music.tempo` turned as a knob,
+        // half to twice the song's own): nothing made, nothing jumping, and
+        // no sample further from the one before than the song's own at
+        // the slowest or the fastest of them held still.
+        let song = "#tempo 120\n@s sine attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.8\nA: @s l8 c e g > c < g e c e\n";
+        let knob = |ratio: &dyn Fn(usize) -> f64| {
+            let mut mixer = Mixer::default();
+            mixer.set_music(Some(music::Player::new(music::parse(song).unwrap(), 1.0)));
+            let tick = SAMPLE_RATE as usize / 60;
+            let (mut buf, mut out) = (vec![0.0f32; tick * 2], Vec::<f32>::new());
+            let mut beats = 0.0;
+            for n in 0..600 {
+                let ratio = ratio(n);
+                beats += 120.0 * ratio / 3600.0;
+                assert_eq!(taken_by(|| {
+                    mixer.mix(&mut buf);
+                    mixer.follow_music(beats, ratio);
+                }), 0, "memory taken with a tempo set every tick");
+                assert!(mixer.music.as_ref().is_some_and(|m| m.since_jump as usize > tick), "a jump at tick {n}");
+                out.extend(buf.iter().step_by(2));
+            }
+            out.windows(2).fold(0.0f32, |m, w| m.max((w[1] - w[0]).abs()))
+        };
+        let (slow, fast, turned) = (knob(&|_| 0.5), knob(&|_| 2.0), knob(&|n| 0.5 + (n % 90) as f64 / 60.0));
+        assert!(turned <= slow.max(fast) * 1.05, "a tempo turned stepped {turned}, held at half and twice {slow} {fast}");
     }
 }

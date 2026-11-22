@@ -703,7 +703,8 @@ pub enum When {
 /// player's, or silence after `music:stop`) and its clock: the steps since
 /// it began, a step every tick the game goes (a hit stop's too, so the
 /// music never waits), from which its beats follow without adding up
-/// errors; the ask to come (`SongAsk`); the last beat told (`on_beat`).
+/// errors (`Clock`); the ask to come (`SongAsk`); the last beat told
+/// (`on_beat`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Music {
     pub song: Option<usize>,
@@ -731,6 +732,33 @@ pub struct Music {
     /// brought back sounds as it did), never in its hash, its replays or a
     /// save: only heard.
     pub mix: crate::audio::music::Mix,
+    /// The tempo the game holds (`music.tempo`), in thousandths of a beat
+    /// a minute: every song of its own plays at it until it is set nil.
+    pub tempo: Option<u32>,
+    /// The beats since its song began in `UNITS` a beat, each step adding
+    /// the tempo in thousandths, once a tempo was held while it played
+    /// (None: the steps at its `#tempo`, as before tempos were set).
+    pub units: Option<u64>,
+}
+
+/// A beat in the units of the music's clock (`Music::units`): a step at
+/// 1 beat a minute is 1/3600 of a beat, a thousandth of a beat a minute
+/// a step adds 1.
+pub const UNITS: u64 = 3_600_000;
+
+/// A tempo (beats a minute) in thousandths, exactly on every machine.
+pub fn milli(tempo: f64) -> u32 {
+    (tempo * 1000.0).round() as u32
+}
+
+/// Where the game's song is: its whole beats and bars since it began (from
+/// one integer source, so they never disagree), and the beats with their
+/// fraction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Clock {
+    pub beat: u64,
+    pub bar: u64,
+    pub position: f64,
 }
 
 /// A song asked for and not begun yet (`music:play`): which, from when,
@@ -751,33 +779,66 @@ pub struct SongAsk {
 
 impl Default for Music {
     fn default() -> Self {
-        Self { song: None, silent: false, at: 1, steps: 0, next: None, told: None, laid: None, crossed: None, intensity: 1.0, mix: Default::default() }
+        Self { song: None, silent: false, at: 1, steps: 0, next: None, told: None, laid: None, crossed: None, intensity: 1.0, mix: Default::default(), tempo: None, units: None }
     }
 }
 
 impl Music {
-    /// The beats since its song began (60 steps a second); none without
-    /// a song of the game's own.
-    pub fn beats(&self, songs: &[crate::audio::music::Timing]) -> Option<f64> {
+    /// Where its song is (60 steps a second); none without a song of the
+    /// game's own. Without a tempo held in it, the steps at its `#tempo`
+    /// as written (the formula of before tempos, so every replay recorded
+    /// then plays the same); with one, its units, every number from them.
+    pub fn clock(&self, songs: &[crate::audio::music::Timing]) -> Option<Clock> {
         let t = songs.get(self.song?)?;
-        Some(self.steps as f64 * t.tempo as f64 / 3600.0)
+        let meter = u64::from(t.meter.max(1));
+        Some(match self.units {
+            Some(u) => Clock { beat: u / UNITS, bar: u / (UNITS * meter), position: u as f64 / UNITS as f64 },
+            None => {
+                let b = self.steps as f64 * t.tempo as f64 / 3600.0;
+                Clock { beat: b.floor() as u64, bar: (b / meter as f64).floor() as u64, position: b }
+            }
+        })
+    }
+
+    /// The tempo its song plays at, in thousandths: the game's, else the
+    /// song's own `#tempo`.
+    pub fn milli_tempo(&self, songs: &[crate::audio::music::Timing]) -> Option<u32> {
+        let t = songs.get(self.song?)?;
+        Some(self.tempo.unwrap_or_else(|| milli(f64::from(t.tempo))))
+    }
+
+    /// How fast its song goes against its `#tempo` (the audio's time-scale):
+    /// exactly 1 unless the game holds a tempo.
+    pub fn ratio(&self, songs: &[crate::audio::music::Timing]) -> f64 {
+        match (self.tempo, self.song.and_then(|s| songs.get(s))) {
+            (Some(m), Some(t)) => f64::from(m) / (f64::from(t.tempo) * 1000.0),
+            _ => 1.0,
+        }
     }
 
     /// A step on: the clock goes on, and the song asked for begins when
     /// its moment comes (a beat or a bar of the one playing begins; at
     /// once when none plays), at its beat 0; the loudness and the muffle
-    /// glide a tick on.
+    /// glide a tick on. A tempo held while a song plays counts its beats
+    /// in units from where its `#tempo` brought them, before and after a
+    /// step then read from the same.
     pub fn step(&mut self, songs: &[crate::audio::music::Timing]) {
         self.mix.step();
-        let before = self.beats(songs);
+        if self.units.is_none() && self.tempo.is_some() && let Some(t) = self.song.and_then(|s| songs.get(s)) {
+            self.units = Some(self.steps * u64::from(milli(f64::from(t.tempo))));
+        }
+        let before = self.clock(songs);
         if self.song.is_some() {
             self.steps += 1;
+            let tempo = self.milli_tempo(songs).unwrap_or(0);
+            if let Some(u) = &mut self.units {
+                *u += u64::from(tempo);
+            }
         }
         let Some(ask) = &self.next else { return };
-        let meter = self.meter(songs);
-        let due = match (before, self.beats(songs), ask.when) {
-            (Some(a), Some(b), When::Beat) => b.floor() > a.floor(),
-            (Some(a), Some(b), When::Bar) => (b / meter).floor() > (a / meter).floor(),
+        let due = match (before, self.clock(songs), ask.when) {
+            (Some(a), Some(b), When::Beat) => b.beat > a.beat,
+            (Some(a), Some(b), When::Bar) => b.bar > a.bar,
             _ => true,
         };
         if let Some(ask) = self.next.take_if(|_| due) {
@@ -787,32 +848,29 @@ impl Music {
             } else {
                 (self.song, self.at, self.steps, self.told, self.crossed, self.laid) = (ask.song, ask.at, 0, None, ask.crossfade, ask.laid);
                 self.silent = ask.stop;
+                self.units = self.tempo.and(self.song).map(|_| 0);
             }
         }
-    }
-
-    /// The beats in a bar of its song (4 without one).
-    fn meter(&self, songs: &[crate::audio::music::Timing]) -> f64 {
-        f64::from(self.song.and_then(|s| songs.get(s)).map_or(4, |t| t.meter))
     }
 
     /// The beat since its song began the ask to come is due at (its line,
     /// as `step` finds it; one `"now"` at the beat it is at).
     pub fn due(&self, songs: &[crate::audio::music::Timing]) -> Option<f64> {
-        let (ask, b) = (self.next.as_ref()?, self.beats(songs)?);
-        let meter = self.meter(songs);
+        let (ask, c) = (self.next.as_ref()?, self.clock(songs)?);
+        let meter = u64::from(songs.get(self.song?)?.meter.max(1));
         Some(match ask.when {
-            When::Now => b,
-            When::Beat => b.floor() + 1.0,
-            When::Bar => ((b / meter).floor() + 1.0) * meter,
+            When::Now => c.position,
+            When::Beat => (c.beat + 1) as f64,
+            When::Bar => ((c.bar + 1) * meter) as f64,
         })
     }
 
-    /// The beats begun since the last told, to tell now (`on_beat`).
+    /// The beats begun since the last told, to tell now (`on_beat`): each
+    /// once, the last told never lowered.
     pub fn untold(&mut self, songs: &[crate::audio::music::Timing]) -> std::ops::Range<u64> {
-        let Some(now) = self.beats(songs).map(|b| b.floor() as u64) else { return 0..0 };
+        let Some(now) = self.clock(songs).map(|c| c.beat) else { return 0..0 };
         let from = self.told.map_or(0, |t| t + 1);
-        self.told = Some(now);
+        self.told = Some(self.told.map_or(now, |t| t.max(now)));
         from..now + 1
     }
 }
