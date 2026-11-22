@@ -161,7 +161,8 @@ fn an_older_replay_shows_an_action_it_lacks_unbound() {
 
 /// Every key a game or a template binds to start with is one SDL knows by
 /// that name (Pulsar's "LShift" was none: Shift never bombed, and only the
-/// window's start said so).
+/// window's start said so), or one of the mouse's (`input::MOUSE_KEYS`, a
+/// game with a pointer: Studio's).
 #[test]
 fn every_games_keys_are_keys() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -173,7 +174,7 @@ fn every_games_keys_are_keys() {
                 continue;
             }
             let cfg = crate::session::config::<LuaGame>(&dir).unwrap();
-            for name in LuaGame::default_keys(&cfg).names() {
+            for name in LuaGame::default_keys(&cfg).names().filter(|n| !crate::input::MOUSE_KEYS.contains(n)) {
                 assert!(sdl3::keyboard::Scancode::from_name(name).is_some(), "{}: no key named '{name}' (SDL's names: \"Left Shift\", \"Space\", \"Z\")", dir.display());
                 seen += 1;
             }

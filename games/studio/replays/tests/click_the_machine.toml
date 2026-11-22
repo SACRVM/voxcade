@@ -1,0 +1,34 @@
+# Voxcade replay: Studio, 420 ticks, quit, score 0
+version = 1
+game = "Studio"
+fingerprint = "09fec1dd6da78cdf"
+ticks = 420
+outcome = "quit"
+score = 0
+input = "none:30;pointer=33,115+picture=21857+thing=1+part=step_2:5;click+pointer=33,115+picture=21857+thing=1+part=step_2:4;pointer=33,115+picture=21857+thing=1+part=step_2:20;pointer=25,115+picture=21857+thing=1+part=case:3;click+pointer=25,115+picture=21857+thing=1+part=case:3;pointer=25,115+picture=21857+thing=1+part=case:10;click+pointer=10,115+picture=21857+thing=1+part=step_1:3;pointer=10,115+picture=21857+thing=1+part=step_1:10;pointer=62,79+picture=21857+thing=1+part=pick_snare:5;click+pointer=62,79+picture=21857+thing=1+part=pick_snare:3;pointer=62,79+picture=21857+thing=1+part=pick_snare:10;click+pointer=51,115+picture=21857+thing=1+part=step_3:3;pointer=51,115+picture=21857+thing=1+part=step_3:20;click+pointer=239,79+picture=21857+thing=1+part=pattern_b:3;pointer=239,79+picture=21857+thing=1+part=pattern_b:60;pointer=69,47+picture=21857+thing=1+part=knob_level:3;click+pointer=69,47+picture=21857+thing=1+part=knob_level:2;click+pointer=69,42+picture=21857+thing=1+part=knob_level:2;click+pointer=69,37+picture=21857+thing=1+part=knob_level:2;pointer=69,37+picture=21857+thing=1+part=knob_level:10;pointer=272,47+picture=21857+thing=1+part=knob_volume:3;turn_down+pointer=272,47+picture=21857+thing=1+part=knob_volume:1;pointer=272,47+picture=21857+thing=1+part=knob_volume:1;turn_down+pointer=272,47+picture=21857+thing=1+part=knob_volume:1;pointer=272,47+picture=21857+thing=1+part=knob_volume:5;click+pointer=282,78+picture=21857+thing=1+part=start:3;pointer=282,78+picture=21857+thing=1+part=start:40;click+pointer=282,78+picture=21857+thing=1+part=start:3;pointer=282,78+picture=21857+thing=1+part=start:60;none:5;right:1;none:3;toggle:1;none:20;pattern:1;none:61"
+checks = ["4b53c9e37941ef67", "a8169d06c67cb91c", "5785e9d3dd3ae881", "ecb6a489805acebf", "ea9d23ede1ce8309", "2356ba707bc0a613", "e4988b422c4552dc"]
+final_state = "e4988b422c4552dc"
+
+[fingerprint_parts]
+"conf.lua" = "bb8e9c89a4860381"
+"levels/studio.toml" = "e3860ffe658096bb"
+"machine.vvx" = "f5c98724c67f9988"
+"main.lua" = "fd7d62074fefd54b"
+music = "376b42609fde1210"
+"music/kit.mml" = "a3a96074551c2121"
+"music/off.mml" = "fd25e22f77f773fc"
+"table.vvx" = "fcfbcd96b2468566"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+click = "MOUSE LEFT"
+pattern = "TAB"
+pause = "ESCAPE"
+start = "RETURN"
+toggle = "SPACE"
+turn_down = "WHEEL DOWN"
+turn_up = "WHEEL UP"

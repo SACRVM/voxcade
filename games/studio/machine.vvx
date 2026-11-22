@@ -1,0 +1,601 @@
+format = "voxcade voxel 1"
+size = [151, 61, 15]
+
+[palette]
+a = "#34343a"
+b = "#101012"
+c = "#9c9890"
+d = "#1c1c20"
+e = "#d03a2a"
+f = { color = "#ff4028", glow = 1.0 }
+g = "#e07a20"
+h = "#e0c030"
+i = "#e8e4d8"
+j = "#d8d4c8"
+k = "#5a6a78"
+l = "#c8382a"
+m = "#1e1e22"
+n = "#ece8dc"
+
+[[part]]
+name = "case"
+at = [-75, -30, 0]
+layers = """
+.......................................................................................................................................................
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. *59
+.......................................................................................................................................................
+
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *59
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+*7
+
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *26
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbaaaaaaaaaaaaaaa
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbaaaaaaaaaaaaaaa
+aaaaaaaaaaaaabbaaaaaaaaaaaabbaaaaaaaaaaaabbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbaaaaaaaaaaaabbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+aaaaaaaaaaaaabbaaaaaaaaaaaabbaaaaaaaaaaaabbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbaaaaaaaaaaaabbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *17
+aaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaaa
+aaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaabbaaaaaabbaaaaaabbaaaaaabbaaaaaaaaaa
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *10
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+
+.......................................................................................................................................................
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc. *11
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...............................ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc. *3
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...............................ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc. *3
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...............................ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc. *3
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...............................ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc..cccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...............................ccccccccccccccccccccccccccccccccccccccccccccc..cccccccccccccc.
+.cccccccccccc..cccccccccccc..cccccccccccc..cccccccccccccccccccccccccccccccccccccccccccccccccccccccc..cccccccccccc..ccccccccccccccccccccccccccccccccccc.
+.cccccccccccc..cccccccccccc..cccccccccccc..cccccccccccccccccccccccccccccccccccccccccccccccccccccccc..cccccccccccc..ccccccccccccccccccccccccccccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...........ccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc...............................ccccccccccccccccccccccccccccccccccccccccc...........ccccccccc.
+.ccccccccc.........ccccc.........ccccc.........ccccccccccccccccccccccccccccccccccccccccccccccccc.........ccccc.........ccccccccccc...........ccccccccc. *3
+.ccccccccc.........ccccc.........ccccc.........ccccccccccc...............................ccccccc.........ccccc.........ccccccccccc...........ccccccccc.
+.ccccccccc.........ccccc.........ccccc.........ccccccccccccccccccccccccccccccccccccccccccccccccc.........ccccc.........ccccccccccc...........ccccccccc.
+.ccccccccc.........ccccc.........ccccc.........ccccccccccccccccccccccccccccccccccccccccccccccccc.........ccccc.........ccccccccccc...........ccccccccc.
+.ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc. *4
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+.a...................................................................................................................................................a.
+.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd. *3
+.ddddddddd..dddddd..dddddd..dddddd..ddddddddd..dddddd..dddddd..dddddd..ddddddddd..dddddd..dddddd..dddddd..ddddddddd..dddddd..dddddd..dddddd..ddddddddd.
+.ddddddddd..dddddd..dddddd..dddddd..ddddddddd..dddddd..dddddd..dddddd..ddddddddd..dddddd..dddddd..dddddd..ddddddddd..dddddd..dddddd..dddddd..ddddddddd.
+.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.
+.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.
+.ddddddd......dd......dd......dd......ddddd......dd......dd......dd......ddddd......dd......dd......dd......ddddd......dd......dd......dd......ddddddd. *5
+.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.
+.ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.
+.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.
+.......................................................................................................................................................
+"""
+
+[[part]]
+name = "step_1"
+at = [-67, -26, 9]
+layers = """
+.eeee.
+eeeeee *3
+.eeee.
+*3
+"""
+
+[[part]]
+name = "led_1"
+at = [-65, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_2"
+at = [-59, -26, 9]
+layers = """
+.eeee.
+eeeeee *3
+.eeee.
+*3
+"""
+
+[[part]]
+name = "led_2"
+at = [-57, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_3"
+at = [-51, -26, 9]
+layers = """
+.eeee.
+eeeeee *3
+.eeee.
+*3
+"""
+
+[[part]]
+name = "led_3"
+at = [-49, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_4"
+at = [-43, -26, 9]
+layers = """
+.eeee.
+eeeeee *3
+.eeee.
+*3
+"""
+
+[[part]]
+name = "led_4"
+at = [-41, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_5"
+at = [-32, -26, 9]
+layers = """
+.gggg.
+gggggg *3
+.gggg.
+*3
+"""
+
+[[part]]
+name = "led_5"
+at = [-30, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_6"
+at = [-24, -26, 9]
+layers = """
+.gggg.
+gggggg *3
+.gggg.
+*3
+"""
+
+[[part]]
+name = "led_6"
+at = [-22, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_7"
+at = [-16, -26, 9]
+layers = """
+.gggg.
+gggggg *3
+.gggg.
+*3
+"""
+
+[[part]]
+name = "led_7"
+at = [-14, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_8"
+at = [-8, -26, 9]
+layers = """
+.gggg.
+gggggg *3
+.gggg.
+*3
+"""
+
+[[part]]
+name = "led_8"
+at = [-6, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_9"
+at = [3, -26, 9]
+layers = """
+.hhhh.
+hhhhhh *3
+.hhhh.
+*3
+"""
+
+[[part]]
+name = "led_9"
+at = [5, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_10"
+at = [11, -26, 9]
+layers = """
+.hhhh.
+hhhhhh *3
+.hhhh.
+*3
+"""
+
+[[part]]
+name = "led_10"
+at = [13, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_11"
+at = [19, -26, 9]
+layers = """
+.hhhh.
+hhhhhh *3
+.hhhh.
+*3
+"""
+
+[[part]]
+name = "led_11"
+at = [21, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_12"
+at = [27, -26, 9]
+layers = """
+.hhhh.
+hhhhhh *3
+.hhhh.
+*3
+"""
+
+[[part]]
+name = "led_12"
+at = [29, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_13"
+at = [38, -26, 9]
+layers = """
+.iiii.
+iiiiii *3
+.iiii.
+*3
+"""
+
+[[part]]
+name = "led_13"
+at = [40, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_14"
+at = [46, -26, 9]
+layers = """
+.iiii.
+iiiiii *3
+.iiii.
+*3
+"""
+
+[[part]]
+name = "led_14"
+at = [48, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_15"
+at = [54, -26, 9]
+layers = """
+.iiii.
+iiiiii *3
+.iiii.
+*3
+"""
+
+[[part]]
+name = "led_15"
+at = [56, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "step_16"
+at = [62, -26, 9]
+layers = """
+.iiii.
+iiiiii *3
+.iiii.
+*3
+"""
+
+[[part]]
+name = "led_16"
+at = [64, -19, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "pick_kick"
+at = [-65, -8, 9]
+layers = """
+.jjjjjjj.
+jjjjjjjjj *4
+.jjjjjjj.
+*3
+"""
+
+[[part]]
+name = "led_kick"
+at = [-62, 0, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "pick_snare"
+at = [-51, -8, 9]
+layers = """
+.jjjjjjj.
+jjjjjjjjj *4
+.jjjjjjj.
+*3
+"""
+
+[[part]]
+name = "led_snare"
+at = [-48, 0, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "pick_hat"
+at = [-37, -8, 9]
+layers = """
+.jjjjjjj.
+jjjjjjjjj *4
+.jjjjjjj.
+*3
+"""
+
+[[part]]
+name = "led_hat"
+at = [-34, 0, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "pattern_a"
+at = [21, -8, 9]
+layers = """
+.kkkkkkk.
+kkkkkkkkk *4
+.kkkkkkk.
+*3
+"""
+
+[[part]]
+name = "led_a"
+at = [24, 0, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "pattern_b"
+at = [35, -8, 9]
+layers = """
+.kkkkkkk.
+kkkkkkkkk *4
+.kkkkkkk.
+*3
+"""
+
+[[part]]
+name = "led_b"
+at = [38, 0, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "start"
+at = [55, -8, 9]
+layers = """
+.lllllllll.
+lllllllllll *6
+.lllllllll.
+*3
+"""
+
+[[part]]
+name = "led_start"
+at = [59, 2, 9]
+layers = """
+ff
+ff
+
+ff
+ff
+"""
+
+[[part]]
+name = "knob_level"
+at = [-51, 10, 10]
+layers = """
+..mmmmm..
+.mmmmmmm.
+mmmmmmmmm *5
+.mmmmmmm.
+..mmmmm..
+*4
+
+..mmnmm..
+.mmmnmmm.
+mmmmnmmmm
+mmmmnmmmm
+mmmmmmmmm *3
+.mmmmmmm.
+..mmmmm..
+"""
+
+[[part]]
+name = "knob_tempo"
+at = [37, 10, 10]
+layers = """
+..mmmmm..
+.mmmmmmm.
+mmmmmmmmm *5
+.mmmmmmm.
+..mmmmm..
+*4
+
+..mmnmm..
+.mmmnmmm.
+mmmmnmmmm
+mmmmnmmmm
+mmmmmmmmm *3
+.mmmmmmm.
+..mmmmm..
+"""
+
+[[part]]
+name = "knob_volume"
+at = [55, 10, 10]
+layers = """
+..mmmmm..
+.mmmmmmm.
+mmmmmmmmm *5
+.mmmmmmm.
+..mmmmm..
+*4
+
+..mmnmm..
+.mmmnmmm.
+mmmmnmmmm
+mmmmnmmmm
+mmmmmmmmm *3
+.mmmmmmm.
+..mmmmm..
+"""
