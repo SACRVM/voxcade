@@ -71,6 +71,10 @@ pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig) -> Result<()> {
     Ok(())
 }
 
+/// The song a session made to hand the mixer when the music changed
+/// (`Session::new_music`), with its crossfade.
+pub struct NewMusic(Option<(Option<audio::music::Player>, Option<f32>)>);
+
 impl<G: Game> Session<G> {
     /// The file of the song that plays.
     pub fn song_file(&self) -> Option<&str> {
@@ -122,16 +126,31 @@ impl<G: Game> Session<G> {
         self.game.music().is_some()
     }
 
-    /// Hands the music to the mixer: the song anew when it changed, else
-    /// the game's own song kept in time with its clock (held while the
-    /// game is, `held`: a pause, a fade); either as loud and as muffled as
-    /// the game asks (`Game::music_mix`). Whether a song began.
+    /// The song to hand the mixer when the music changed, read and made
+    /// before the mixer is locked (the audio device waits on the lock
+    /// while a song is parsed otherwise): for `hand_music`.
+    pub fn new_music(&mut self) -> NewMusic {
+        NewMusic(std::mem::take(&mut self.music_changed).then(|| (self.music(), self.crossfade.take())))
+    }
+
+    /// The music fed to a mixer no other thread waits on (a film's sound,
+    /// tests): `new_music` and `hand_music` at once.
     pub fn feed_music(&mut self, mixer: &mut Mixer, held: bool) -> bool {
-        let began = std::mem::take(&mut self.music_changed);
-        if began {
-            match self.crossfade.take() {
-                Some(seconds) if seconds > 0.0 => mixer.crossfade_music(self.music(), seconds),
-                _ => mixer.set_music(self.music()),
+        let new = self.new_music();
+        self.hand_music(mixer, new, held)
+    }
+
+    /// Hands the music to the mixer: the song made anew when it changed
+    /// (`new_music`), else the game's own song kept in time with its clock
+    /// (held while the game is, `held`: a pause, a fade); either as loud
+    /// and as muffled as the game asks (`Game::music_mix`). Whether a song
+    /// began.
+    pub fn hand_music(&mut self, mixer: &mut Mixer, new: NewMusic, held: bool) -> bool {
+        let began = new.0.is_some();
+        if let Some((player, crossfade)) = new.0 {
+            match crossfade {
+                Some(seconds) if seconds > 0.0 => mixer.crossfade_music(player, seconds),
+                _ => mixer.set_music(player),
             }
         } else if let Some(cue) = self.game.music() {
             mixer.follow_music(cue.start + cue.beats);

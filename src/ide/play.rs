@@ -371,12 +371,17 @@ impl<G: Game> Play<G> {
 
         // The music (started over when it changed), the player's volume.
         let music_gain = self.settings.music_gain();
-        if let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock()) {
-            // A level's fade holds no song (`Session::feed_music` says when).
-            self.game.feed_music(&mut mixer, false);
-            mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
-            mixer.set_drive(self.game.cfg.audio.drive);
-            mixer.set_ceiling(self.game.cfg.audio.ceiling);
+        if let Some(speaker) = self.speaker.as_mut() {
+            // A song is made before the mixer is locked: the audio device
+            // waits on the lock. (A level's fade holds no song:
+            // `Session::hand_music` says when.)
+            let new = self.game.new_music();
+            if let Some(mut mixer) = speaker.lock() {
+                self.game.hand_music(&mut mixer, new, false);
+                mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
+                mixer.set_drive(self.game.cfg.audio.drive);
+                mixer.set_ceiling(self.game.cfg.audio.ceiling);
+            }
         }
 
         // The ticks due.
