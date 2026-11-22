@@ -247,7 +247,10 @@ fn digest(samples: &[f32]) -> u64 {
 
 /// The samples and their hash a song of every instrument word but the
 /// voice's, drive and the crusher made before those came.
-const PINNED: (usize, u64) = (320_726, 0xc41e_aa83_c7d1_56ab);
+/// Renewed once when the music went through `libm`: all but two samples within
+/// 1e-5 of before, 1248 of 320,726 one 12-bit step off, a pulse edge a sample
+/// earlier in two.
+const PINNED: (usize, u64) = (320_726, 0x10cb_940d_f3d7_a5d3);
 
 /// Every instrument word but the voice's, drive and the crusher plays as
 /// before they came: the song pinned by the samples it made then.
@@ -271,7 +274,9 @@ fn the_instruments_play_as_pinned() {
 
 /// The voice `voice` as it sang when `singer` came: a song of every
 /// phoneme it had then, plain, driven and crushed, pinned by its samples.
-const VOICE_PINNED: (usize, u64) = (756_000, 0x1f0c_fa09_2599_5821);
+/// Renewed once when the music went through `libm`: largest difference 1.8e-7,
+/// rms 1.6e-8, 8 of 756,000 samples one 12-bit step off.
+const VOICE_PINNED: (usize, u64) = (756_000, 0xc2b4_af99_c0f0_e469);
 
 #[test]
 fn the_voice_sings_as_pinned() {
@@ -733,4 +738,33 @@ fn the_singer_tells_g_from_b_and_r_from_l() {
     let closure: u64 = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).map(|s| s.to - s.from).sum();
     let voiced = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).all(|s| s.voicing > 0.0);
     assert!(closure as f32 <= 0.021 * SR && voiced, "g after ng closed {:.0} ms, voiced {voiced}", closure as f32 / SR * 1000.0);
+}
+
+/// The music is the same samples on every system: no call of the system's
+/// maths library, whose last bit differs between glibc versions and systems
+/// and which the drive and the crusher blow up (as `sim::math` for the
+/// simulation); `libm` instead. `sqrt` is exactly rounded and stays.
+/// `clear.rs` (the clear voice) is left out until its rewrite is merged and
+/// it follows in a commit of its own.
+#[test]
+fn the_music_does_its_own_math() {
+    let banned = [
+        ".sin(", ".cos(", ".sin_cos(", ".tan(", ".asin(", ".acos(", ".atan(", ".atan2(", ".sinh(", ".cosh(", ".tanh(",
+        ".exp(", ".exp2(", ".ln(", ".log(", ".log2(", ".log10(", ".powf(", ".powi(", ".cbrt(", ".hypot(",
+    ];
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir("src/audio/music").expect("reading the music") {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if ["clear.rs", "tests.rs", "loop_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        for (n, line) in std::fs::read_to_string(&path).unwrap().lines().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            for b in banned.iter().filter(|b| code.contains(*b)) {
+                found.push(format!("{}:{}: {b}", path.display(), n + 1));
+            }
+        }
+    }
+    assert!(found.is_empty(), "the system's math in the music (use libm):\n{}", found.join("\n"));
 }

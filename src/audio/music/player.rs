@@ -49,12 +49,12 @@ impl Voice {
         (self.note, self.started, self.osc.phase) = (Some(index), n.start, 0.0);
         self.alpha = ins.lowpass.map_or(0.0, OnePole::alpha);
         let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
-        self.pan = (angle.cos(), angle.sin());
-        self.drive = if ins.drive > 0.0 { 10f32.powf(ins.drive / 20.0) } else { 0.0 };
+        self.pan = (libm::cosf(angle), libm::sinf(angle));
+        self.drive = if ins.drive > 0.0 { libm::powf(10.0, ins.drive / 20.0) } else { 0.0 };
         let vowels = if ins.voice == Some(Voicing::Clear) { clear::SUNG } else { SUNG };
-        self.noise_gain = if self.drive > 0.0 { (self.drive * vowels).tanh() / vowels } else { 1.0 };
+        self.noise_gain = if self.drive > 0.0 { libm::tanhf(self.drive * vowels) / vowels } else { 1.0 };
         if ins.consonants != 0.0 {
-            self.noise_gain *= 10f32.powf(ins.consonants / 20.0);
+            self.noise_gain *= libm::powf(10.0, ins.consonants / 20.0);
         }
         self.crush.set(ins);
         if ins.voice.is_some() {
@@ -88,7 +88,7 @@ pub(super) struct Crusher {
 impl Crusher {
     fn set(&mut self, ins: &Instrument) {
         self.step = ins.crush_rate.map_or(0.0, |r| (r / SAMPLE_RATE as f32).min(1.0));
-        self.steps = ins.crush_bits.map_or(0.0, |b| 2f32.powi(b as i32 - 1));
+        self.steps = ins.crush_bits.map_or(0.0, |b| libm::powf(2.0, (b as i32 - 1) as f32));
     }
 
     fn on(&self) -> bool {
@@ -129,7 +129,7 @@ impl Svf {
         let sr = SAMPLE_RATE as f32;
         let cutoff = cutoff.clamp(20.0, sr * 0.45);
         if cutoff != self.cut {
-            (self.cut, self.g) = (cutoff, (std::f32::consts::PI * cutoff / sr).tan());
+            (self.cut, self.g) = (cutoff, libm::tanf(std::f32::consts::PI * cutoff / sr));
         }
         let g = self.g;
         // Damping: Butterworth (no peak) at 0, a ringing peak near 1.
@@ -148,7 +148,7 @@ impl Svf {
             FilterMode::High => x - k * v1 - v2,
         };
         // Overdrive softly past full scale, so resonance growls instead of spiking.
-        if y.abs() <= 1.0 { y } else { y.signum() * (1.0 + (y.abs() - 1.0).tanh()) }
+        if y.abs() <= 1.0 { y } else { y.signum() * (1.0 + libm::tanhf(y.abs() - 1.0)) }
     }
 }
 
@@ -170,7 +170,7 @@ impl Duck {
             return self.depth * t / ATTACK;
         }
         let r = ((t - ATTACK) / self.release.max(1e-3)).min(1.0);
-        self.depth * 0.5 * (1.0 + (std::f32::consts::PI * r).cos())
+        self.depth * 0.5 * (1.0 + libm::cosf(std::f32::consts::PI * r))
     }
 }
 
@@ -249,7 +249,7 @@ impl Bus {
         let (l, r) = (l * level, r * level);
         if self.g.0 != amount {
             let cutoff = muffle_cutoff(amount).min(SAMPLE_RATE as f32 * 0.45);
-            self.g = (amount, (std::f32::consts::PI * cutoff / SAMPLE_RATE as f32).tan());
+            self.g = (amount, libm::tanf(std::f32::consts::PI * cutoff / SAMPLE_RATE as f32));
         }
         // Always run, so its state is the song's when a muffle begins.
         let g = self.g.1;
@@ -476,18 +476,18 @@ impl Player {
                 let mut freq = ins.freq.unwrap_or(n.freq.unwrap_or(0.0));
                 if ins.sweep != 0.0 {
                     let span = ins.sweep_time.unwrap_or(ins.attack + ins.decay).max(1e-3);
-                    freq *= 2f32.powf(ins.sweep * (t / span).min(1.0) / 12.0);
+                    freq *= libm::powf(2.0, ins.sweep * (t / span).min(1.0) / 12.0);
                 }
                 if !ins.arp.is_empty() {
                     let step = (t * ins.arp_speed) as usize % ins.arp.len();
-                    freq *= 2f32.powf(ins.arp[step] / 12.0);
+                    freq *= libm::powf(2.0, ins.arp[step] / 12.0);
                 }
                 if ins.vibrato > 0.0 && t > ins.vibrato_delay {
                     // The clear voice's vibrato grows in over a third of a second, as a singer's.
                     let depth = if ins.voice == Some(Voicing::Clear) { ins.vibrato * ((t - ins.vibrato_delay) / 0.3).min(1.0) } else { ins.vibrato };
-                    freq *= 1.0 + depth * (std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay)).sin();
+                    freq *= 1.0 + depth * libm::sinf(std::f32::consts::TAU * ins.vibrato_speed * (t - ins.vibrato_delay));
                 }
-                let duty = (ins.duty + ins.pwm * (std::f32::consts::TAU * ins.pwm_speed * t).sin()).clamp(0.05, 0.95);
+                let duty = (ins.duty + ins.pwm * libm::sinf(std::f32::consts::TAU * ins.pwm_speed * t)).clamp(0.05, 0.95);
                 let (mut s, noise) = match ins.voice {
                     Some(Voicing::Formants) => v.singer.next(sung(n, &self.song.segments), self.time - v.started, freq),
                     Some(Voicing::Clear) => v.clear.next(sung(n, &self.song.clear), self.time - v.started, freq),
@@ -497,7 +497,7 @@ impl Player {
                 // before its speaker; a wave not even above and below zero
                 // (a voice's) clips to a middle off zero, taken off again.
                 if v.drive > 0.0 {
-                    let x = (s * v.drive).tanh();
+                    let x = libm::tanhf(s * v.drive);
                     s = x - v.dc.0 + DC_BLOCK * v.dc.1;
                     v.dc = (x, s);
                 }
@@ -515,7 +515,7 @@ impl Player {
                     let mut cutoff = ins.cutoff;
                     if let Some(end) = ins.cutoff_end {
                         let span = ins.cutoff_time.unwrap_or(ins.attack + ins.decay).max(1e-3);
-                        cutoff *= (end / ins.cutoff).powf((t / span).min(1.0));
+                        cutoff *= libm::powf(end / ins.cutoff, (t / span).min(1.0));
                     }
                     s = v.filter.process(s, cutoff, ins.resonance, mode);
                 }
