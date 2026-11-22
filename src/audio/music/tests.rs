@@ -756,7 +756,7 @@ fn the_music_does_its_own_math() {
     ];
     let mut found = Vec::new();
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir("src/audio/music").expect("reading the music").map(|e| e.unwrap().path()).collect();
-    files.extend(["src/audio/limiter.rs", "src/audio/loudness.rs"].map(Into::into));
+    files.extend(["src/audio/limiter.rs", "src/audio/loudness.rs", "src/audio/synth.rs"].map(Into::into));
     for path in files {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if ["tests.rs", "loop_tests.rs", "laid_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
