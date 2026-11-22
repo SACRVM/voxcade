@@ -684,7 +684,8 @@ fn the_singer_sings_every_consonant_of_a_cluster() {
 /// place, a g's at least 20 ms and a b's at most 15, a g's compact near the
 /// vowel's F2 (its strongest between 1.2 and 2.5 kHz), a b's not; the r a
 /// German one, its F3 high as in l (not an English r's low one) but its F1
-/// higher than l's, and a rasp where l is clean.
+/// higher than l's, and a rasp where l is clean; before ü its F1 no
+/// higher than the vowel's; a g after ng closed briefly and voiced.
 #[test]
 fn the_singer_tells_g_from_b_and_r_from_l() {
     use super::clear::Seg;
@@ -713,4 +714,12 @@ fn the_singer_tells_g_from_b_and_r_from_l() {
     };
     let ((r, rasp), (l, clean)) = (middle("g r aw"), middle("g l aw"));
     assert!(r[2] > 2200.0 && r[0] > l[0] + 100.0 && rasp && !clean, "r {r:.0?} rasping {rasp}, l {l:.0?} hissing {clean}");
+    // Before a closer vowel the r is no more open than it: its F1 not over ü's.
+    let (r, _) = middle("g r ue");
+    assert!(r[0] < 330.0, "r before ue at F1 {:.0}", r[0]);
+    // A g after ng closes briefly, the voicing going on through it.
+    let song = parse(&clearly("r4 \"t o ng\" c8 \"g r aw\" c4")).unwrap();
+    let closure: u64 = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).map(|s| s.to - s.from).sum();
+    let voiced = song.clear.iter().filter(|s| s.name == "g" && !s.noisy()).all(|s| s.voicing > 0.0);
+    assert!(closure as f32 <= 0.021 * SR && voiced, "g after ng closed {:.0} ms, voiced {voiced}", closure as f32 / SR * 1000.0);
 }

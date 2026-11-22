@@ -91,8 +91,9 @@ V: @vox o4 "l a" e8 "l a" g8 "s ae ng" a4 b4 q8 "h ei" e2 q7
   weak hiss, not a vowel; b, d, g release a short hiss before their
   voicing, a g's longest and compact (so grau is not heard as blau), a
   voice bar only after a voiced sound; `singer`'s r is the German r
-  (uvular, its F3 high, a light rasp before a vowel, its voice alone in
-  a coda), `voice`'s the English one; nothing steps (the voicing set at
+  (uvular, its F3 high, a light rasp before a vowel, never more open
+  than the vowel after it, its voice alone in a coda), `voice`'s the
+  English one; a b, d, g after a nasal of its place closes briefly; nothing steps (the voicing set at
   a pulse's start, hisses ramped over 5 ms, the nasal zero gliding).
   Checked by `the_singer_sings_every_consonant_of_a_cluster` and
   `the_singer_tells_g_from_b_and_r_from_l`; sources in `clear.rs`'s

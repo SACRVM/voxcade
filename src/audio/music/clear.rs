@@ -355,10 +355,22 @@ fn nasal(p: &Phoneme) -> bool {
 /// at `scale` of their length (never under each part's least): a voiced
 /// one's release by its place (`release`), a voiceless one's breath long
 /// only right before a vowel, unaspirated after a voiceless fricative (st,
-/// sp, sk, schp: Klatt 1975b, via Klatt 1987, p. 758).
+/// sp, sk, schp: Klatt 1975b, via Klatt 1987, p. 758), a voiced one
+/// briefly closed after a nasal of its place.
 fn plosive_parts(p: &Phoneme, voiced: bool, before: Option<&Phoneme>, then: Then, scale: f32) -> [f32; 3] {
     let after_hiss = before.is_some_and(voiceless_fricative);
-    let closure = if voiced { (CLOSURE[1], 25.0) } else { (CLOSURE[0], 30.0) };
+    // A voiced plosive after a nasal of its place (ng g, n d, m b): the
+    // nasal closed the tract already, so the closure is short and the
+    // voicing goes on through it (ours; measured, a 45 ms closure left a
+    // gap of 31 ms between ng and g where a short one left none).
+    let after_nasal = voiced && before.is_some_and(|b| nasal(b) && b.place == p.place);
+    let closure = if after_nasal {
+        (20.0, 12.0)
+    } else if voiced {
+        (CLOSURE[1], 25.0)
+    } else {
+        (CLOSURE[0], 30.0)
+    };
     let burst = if voiced { (release(p.place), 8.0) } else { (BURST, 8.0) };
     let breath = match (voiced, then) {
         (true, _) => (0.0, 0.0),
@@ -558,7 +570,12 @@ fn consonant(add: &mut impl FnMut(Seg), s: Sound, at: i64) -> i64 {
             // German vocalizes it (Wikipedia's Standard German phonology),
             // its voice alone.
             let end = at + length(p, before, then, scale);
-            let f = [UVULAR[0], UVULAR[1], UVULAR[2], v[3], v[4]];
+            // Before a closer vowel its F1 no higher than the vowel's: at
+            // 550 Hz before u, ü or e it stood 150 to 250 Hz over the vowel
+            // for its whole length, an open stretch of its own (measured;
+            // the rule ours). Before a, au or ä it is as it was.
+            let f1 = if onset { UVULAR[0].min(v[0]) } else { UVULAR[0] };
+            let f = [f1, UVULAR[1], UVULAR[2], v[3], v[4]];
             let seg = Seg { voicing, ..Seg::new(at, end, f, wide, if onset { 20.0 } else { 35.0 }) };
             if onset {
                 let (bands, flat) = scaled(RASP, 0.0, RASP_UNDER);
