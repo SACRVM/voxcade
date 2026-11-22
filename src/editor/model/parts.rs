@@ -19,6 +19,15 @@ fn is_word(name: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Why a part may not be called `name` (None: it may): not a word, or
+/// longer than the pointer can say (`input::MOST_PART_NAME`).
+fn bad_name(name: &str) -> Option<String> {
+    if !is_word(name) {
+        return Some("A part's name is a word: letters, digits and _, a letter first".into());
+    }
+    (name.len() > crate::input::MOST_PART_NAME).then(|| format!("A part's name has {} letters at most", crate::input::MOST_PART_NAME))
+}
+
 /// A model of one frame made a figure: its frame the root part `root`,
 /// standing where the frame stood (from the same pivot), so the picture
 /// stays as it was. A figure, or a model of several frames, unchanged.
@@ -200,7 +209,10 @@ impl Editor {
             return Some(why);
         }
         let name = &self.figure.as_ref()?.parts().get(p)?.name;
-        partner_name(name).is_none().then(|| format!("Name it {name}_left or {name}_right (or _l, _r) first: its partner is named after it"))
+        match partner_name(name) {
+            None => Some(format!("Name it {name}_left or {name}_right (or _l, _r) first: its partner is named after it")),
+            Some(other) => bad_name(&other).map(|why| format!("Its partner would be {other}: {}", why.to_lowercase())),
+        }
     }
 
     /// MIRROR: part `p`'s partner (`arm_left`'s `arm_right`) made or made
@@ -345,15 +357,18 @@ impl Editor {
         Ok(())
     }
 
-    /// A free name for a part: `base`, else `base_2`, `base_3` ...
+    /// A free name for a part: `base`, else `base_2`, `base_3` ..., never
+    /// longer than `input::MOST_PART_NAME` (the base cut to leave room).
     pub(super) fn free_part_name(&self, base: &str) -> String {
         let taken = |n: &str| self.model.as_ref().is_some_and(|m| m.parts.iter().any(|o| o.name == n));
         let base = base.trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('_');
         let base = if base.is_empty() { "part" } else { base };
-        if !taken(base) {
-            return base.to_string();
+        let cut = |room: usize| &base[..base.floor_char_boundary(room)];
+        let most = crate::input::MOST_PART_NAME;
+        if !taken(cut(most)) {
+            return cut(most).to_string();
         }
-        (2..).map(|k| format!("{base}_{k}")).find(|n| !taken(n)).expect("a free name")
+        (2..).map(|k| format!("_{k}")).map(|end| format!("{}{end}", cut(most - end.len()))).find(|n| !taken(n)).expect("a free name")
     }
 
     /// The part called `name` chosen (shaped), in MOVE.
@@ -383,7 +398,7 @@ impl Editor {
     /// else `body`.
     pub(super) fn root_name(&self) -> String {
         let stem = std::path::Path::new(&self.file).file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
-        if is_word(&stem) { stem } else { "body".to_string() }
+        if bad_name(&stem).is_none() { stem } else { "body".to_string() }
     }
 
     /// ADD PART: a new part of one voxel of the color held, set on top of
@@ -463,7 +478,7 @@ impl Editor {
         let Some(m) = self.model.as_ref() else { return };
         let one_frame = !m.parted();
         let taken = |n: &str| m.parts.iter().any(|o| o.name == n) || (one_frame && n == root);
-        let name = match name.map(str::trim).filter(|n| is_word(n) && !taken(n)) {
+        let name = match name.map(str::trim).filter(|n| bad_name(n).is_none() && !taken(n)) {
             Some(n) => n.to_string(),
             None => {
                 let base = self.free_part_name(name.map(str::trim).filter(|n| is_word(n)).unwrap_or("group"));
@@ -747,6 +762,9 @@ impl Editor {
             return Some(format!("{name} is mirrored along another axis: a clone of it mirrored left to right would need two mirrors (MAKE UNIQUE first)"));
         }
         let other = partner_name(name)?;
+        if let Some(why) = bad_name(&other) {
+            return Some(format!("Its partner would be {other}: {}", why.to_lowercase()));
+        }
         self.model.as_ref()?.parts.iter().any(|o| o.name == other).then(|| format!("{other} is there already: its partner's name is taken"))
     }
 
@@ -899,8 +917,8 @@ impl Editor {
         if name == old {
             return Ok(());
         }
-        if !is_word(name) {
-            return Err("A part's name is a word: letters, digits and _, a letter first".into());
+        if let Some(why) = bad_name(name) {
+            return Err(why);
         }
         if self.model.as_ref().is_some_and(|m| m.parts.iter().any(|o| o.name == name)) {
             return Err(format!("Another part is called {name}"));
@@ -1216,6 +1234,33 @@ pub(crate) mod tests {
         assert_eq!(f.hidden.iter().filter(|&&h| !h).count(), 1);
         ed.show_all_parts();
         assert!(ed.figure.as_ref().unwrap().hidden.iter().all(|&h| !h));
+    }
+
+    /// No step names a part past what the pointer can say
+    /// (`input::MOST_PART_NAME`): RENAME refuses with why, DUPLICATE and
+    /// CLONE cut the name to fit, MIRROR and CLONE MIRRORED refuse a
+    /// partner whose name would not.
+    #[test]
+    fn no_step_names_a_part_past_32_letters() {
+        let (mut ed, _view, _dir) = figure("long-names");
+        let arm = part(&ed, "arm");
+        let why = ed.rename_part(arm, &"a".repeat(33)).expect_err("33 letters");
+        assert!(why.contains("32"), "{why}");
+        let long = "upper_arm_with_a_long_name_left";
+        assert_eq!(long.len(), 31);
+        ed.rename_part(arm, &format!("{long}x")).unwrap();
+        ed.duplicate_part(part(&ed, &format!("{long}x")));
+        ed.clone_part(part(&ed, &format!("{long}x")), false);
+        let names: Vec<String> = ed.model.as_ref().unwrap().parts.iter().map(|o| o.name.clone()).collect();
+        assert!(names.iter().all(|n| n.len() <= crate::input::MOST_PART_NAME), "{names:?}");
+        assert!(names.contains(&format!("{}_2", &long[..30])) && names.contains(&format!("{}_3", &long[..30])), "{names:?}");
+        // `_left` to `_right`: one letter more, past 32.
+        let arm = part(&ed, &format!("{long}x"));
+        ed.rename_part(arm, &format!("{}_left", &long[..27])).unwrap();
+        let arm = part(&ed, &format!("{}_left", &long[..27]));
+        assert!(ed.cannot_mirror(arm).is_some_and(|w| w.contains("32")) && ed.cannot_clone_mirrored(arm).is_some_and(|w| w.contains("32")));
+        ed.rename_part(arm, &format!("{}_l", &long[..30])).unwrap();
+        assert_eq!(ed.cannot_mirror(part(&ed, &format!("{}_l", &long[..30]))), None, "_l to _r: as long");
     }
 
     /// A tool on a part turned at rest works in that part's own grid: the

@@ -130,9 +130,14 @@ fn missing(e: &anyhow::Error) -> bool {
     e.chain().any(|c| c.downcast_ref::<std::io::Error>().is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound))
 }
 
-/// A model file read and shaded as the game's light says.
+/// A model file read and shaded as the game's light says; a part named
+/// longer than the pointer can say is a mistake naming the model and the
+/// part (`input::MOST_PART_NAME`), never a part the pointer is silent on.
 fn read_model(files: &Files, light: &crate::config::LightConfig, file: &str) -> Result<VoxModel> {
     let mut model = vox::load_model_in(files, &files.path(file))?;
+    if let Some((name, why)) = model.parts.iter().find_map(|p| Some((&p.name, crate::input::part_name_too_long(&p.name)?))) {
+        anyhow::bail!("the model \"{file}\": part \"{name}\": {why}");
+    }
     model.shade(light.model_shading_for.get(file).copied().unwrap_or(light.model_shading), light.edge_tolerance);
     Ok(model)
 }

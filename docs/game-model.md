@@ -190,7 +190,11 @@ settings. Several players: `player` is seat 1, the others are in
     first: a kind's figure as drawn and posed, a level's piece, a model
     `frame:model` drew with the thing; voxel-exact, `session::pick`),
     `part` (that figure's part, by name: the model drawn is the picture's,
-    so the name travels, 16 bytes at most), `area` (the name of the level's
+    so the name travels, 32 bytes at most, a letter past ASCII two to
+    four of them: a model the game reads with a part named longer is a
+    mistake naming the model and the part, as the game loads or, a
+    `frame:model` file, when first drawn; never a part the pointer is
+    silent on), `area` (the name of the level's
     `[[area]]` it enters first before it meets the level: a door in a
     wall), `at` (where it meets the level's voxels and solid pieces, glass,
     water and things looked through; nil into the sky or off the level)

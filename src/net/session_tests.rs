@@ -433,16 +433,21 @@ fn pointing_game() -> crate::scratch::Scratch {
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.player.spawn = { 32, 32 }\n  c.actions = { \"click\" }\n  c.keys.click = { \"mouse_left\" }\n  c.pointer = \"system\"\n  c.players = 2\n  c.things.crate = {}\n  c.things.hero = {}\n  c.player.kind = \"hero\"\nend\n").unwrap();
     std::fs::write(
         dir.join("main.lua"),
-        "function on_world_start()\n  world.state.clicks = {}\n  world.state.name = \"\"\n  world.state.moves = 0\nend\nfunction on_level_start()\n  level:fill(0, 0, 0, 63, 63, 0, 1)\n  level:spawn(\"crate\", 20, 20)\nend\nfunction on_player_join(p)\n  p.state.typing = true\nend\nfunction on_tick()\n  for _, p in ipairs(level:players()) do\n    local at = p.input.pointer\n    if at and at.moved then world.state.moves = world.state.moves + 1 end\n    if p.input:pressed(\"click\") then\n      table.insert(world.state.clicks, p.seat .. \":\" .. (at and (at.hud or at.thing and at.thing.kind) or \"none\") .. \":\" .. tostring(at and at.index) .. \":\" .. (at and (at.x .. \",\" .. at.y .. \":\" .. tostring(at.moved)) or \"\"))\n    end\n    local t = p.input.typed\n    if t then\n      world.state.name = world.state.name .. t.text\n      for _ = 1, t.erase do world.state.name = world.state.name:sub(1, -2) end\n      if t.done then p.state.typing = false end\n    end\n  end\nend\nfunction on_draw(frame)\n  frame:hud(\"door\", 10, 10, 20, 40)\nend\n",
+        "function on_world_start()\n  world.state.clicks = {}\n  world.state.name = \"\"\n  world.state.moves = 0\nend\nfunction on_level_start()\n  level:fill(0, 0, 0, 63, 63, 0, 1)\n  level:spawn(\"crate\", 20, 20)\nend\nfunction on_player_join(p)\n  p.state.typing = true\nend\nfunction on_tick()\n  for _, p in ipairs(level:players()) do\n    local at = p.input.pointer\n    if at and at.moved then world.state.moves = world.state.moves + 1 end\n    if p.input:pressed(\"click\") then\n      table.insert(world.state.clicks, p.seat .. \":\" .. (at and (at.hud or at.thing and at.thing.kind) or \"none\") .. \":\" .. tostring(at and at.index) .. \":\" .. (at and (at.x .. \",\" .. at.y .. \":\" .. tostring(at.moved) .. \":\" .. tostring(at.part)) or \"\"))\n    end\n    local t = p.input.typed\n    if t then\n      world.state.name = world.state.name .. t.text\n      for _ = 1, t.erase do world.state.name = world.state.name:sub(1, -2) end\n      if t.done then p.state.typing = false end\n    end\n  end\nend\nfunction on_draw(frame)\n  frame:hud(\"door\", 10, 10, 20, 40)\nend\n",
     )
     .unwrap();
     dir
 }
 
+/// A part's name as long as the pointer carries one, 32 bytes, letters
+/// past ASCII among them.
+const LONG_PART: &str = "fenster_vorne_rechts_größer_al";
+
 /// A guest's input frame by frame: nothing for `wait` frames, then a click
 /// over the door (its answer and place of the moment) and the pointer
-/// flicked away the very next frame, a click on the crate elsewhere, then
-/// the text typed in pieces, Backspace among them.
+/// flicked away the very next frame, a click on the crate elsewhere (on
+/// a part named `LONG_PART`), then the text typed in pieces, Backspace
+/// among them.
 fn clicking_and_typing(picture: u16, crate_id: u32, wait: usize) -> Vec<crate::input::Input> {
     use crate::input::{Input, Met, Panel, Pointer, Typed};
     let over = |name: &str, press: bool, [x, y]: [i32; 2]| Pointer { x, y, picture: Some(picture), panel: (!name.is_empty()).then(|| Panel { name: name.into(), index: 0, u: 250, v: 250 }), level: None, press };
@@ -453,7 +458,7 @@ fn clicking_and_typing(picture: u16, crate_id: u32, wait: usize) -> Vec<crate::i
     let away = Input { pointer: Some(Box::new(over("", false, [60, 30]))), ..Input::default() };
     keys.extend(std::iter::repeat_n(away.clone(), 20));
     // A click on the crate, the pointer over the floor the next frame.
-    let on_crate = Pointer { level: Some(Met { thing: Some(crate_id), part: None, area: 0, at: Some(([320, 320, 16], 4)) }), ..over("", true, [90, 50]) };
+    let on_crate = Pointer { level: Some(Met { thing: Some(crate_id), part: Some(LONG_PART.into()), area: 0, at: Some(([320, 320, 16], 4)) }), ..over("", true, [90, 50]) };
     keys.push(Input { actions: 1, pointer: Some(Box::new(on_crate)), ..Input::default() });
     let floor = Pointer { level: Some(Met { thing: None, part: None, area: 0, at: Some(([400, 400, 16], 4)) }), ..over("", false, [95, 55]) };
     keys.extend(std::iter::repeat_n(Input { pointer: Some(Box::new(floor)), ..Input::default() }, 20));
@@ -475,7 +480,7 @@ impl Game {
 
 /// Over a bad network (late, lost, doubled, out of order) a guest's click
 /// carries what the pointer was over as the button went down (a panel, a
-/// thing) and where it was, though the pointer went elsewhere the next
+/// thing and its part, named in 32 bytes) and where it was, though the pointer went elsewhere the next
 /// frame; the ticks it moved are the host's; its text comes once and in order,
 /// a Backspace among it; every recording is the host's, and it plays back
 /// and survives going back (`check --rollback`).
@@ -489,7 +494,8 @@ fn a_click_carries_its_answer_and_text_comes_once_over_a_bad_network() {
         game.guest_holding(0, clicking_and_typing(picture, crate_id, 120));
         game.to(5_000_000);
         let recorded = game.agree();
-        assert_eq!(game.game.game.eval("return table.concat(world.state.clicks, ',')").unwrap(), "\"2:door:nil:15,20:true,2:crate:nil:90,50:true\"", "seed {seed}");
+        assert_eq!(LONG_PART.len(), crate::input::MOST_PART_NAME);
+        assert_eq!(game.game.game.eval("return table.concat(world.state.clicks, ',')").unwrap(), format!("\"2:door:nil:15,20:true:nil,2:crate:nil:90,50:true:{LONG_PART}\""), "seed {seed}");
         let moves: u32 = game.game.game.eval("return world.state.moves").unwrap().parse().unwrap();
         assert!(moves >= 5, "seed {seed}: the door, away, the crate, the floor, away again: {moves}");
         assert_eq!(game.game.game.eval("return world.state.name").unwrap(), "\"Nick\"", "seed {seed}");

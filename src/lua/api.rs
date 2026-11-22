@@ -631,7 +631,7 @@ pub const API: &[Item] = &[
             panel under it (frame:hud, or a menu or grid with a name), the topmost; nil over none.\n- index: that menu's row or grid's \
             cell, from 1.\n- u, v: where in the panel, 0 to 1 from its top left (a slider, a map).\n- thing: the thing whose drawn voxels \
             it is over (a figure as drawn and posed, a level's piece, a model frame:model drew with it), part: that figure's part by \
-            name; nil once the thing is gone.\n- area: the name of the level's area it enters first before it meets the level (a door \
+            name (32 bytes at most: a model with a part named longer is a mistake); nil once the thing is gone.\n- area: the name of the level's area it enters first before it meets the level (a door \
             in a wall).\n- at: where it meets the level's voxels and solid pieces, { x, y, z } (glass, water and things looked \
             through; nil into the sky or off the level), cell: the voxel it meets there, { x, y, z } integers (a grid game's cell).\nUnder a \
             panel the level's answers are nil: a panel covers. It is what the player saw: a click \

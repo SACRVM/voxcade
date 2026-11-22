@@ -55,7 +55,7 @@ impl<G: Game> Session<G> {
             let p = near + way * t;
             ((p * 16.0).round().as_ivec3().to_array(), face)
         });
-        Some(crate::input::Met { thing: thing.as_ref().map(|t| t.1), part: thing.and_then(|t| t.2).filter(|p| p.len() <= crate::input::MOST_PART_NAME), area, at })
+        Some(crate::input::Met { thing: thing.as_ref().map(|t| t.1), part: thing.and_then(|t| t.2), area, at })
     }
 
     /// Where the point `at` of the level shows in the picture drawn last,

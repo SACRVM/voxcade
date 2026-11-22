@@ -1157,7 +1157,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `the_pointer_says_where_it_is_and_whether_it_moved`): no new word, wire
   version or replay field. The level's answers
   (`input.pointer.thing`, `part`, `area`, `at`, `cell`; `frame.pointer`'s
-  `thing`, `part`, `area`; `input.aim` from the mouse, `Session::mouse_aim`):
+  `thing`, `part`, `area`; `input.aim` from the mouse, `Session::mouse_aim`;
+  a part by its name, `input::MOST_PART_NAME` bytes, 32, on the wire, in
+  `part=` and the hash; a model the game reads with a longer one is a
+  mistake naming it, as the game loads or, a `frame:model` file, when
+  first drawn, `input::part_name_too_long` in `session::models`'
+  `read_model`, and the voxel editor names no part longer, tests
+  `a_part_named_up_to_32_bytes_is_answered_and_replayed`,
+  `a_part_named_past_32_bytes_is_a_mistake`,
+  `no_step_names_a_part_past_32_letters`):
   `src/session/pick.rs` from the picture as composed or `look`ed
   (`PickScene`: its camera and `Drawing::picks`, what `of_thing` drew;
   `figures::each_voxel` where `draw` puts each voxel, test

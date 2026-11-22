@@ -11,7 +11,9 @@ use crate::input::Input;
 /// under the Internet's smallest MTU less its headers.
 pub const MAX_DATAGRAM: usize = 1200;
 /// The protocol's version: machines that speak another do not play.
-/// 2: inputs carry the sticks, the pointer's answers and text typed.
+/// 2: inputs carry the sticks, the pointer's answers and text typed (a
+/// part's name up to `input::MOST_PART_NAME` bytes, 32; a build that took
+/// 16 drops a longer one's datagram as broken, never misreads it).
 pub const VERSION: u8 = 2;
 const MAGIC: &[u8; 3] = b"VXC";
 /// Bytes before a message's body: `VXC`, version, kind, key.
@@ -419,8 +421,9 @@ pub fn widest(pointer: bool) -> Input {
 }
 
 /// A pointer as the wire carries it: under a panel no level's answers, a
-/// thing's key and a point in their bounds, a part's name cut (else what a
-/// machine reads would not be what it sent).
+/// thing's key and a point in their bounds, a part's name within
+/// `MOST_PART_NAME` (else what a machine reads would not be what it sent;
+/// a model with a longer one does not load, so none comes).
 pub fn carried(p: &crate::input::Pointer) -> crate::input::Pointer {
     let mut p = p.clone();
     p.x = p.x.clamp(-MOST_PLACE - 1, MOST_PLACE);
@@ -964,6 +967,22 @@ mod tests {
         let mut w = Writer::bare();
         w.varint(MORE).u8(0x10);
         assert!(read_input(&mut Reader::bare(&w.buf)).is_err(), "a part no input has");
+        // A part's name: 32 bytes read back (letters past ASCII counted as
+        // bytes), 33 do not.
+        let named = |part: String| {
+            let met = crate::input::Met { thing: Some(7), part: Some(part), area: 0, at: None };
+            let i = Input { pointer: Some(Box::new(crate::input::Pointer { level: Some(met), ..Default::default() })), ..Input::default() };
+            let mut w = Writer::bare();
+            input(&mut w, &i);
+            (i, w.buf)
+        };
+        for part in ["x".repeat(32), format!("kopf_{}x", "ü".repeat(13))] {
+            let (i, buf) = named(part);
+            assert_eq!(read_input(&mut Reader::bare(&buf)), Ok(i));
+        }
+        let mut w = Writer::bare();
+        w.str(&"x".repeat(33));
+        assert!(Reader::bare(&w.buf).str(crate::input::MOST_PART_NAME).is_err(), "a part's name past 32 bytes");
     }
 
     /// Every number reads back from what the writer writes, in the fewest

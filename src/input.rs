@@ -96,7 +96,8 @@ pub struct Met {
     pub thing: Option<u32>,
     /// That figure's part, by its name (the model drawn is the picture's
     /// alone: a `frame:model` file the tick does not know), at most
-    /// `MOST_PART_NAME` bytes.
+    /// `MOST_PART_NAME` bytes: a model with a longer one is a mistake as
+    /// the game reads it (`session::models`), so none is dropped here.
     pub part: Option<String>,
     /// The level's area it enters first before it meets the level, by its
     /// place in the level's list (from 1); 0: none.
@@ -106,8 +107,21 @@ pub struct Met {
     pub at: Option<([i32; 3], u8)>,
 }
 
-/// A part's name at most, as a pointer's answer carries it.
-pub const MOST_PART_NAME: usize = 16;
+/// A part's name at most, in bytes (UTF-8: a letter past ASCII takes two
+/// to four), as a pointer's answer carries it and a model the game reads
+/// may have it.
+pub const MOST_PART_NAME: usize = 32;
+
+/// Why a part may not be called `name` as the pointer names it: longer
+/// than `MOST_PART_NAME` bytes (None: it may).
+pub fn part_name_too_long(name: &str) -> Option<String> {
+    let n = name.len();
+    (n > MOST_PART_NAME).then(|| {
+        let letters = name.chars().count();
+        let counted = if letters == n { String::new() } else { format!(" ({letters} letters: one past ASCII takes two to four bytes)") };
+        format!("its name is {n} bytes long{counted}, past the {MOST_PART_NAME} a part's name may have (the pointer names a part by it)")
+    })
+}
 
 /// Text typed in a tick: one sort a tick, so its order is kept whatever a
 /// game's code reads first (`TypedQueue`).

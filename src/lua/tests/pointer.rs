@@ -279,6 +279,11 @@ const DOLL: &str = "format = \"voxcade voxel 1\"\nsize = [5, 3, 6]\n\n[palette]\
 /// drawn by `frame:model`, the doll's head posed. What `input.pointer`
 /// says each tick is noted.
 fn pointing_room(name: &str) -> crate::scratch::Scratch {
+    pointing_room_with(name, "head")
+}
+
+/// The room, the doll's head called `head`.
+fn pointing_room_with(name: &str, head: &str) -> crate::scratch::Scratch {
     let level = "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n\n[[thing]]\nname = \"floor\"\nmodel = \"slab.vvx\"\nat = [32, 32, 0]\nsolid = true\n\n[[thing]]\nname = \"stove\"\nmodel = \"box.vvx\"\nat = [24, 40, 4]\n\n[[place]]\nname = \"start\"\nat = [24, 24, 4]\n\n[[area]]\nname = \"door\"\nat = [40, 26, 4]\nsize = [4, 4, 12]\n";
     let main = r#"
 function on_world_start()
@@ -304,10 +309,11 @@ function on_draw(frame)
     if t.kind == "doll" then frame:model("doll.vvx", t, nil, nil, { head = { rotation = 90 } }) end
   end
 end
-"#;
-    let dir = pieces_folder(name, "  c.pointer = \"system\"\n  c.things.crate = {}\n  c.things.doll = {}\n", level, main);
+"#
+    .replace("{ head =", &format!("{{ [\"{head}\"] ="));
+    let dir = pieces_folder(name, "  c.pointer = \"system\"\n  c.things.crate = {}\n  c.things.doll = {}\n", level, &main);
     std::fs::write(dir.join("slab.vvx"), "format = \"voxcade voxel 1\"\nsize = [20, 20, 4]\n\n[palette]\na = { color = \"#806040\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaa *20\n*4\n\"\"\"\n").unwrap();
-    std::fs::write(dir.join("doll.vvx"), DOLL).unwrap();
+    std::fs::write(dir.join("doll.vvx"), DOLL.replace("name = \"head\"", &format!("name = \"{head}\""))).unwrap();
     std::fs::write(dir.join("levels/zz_other.toml"), "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n").unwrap();
     dir
 }
@@ -385,4 +391,57 @@ fn a_run_with_the_levels_answers_replays_and_goes_back() {
     replay.save(&dir.join("replays/level.toml")).unwrap();
     assert_eq!(crate::replay::play_through::<LuaGame>(&dir, &crate::replay::Replay::load(&dir.join("replays/level.toml")).unwrap()).unwrap(), crate::replay::Verdict::Same);
     assert!(crate::replay::check_going_back::<LuaGame>(&dir, 4).unwrap());
+}
+
+/// A part's name of up to `input::MOST_PART_NAME` bytes (17, 18 and 32;
+/// one of 32 bytes in 19 letters, some past ASCII) is answered by the
+/// pointer, written as a replay's `part=` and played back as recorded; a
+/// short one as ever.
+#[test]
+fn a_part_named_up_to_32_bytes_is_answered_and_replayed() {
+    let wide = format!("kopf_{}x", "ü".repeat(13));
+    assert_eq!((wide.len(), wide.chars().count()), (32, 19));
+    for (n, head) in ["head", "door_handle_right", "hatch_spring_right", "a_part_named_with_32_bytes_exact", &wide].into_iter().enumerate() {
+        let dir = pointing_room_with(&format!("pointer-part-{n}"), head);
+        let mut g = game_in(&dir);
+        assert_eq!(halted(&g), "", "{head}");
+        g.look();
+        let mut recorder = crate::replay::Recorder::default();
+        for _ in 0..70 {
+            let [x, y] = g.to_hud(glam::Vec3::new(36.5, 36.5, 9.9), 16.0 / 9.0).unwrap();
+            let input = Input { pointer: Some(Box::new(g.point(x, y, 16.0 / 9.0))), ..Input::default() };
+            g.step(&input);
+            g.look();
+            recorder.record(&g);
+        }
+        let s = seen(&mut g);
+        assert!(s[0].starts_with(&format!("doll|{head}|nil|")), "{head}: {}", s[0]);
+        let replay = recorder.replay(&g).unwrap();
+        assert!(replay.input.contains(&format!("part={head}")), "{head}: {}", &replay.input[..300.min(replay.input.len())]);
+        std::fs::create_dir_all(dir.join("replays")).unwrap();
+        replay.save(&dir.join("replays/part.toml")).unwrap();
+        assert_eq!(crate::replay::play_through::<LuaGame>(&dir, &crate::replay::Replay::load(&dir.join("replays/part.toml")).unwrap()).unwrap(), crate::replay::Verdict::Same, "{head}");
+    }
+}
+
+/// A part named past `input::MOST_PART_NAME` bytes is a mistake naming
+/// the model, the part and the limit, never a part the pointer is silent
+/// on: as the game loads for a level's piece, when first drawn for a
+/// model `frame:model` loads; bytes are counted, not letters.
+#[test]
+fn a_part_named_past_32_bytes_is_a_mistake() {
+    let long = "a_part_named_with_33_bytes_exactl";
+    assert_eq!(long.len(), 33);
+    let dir = pointing_room_with("pointer-part-long", long);
+    let room = std::fs::read_to_string(dir.join("levels/room.toml")).unwrap();
+    std::fs::write(dir.join("levels/room.toml"), format!("{room}\n[[thing]]\nname = \"statue\"\nmodel = \"doll.vvx\"\nat = [10, 10, 4]\n")).unwrap();
+    let e = start_error(&dir);
+    assert!(e.contains("doll.vvx") && e.contains(long) && e.contains("33 bytes") && e.contains("32"), "{e}");
+    // Drawn by frame:model alone: said when first drawn.
+    let umlauts = "ü".repeat(17);
+    let dir = pointing_room_with("pointer-part-umlauts", &umlauts);
+    let g = game_in(&dir);
+    g.look();
+    let e = halted(&g);
+    assert!(e.contains("doll.vvx") && e.contains(&umlauts) && e.contains("34 bytes long (17 letters"), "{e}");
 }

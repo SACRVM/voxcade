@@ -298,7 +298,9 @@ Two ways, chosen per figure:
   keep idle frames still, or slow.
 - **Parts** the engine turns: a `.vvx` of `[[part]]`s (head, body,
   arm_left ...; a MagicaVoxel file's named objects come in so) is a
-  figure of parts. The biggest part is the root;
+  figure of parts. A part's name is a word the code uses (letters,
+  digits, `_`), 32 bytes at most: the pointer names a part by it, and a
+  longer one is a mistake as the game reads the model. The biggest part is the root;
   each other hangs on the part it touches most and turns about the
   middle of where they meet, so build the parts touching at their
   joints (a shoulder against the body's side, a head on the neck). Where
