@@ -45,11 +45,15 @@ impl<K: Kit> LuaGame<K> {
                 // This picture's pose (`frame:pose`) over it.
                 let picture = self.picture_pose(id);
                 out.of_thing(Some(self.stage.drawn_key(id)));
+                // On its pivot's cell whether the camera snaps or not (a
+                // piece stands at the cell's middle: unsnapped it was drawn
+                // half a voxel off its lights and its solid cells).
+                let origin = out.body_origin(t.body).floor();
                 if pose.is_empty() && picture.is_empty() {
-                    out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
+                    out.model_turned(model, 0, origin, t.body.look, turn, None);
                 } else {
                     let posed = crate::session::posing(&picture, crate::session::posing_alone(&pose));
-                    out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
+                    out.model_posed(model, 0, origin, t.body.look, turn, &posed, None);
                 }
                 out.of_thing(None);
                 out.piece(false);

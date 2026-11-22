@@ -497,6 +497,21 @@ fn a_pieces_parts_are_posed_by_its_state() {
     assert!(halted(&g).contains("only to look at here (parts)"), "{}", halted(&g));
 }
 
+/// A piece is drawn on its pivot's cell whether the camera snaps or not:
+/// it stands at the cell's middle, and a camera that does not snap drew it
+/// there, half a voxel off its lights and its solid cells.
+#[test]
+fn a_piece_is_drawn_on_its_cell_when_the_camera_does_not_snap() {
+    for conf in ["", "  c.camera.snap = false\n"] {
+        let dir = pieces_folder("unsnapped", conf, DOORWAY, "");
+        std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+        let g = game_in(&dir);
+        assert_eq!(halted(&g), "");
+        let origins: Vec<glam::Vec3> = door_draws(&g).iter().map(|m| m.origin).collect();
+        assert_eq!(origins, [glam::Vec3::new(32.0, 32.0, 0.0); 3].into_iter().chain([glam::Vec3::new(10.0, 50.0, 0.0)]).collect::<Vec<_>>(), "{conf}");
+    }
+}
+
 /// A piece only casting a shadow (`shadow_only = true`): its draws are the
 /// same as without the key, marked to go into the sun's shadow map alone
 /// (the renderer leaves them out of the scene and the outline); it is a
