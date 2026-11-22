@@ -11,7 +11,7 @@ fn notes_played(p: &mut Player, frames: usize, chunk: usize) -> Vec<Option<i32>>
     (0..frames)
         .map(|_| {
             p.mix(&mut out);
-            p.voices[0].note.and_then(|i| p.song.channels[0][i].freq).map(|f| (12.0 * (f / 261.6256).log2()).round() as i32)
+            p.voices[0].note.and_then(|n| n.freq).map(|f| (12.0 * (f / 261.6256).log2()).round() as i32)
         })
         .collect()
 }
@@ -69,8 +69,9 @@ fn a_loop_ends_on_its_bar_lines() {
         let song = parse(&format!("#tempo {tempo}\n#meter 3\n#loop 3 7\nA: [c8 d8 e8 f8 g8 a8]9\n")).unwrap();
         let notes = &song.channels[0];
         // Six eighths a bar of three: bar 3 begins with note 12, bar 8 with note 42.
-        assert!(notes[11].start < song.span.0 && song.span.0 <= notes[12].start, "{tempo}: from {} in {}..{}", song.span.0, notes[11].start, notes[12].start);
-        assert!(notes[41].start < song.span.1 && song.span.1 <= notes[42].start, "{tempo}: to {} in {}..{}", song.span.1, notes[41].start, notes[42].start);
+        let at = |i: usize| notes[i].start as f64;
+        assert!(at(11) < song.span.0 && song.span.0 <= at(12), "{tempo}: from {} in {}..{}", song.span.0, at(11), at(12));
+        assert!(at(41) < song.span.1 && song.span.1 <= at(42), "{tempo}: to {} in {}..{}", song.span.1, at(41), at(42));
         assert_eq!(song.bars, 9);
     }
 }
@@ -98,6 +99,17 @@ fn a_loops_mistakes_say_their_line() {
     assert!(song("#loop 4 4").is_ok() && song("#loop 1 4").is_ok());
 }
 
+/// Where the player is in the song, exactly (a fraction of a sample too).
+fn place(p: &Player) -> f64 {
+    p.time as f64 + p.carry
+}
+
+/// `d` samples the shorter way round a loop `length` long.
+fn round_off(d: f64, length: f64) -> f64 {
+    let d = d.rem_euclid(length);
+    if d > length / 2.0 { d - length } else { d }
+}
+
 /// The audio keeps time with a game's clock across the loop's seam, as
 /// the window feeds it a tick at a time (`Session::feed_music`: the
 /// beats since the song began, on and on, which the player folds into
@@ -109,34 +121,109 @@ fn the_audio_keeps_with_the_clock_round_a_loop() {
     let mut p = Player::new(parse(text).unwrap(), 1.0);
     let tick = SAMPLE_RATE as usize / 60;
     let mut out = vec![0.0; tick * 2];
-    let target = |p: &Player, steps: u64| p.at_beat(steps as f64 * 150.0 / 3600.0);
+    let beats = |steps: u64| steps as f64 * 150.0 / 3600.0;
     // How far the audio is from the clock, the shorter way round the loop.
-    let off = |p: &Player, at: u64| {
-        let (from, to) = p.song.span;
-        let d = p.within(at) as i64 - p.time as i64;
-        let l = (to - from) as i64;
-        if d > l / 2 {
-            d - l
-        } else if d < -l / 2 {
-            d + l
-        } else {
-            d
-        }
-    };
+    let off = |p: &Player, beats: f64| round_off(p.within(p.at_beat(beats)) - place(p), p.song.span.1 - p.song.span.0);
     // 12 seconds: the loop (bars 2 and 3, 3.2 s) goes round three times.
     for steps in 1..=720 {
         p.mix(&mut out);
-        p.follow(target(&p, steps));
+        p.follow(beats(steps));
         assert!(p.since_jump as usize > tick, "a jump at step {steps}");
-        assert!(off(&p, target(&p, steps)).abs() <= 2, "step {steps}: {} off", off(&p, target(&p, steps)));
+        assert!(off(&p, beats(steps)).abs() <= 2.0, "step {steps}: {} off", off(&p, beats(steps)));
     }
-    assert!(p.time >= p.song.span.0 && p.time < p.song.span.1, "round the loop");
+    assert!(place(&p) >= p.song.span.0 && place(&p) < p.song.span.1, "round the loop");
     // Set back into the first bar (a snapshot from before the loop): met there.
-    p.follow(target(&p, 30));
-    assert_eq!(p.time, target(&p, 30));
+    p.follow(beats(30));
+    assert_eq!(place(&p), p.at_beat(beats(30)));
     // Far on: where the song goes round to.
-    let far = target(&p, 7000);
-    p.follow(far);
-    assert_eq!(p.time, p.within(far));
-    assert!(p.time >= p.song.span.0 && p.time < p.song.span.1);
+    p.follow(beats(7000));
+    assert!((place(&p) - p.within(p.at_beat(beats(7000)))).abs() < 1e-6);
+    assert!(place(&p) >= p.song.span.0 && place(&p) < p.song.span.1);
+}
+
+/// A loop goes round exactly as long as its bars, though a bar is seldom
+/// a whole number of samples: fed a tick at a time, the audio stays
+/// within a sample of where the game's clock is in the bar, a one-bar
+/// song going round 5,000 times at 124 and 128 beats a minute (2.7 and
+/// 2.6 hours; folded in whole samples it ran ahead 0.84 and 0.5 samples
+/// a round, 35 and 22 ms an hour), and `#loop`'s bars too: later ones,
+/// the song's first ones (the loop beginning a little before its start;
+/// it ran ahead 2.84 samples a round) and from a bar to the song's end.
+#[test]
+fn a_short_loop_never_drifts_from_the_clock() {
+    let bar = "c16 r8. r2.";
+    // Hours of sound: each on a thread of its own.
+    let cases = [
+        (124, "", bar.to_string(), 5000),
+        (128, "", bar.to_string(), 5000),
+        (124, "#loop 2 2\n", format!("{bar} {bar} {bar}"), 500),
+        (124, "#loop 1 1\n", format!("{bar} {bar}"), 500),
+        (124, "#loop 2\n", format!("{bar} {bar}"), 500),
+    ];
+    std::thread::scope(|s| {
+        for case in &cases {
+            s.spawn(|| keeps_with_the_clock(case));
+        }
+    });
+}
+
+/// `a_short_loop_never_drifts_from_the_clock`'s each song: at `tempo`,
+/// `head` its `#loop`, going round `rounds` times.
+fn keeps_with_the_clock(&(tempo, head, ref notes, rounds): &(u32, &str, String, u32)) {
+    let mut p = Player::new(parse(&format!("#tempo {tempo}\n{head}A: {notes}\n")).unwrap(), 1.0);
+    // The loop as the game's clock counts it: a bar, from the start or bar 2.
+    let length = 4.0 * 60.0 / f64::from(tempo) * SAMPLE_RATE as f64;
+    let from = if head.starts_with("#loop 2") { length } else { 0.0 };
+    let tick = SAMPLE_RATE as u64 / 60;
+    let mut out = vec![0.0; tick as usize * 2];
+    let steps = ((from + rounds as f64 * length) / tick as f64) as u64;
+    let mut worst = 0.0f64;
+    for step in 1..=steps {
+        p.mix(&mut out);
+        p.follow(step as f64 * f64::from(tempo) / 3600.0);
+        let clock = (step * tick) as f64;
+        let off = if clock < from + length { place(&p) - clock } else { round_off(place(&p) - clock, length) };
+        worst = worst.max(off.abs());
+    }
+    assert!(worst <= 1.0, "{tempo} {head:?}: the audio {worst:.2} samples off the clock");
+}
+
+/// A note that sounds where the song goes round is let go there, its
+/// release ringing on beside the channel's next round, which begins on
+/// time: no click at the seam, whose largest step from one sample to the
+/// next is no larger than where the same note ends by its envelope within
+/// a song (it was cut dead there). So at the song's end, at a `#loop`'s
+/// (a note held over it), and at the end of a song that plays once, which
+/// is over once its release has rung out.
+#[test]
+fn a_note_rings_over_the_seam() {
+    let head = "#tempo 240\n@a sine attack=0.005 decay=0 sustain=1 release=0.05\n";
+    let bar = SAMPLE_RATE as usize;
+    let left = |text: &str, seconds: f32| -> Vec<f32> { Player::new(parse(&format!("{head}{text}")).unwrap(), 1.0).render(Some(seconds)).into_iter().step_by(2).collect() };
+    let jump = |s: &[f32], at: usize| s[at - 500..at + 500].windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    let rms = |s: &[f32], from: usize, to: usize| (s[from..to].iter().map(|x| x * x).sum::<f32>() / (to - from) as f32).sqrt();
+    // Within a song: held to its end (q8) and let go there, a rest after.
+    let (c, e) = (left("A: @a q8 o4 c1 r1\n", 2.0), left("A: @a q8 o4 e1 r1\n", 2.0));
+    for (text, seam, within) in [
+        ("A: @a q8 o4 c1\n", bar, jump(&c, bar)),
+        ("#loop 2 2\nA: @a q8 o4 c1 e1&e1 g1\n", 2 * bar - 2, jump(&e, bar)),
+        ("#loop no\nA: @a q8 o4 c1\n", bar, jump(&c, bar)),
+    ] {
+        let s = left(text, 2.5);
+        assert!(jump(&s, seam) <= 2.5 * within, "{text:?}: a step of {} at the seam, {within} within a song", jump(&s, seam));
+        // The release rings on past the seam.
+        assert!(rms(&s, seam + 1000, seam + 1500) > 0.1 * rms(&s, seam - 1500, seam - 1000), "{text:?}: no release after the seam");
+    }
+    // Going round, the next round begins on time beside the note ringing on.
+    let mut p = Player::new(parse(&format!("{head}A: @a q8 o4 c1\n")).unwrap(), 1.0);
+    let mut out = vec![0.0; (bar + 10) * 2];
+    p.mix(&mut out);
+    assert_eq!((p.voices[0].note.map(|n| n.start), p.tails[0].note.map(|n| n.start)), (Some(0), Some(0)));
+    // A song played once is over when its last note has rung out.
+    let mut once = Player::new(parse(&format!("{head}#loop no\nA: @a q8 o4 c1\n")).unwrap(), 1.0);
+    let mut out = vec![0.0; (bar + 1000) * 2];
+    once.mix(&mut out);
+    assert!(!once.over(), "over while its release rings");
+    once.mix(&mut out);
+    assert!(once.over());
 }

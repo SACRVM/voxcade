@@ -133,10 +133,8 @@ impl<G: Game> Session<G> {
                 Some(seconds) if seconds > 0.0 => mixer.crossfade_music(self.music(), seconds),
                 _ => mixer.set_music(self.music()),
             }
-        } else if let Some(cue) = self.game.music()
-            && let Some(t) = self.songs.get(cue.song)
-        {
-            mixer.follow_music(((cue.start + cue.beats) * 60.0 / t.tempo as f64 * audio::SAMPLE_RATE as f64) as u64);
+        } else if let Some(cue) = self.game.music() {
+            mixer.follow_music(cue.start + cue.beats);
             mixer.music_intensity(cue.intensity);
         }
         if !began {

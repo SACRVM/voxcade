@@ -185,10 +185,11 @@ impl Mixer {
         self.voices.is_empty() && self.music.is_none() && self.leaving.is_none()
     }
 
-    /// Keeps the music with a game's clock (`music::Player::follow`).
-    pub fn follow_music(&mut self, target: u64) {
+    /// Keeps the music with a game's clock, `beats` since the song began
+    /// (`music::Player::follow`).
+    pub fn follow_music(&mut self, beats: f64) {
         if let Some(m) = &mut self.music {
-            m.follow(target);
+            m.follow(beats);
         }
     }
 
