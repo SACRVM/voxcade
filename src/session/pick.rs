@@ -520,7 +520,7 @@ mod tests {
             for (i, look) in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X].into_iter().enumerate() {
                 for (j, &turn) in turns.iter().enumerate() {
                     let pose: Vec<PartPose> = if (i + j) % 2 == 1 {
-                        let mut posed = || PartPose { turn: turning(dice.within(-40.0, 40.0), dice.within(-40.0, 40.0), dice.within(-40.0, 40.0)), offset: Vec3::new(dice.within(-0.5, 0.5), dice.within(-0.5, 0.5), dice.within(-0.5, 0.5)) };
+                        let mut posed = || PartPose { turn: turning(dice.within(-40.0, 40.0), dice.within(-40.0, 40.0), dice.within(-40.0, 40.0)), offset: Vec3::new(dice.within(-0.5, 0.5), dice.within(-0.5, 0.5), dice.within(-0.5, 0.5)), glow: None };
                         model.parts.iter().map(|_| posed()).collect()
                     } else {
                         Vec::new()
