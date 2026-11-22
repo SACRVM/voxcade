@@ -632,6 +632,9 @@ pub struct Stage {
     pub solids: Arc<std::collections::BTreeMap<usize, SolidCells>>,
     /// The parts of its figures of parts (`frame:model`'s pose).
     pub parts: Arc<std::collections::BTreeMap<String, Vec<String>>>,
+    /// The rigs of the levels' pieces' figures of parts, by file
+    /// (`thing:part`).
+    pub rigs: Arc<std::collections::BTreeMap<String, crate::sim::rig::Rig>>,
     /// What the HUD's means need between frames (`frame:icon`,
     /// `screen:burst`).
     pub hud: HudState,

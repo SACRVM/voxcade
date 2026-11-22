@@ -23,6 +23,10 @@ pub struct Models {
     /// by file: worked out as the game loads, so it never depends on which
     /// of them lie in memory.
     pieces: BTreeMap<String, Facts>,
+    /// The rigs of the levels' pieces' figures of parts, by file, read as
+    /// the game loads (`thing:part`; a piece's model is one of its level's
+    /// files, so in the fingerprint).
+    rigs: BTreeMap<String, crate::sim::rig::Rig>,
     /// The rest, loaded when needed and let go again.
     pub(super) needed: Arc<Needed>,
 }
@@ -40,6 +44,34 @@ impl Facts {
     fn of(m: &VoxModel) -> Self {
         Self { frames: m.frames.len(), height: m.size.z as f32, parts: m.parts.iter().map(|p| p.name.clone()).collect() }
     }
+}
+
+/// What the tick reads of a figure of parts (`sim::rig`): each part's
+/// parent, joint, rest rotation, offset and its own box from the pivot
+/// cell's low corner; None for a model of frames.
+pub fn rig_of(m: &VoxModel) -> Option<crate::sim::rig::Rig> {
+    if m.parts.is_empty() {
+        return None;
+    }
+    let pivot = IVec3::new(m.size.x / 2, m.size.y / 2, 0);
+    let voxels = m.frames.first()?;
+    let parts = m
+        .parts
+        .iter()
+        .map(|p| {
+            let cells = p.voxels.iter().map(|&k| voxels[k as usize].0 - pivot);
+            let own = cells.fold(None, |b: Option<(IVec3, IVec3)>, c| Some(b.map_or((c, c), |(lo, hi)| (lo.min(c), hi.max(c)))));
+            crate::sim::rig::RigPart {
+                name: p.name.clone(),
+                parent: p.parent,
+                joint: p.joint,
+                rest: p.rest,
+                offset: p.offset,
+                own: own.map(|(lo, hi)| (lo.as_vec3(), (hi + 1).as_vec3())),
+            }
+        })
+        .collect();
+    Some(crate::sim::rig::Rig { parts, centre: crate::render::turn_centre(m.size).z })
 }
 
 /// A model as the picture finds it: one kept for the run, or one loaded
@@ -230,10 +262,19 @@ impl Models {
     /// not name it is entered (`Session::enter_level`).
     pub(super) fn load_for<G: Game>(files: &Files, cfg: &GameConfig, pieces: &[String]) -> Result<Self> {
         let mut models = Self::load(files, cfg, G::models(cfg)?)?;
+        // A piece's model a kind keeps too: its rig from the kept one.
+        for file in pieces {
+            if let Some(rig) = models.named(file).and_then(rig_of) {
+                models.rigs.insert(file.clone(), rig);
+            }
+        }
         let pieces: Vec<String> = pieces.iter().filter(|f| !models.actors.iter().any(|(s, _)| &s.file == *f)).cloned().collect();
         for (file, read) in pieces.iter().zip(read_models(files, &cfg.light, &pieces)) {
             let model = Arc::new(read.map_err(|e| model_error(cfg, file, e))?);
             models.pieces.insert(file.clone(), Facts::of(&model));
+            if let Some(rig) = rig_of(&model) {
+                models.rigs.insert(file.clone(), rig);
+            }
             models.needed.held.lock().expect("the models").insert(file.clone(), Ok(model));
         }
         for d in crate::sim::things::defs(cfg, &G::behaviors(cfg))? {
@@ -266,6 +307,7 @@ impl Models {
                 .collect::<Result<_>>()?,
             props: title_models(cfg).map(|f| Ok((f.to_string(), load(f)?))).collect::<Result<_>>()?,
             pieces: BTreeMap::new(),
+            rigs: BTreeMap::new(),
             needed: Arc::new(Needed::new(files, cfg)),
         })
     }
@@ -273,7 +315,7 @@ impl Models {
     /// Models without files: these kept, nothing else (tests).
     #[cfg(test)]
     pub(super) fn kept(actors: Vec<(ModelSpec, VoxModel)>) -> Self {
-        Self { actors, props: HashMap::new(), pieces: BTreeMap::new(), needed: Arc::new(Needed::new(&Files::disk(), &GameConfig::default())) }
+        Self { actors, props: HashMap::new(), pieces: BTreeMap::new(), rigs: BTreeMap::new(), needed: Arc::new(Needed::new(&Files::disk(), &GameConfig::default())) }
     }
 
     /// How many frames each of the game's models has, by name: the kept
@@ -299,6 +341,12 @@ impl Models {
                 [(spec.name.clone(), names.clone()), (spec.file.clone(), names)]
             }))
             .collect()
+    }
+
+    /// The rigs of the levels' pieces' figures of parts, by file
+    /// (`thing:part`).
+    pub fn rigs(&self) -> BTreeMap<String, crate::sim::rig::Rig> {
+        self.rigs.clone()
     }
 
     /// The game's model called `name`, of those it keeps (what the

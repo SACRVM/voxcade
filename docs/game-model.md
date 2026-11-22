@@ -1280,7 +1280,33 @@ blocks in the cells of its model at rest: a pose moves no cell that
 blocks (later work). Only pieces: a thing of a kind without a behavior
 is drawn by the script (`frame:model`, which takes a pose), and the
 kits' own figures by their rules (the jump & run's `thing.state.pose`
-is a set of frames). A picture
+is a set of frames). `thing:part(name)` (the owner's, 2026-11-22) says
+where a part of a piece's figure is now: a `Part`, a Point at the middle
+of the part's own box with `low` and `high` (the box round that box's
+corners as placed, along the level's axes: the simulation keeps no
+voxels) and `joint` (an empty part: its joint, its box that point), so
+a light, a sound or a mark goes where the model has the part, not where
+the script copied its layout. It answers as the state poses the part
+and the parts it hangs on (their entries alone read: a pose of hundreds
+of parts costs a call nothing more) on their rest, the piece on its
+pivot's cell (`floor(pos)`, as the picture draws a piece, whether the
+camera snaps or not) facing as its body does (`thing:face` turns it;
+the file's `pitch` and `roll` tip it): the same in `on_tick`, in
+`on_draw`, on the console and on every machine, worked out in the
+simulation's own maths (`sim::rig`: f32 in a fixed order, `sim::math`'s
+sine, whole quarter turns as whole numbers, so a door facing east
+answers 10, never 9.9999995), from the model's rig read as the game
+loads (a piece's model is a file of its level, in the fingerprint). What
+only the picture does is left out: `frame:pose`, `frame:model`'s pose, a
+kind's swing and spin, gliding; a light put at a part `frame:pose` moved
+stays where the state has the part. A model saved anew while the game
+runs is read again with the level, and the next call answers the part
+where the file has it now. Only a level's piece: a thing of a kind, a
+light alone, a model of frames and a part the model lacks (its parts
+named, many shortened) are mistakes. Its walk is the picture's
+(`session::part_chain`) written again apart; test
+`the_ticks_part_is_where_the_picture_draws_it` holds them within 2e-4 of
+a voxel, exactly on the quarter turns. A picture
 lights by every light it has, up to 4096 (`render::MOST_LIGHTS`, the
 nearest the middle of the view; past it said once), each light of a
 piece counting: up to 16 none of which walls stop by the scene's own

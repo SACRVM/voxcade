@@ -512,6 +512,145 @@ fn a_piece_is_drawn_on_its_cell_when_the_camera_does_not_snap() {
     }
 }
 
+/// `thing:part` as a line of text: its middle, low, high and joint.
+const SHOW_PART: &str = "function show(p)\n  local function v(q) return q.x .. ',' .. q.y .. ',' .. q.z end\n  return v(p) .. ' ' .. v(p.low) .. ' ' .. v(p.high) .. ' ' .. v(p.joint)\nend\n";
+
+/// What `thing:part` answers for part `part` of piece `piece`.
+fn part_said(g: &mut Session<LuaGame>, piece: &str, part: &str) -> String {
+    said(g, &format!("show(level:thing('{piece}'):part('{part}'))")).trim_matches('"').to_string()
+}
+
+/// `thing:part` says where a part of a level's piece is: the middle of its
+/// own box, the box round it along the level's axes and its joint, at rest
+/// and posed by its state (a part and what hangs on it), the door standing
+/// on its cell facing south; nothing of the answer kept or hashed.
+#[test]
+fn a_part_is_where_its_state_poses_it() {
+    let mut g = doorway("part", SHOW_PART);
+    assert_eq!(halted(&g), "");
+    assert_eq!(part_said(&mut g, "door", "leaf"), "32.5,32.5,5.5 29.0,32.0,0.0 36.0,33.0,11.0 36.0,32.5,5.5");
+    assert_eq!(part_said(&mut g, "door", "frame"), "32.5,32.5,6.0 28.0,32.0,0.0 37.0,33.0,12.0 32.5,32.5,7.2419352531433", "the root turns about its voxels' middle as the rig works it out (pinned: the tick reads it)");
+    let hash = g.game.state_hash();
+    said(&mut g, "level:thing('door').state.parts = { leaf = { rotation = -90 } }");
+    assert_eq!(part_said(&mut g, "door", "leaf"), "36.0,29.0,5.5 35.5,25.5,0.0 36.5,32.5,11.0 36.0,32.5,5.5", "open about its hinge");
+    assert_eq!(part_said(&mut g, "door", "handle"), "35.0,27.0,5.5 34.5,26.5,5.0 35.5,27.5,6.0 35.5,27.0,5.5", "carried by the leaf, its joint where it meets the leaf");
+    said(&mut g, "level:thing('door').state.parts = { leaf = { rotation = -90 }, handle = { offset = { 0, 0, 2 } } }");
+    assert_eq!(part_said(&mut g, "door", "handle"), "35.0,27.0,7.5 34.5,26.5,7.0 35.5,27.5,8.0 35.5,27.0,7.5", "moved by its offset, its joint along");
+    said(&mut g, "level:thing('door').state.parts = nil");
+    assert_eq!(g.game.state_hash(), hash);
+    // Asked every tick or never: the same run.
+    let mut asking = doorway("part-asked", &format!("{SHOW_PART}function on_tick()\n  level:thing('door').state.parts = {{ leaf = {{ rotation = world.tick }} }}\n  show(level:thing('door'):part('handle'))\nend\n"));
+    let mut quiet = doorway("part-quiet", "function on_tick()\n  level:thing('door').state.parts = { leaf = { rotation = world.tick } }\nend\n");
+    steps(&mut asking, 30);
+    steps(&mut quiet, 30);
+    assert_eq!(halted(&asking), "");
+    assert_eq!(asking.game.state_hash(), quiet.game.state_hash(), "asking changes nothing");
+    assert_eq!(asking.game.inspect()["things"], quiet.game.inspect()["things"]);
+}
+
+/// On the quarter turns every answer is exact: a door facing each of the
+/// four ways (one tipped over too) gives wholes and halves, never 9.9999995;
+/// turned freely, its joint lies where the turn takes it.
+#[test]
+fn a_part_on_the_quarter_turns_is_exact() {
+    let ways = [("north", ""), ("east", "pitch = 90\n"), ("south", ""), ("west", "")];
+    let doors: String = ways.iter().enumerate().map(|(i, (way, more))| format!("\n[[thing]]\nname = \"{way}\"\nmodel = \"door.vvx\"\nat = [{}, 32, 0]\nfacing = \"{way}\"\n{more}", 8 + 14 * i)).collect();
+    let dir = pieces_folder("part-quarters", "", &(DOORWAY.to_string() + &doors), SHOW_PART);
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    let joints: Vec<String> = ways.iter().map(|(way, _)| part_said(&mut g, way, "leaf").rsplit(' ').next().unwrap().to_string()).collect();
+    assert_eq!(joints, ["5.0,32.5,5.5", "23.5,36.0,6.5", "40.0,32.5,5.5", "50.5,29.0,5.5"]);
+    assert_eq!(part_said(&mut g, "east", "leaf"), "23.5,32.5,6.5 18.0,29.0,6.0 29.0,36.0,7.0 23.5,36.0,6.5", "tipped over");
+    let free = DOORWAY.replace("at = [32, 32, 0]\n", "at = [32, 32, 0]\nrotation = 30\n");
+    let dir = pieces_folder("part-free", "  c.camera.rotates = \"free\"\n", &free, SHOW_PART);
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    let joint: Vec<f32> = said(&mut g, "level:thing('door'):part('leaf').joint.x .. ',' .. level:thing('door'):part('leaf').joint.y").trim_matches('"').split(',').map(|n| n.parse().unwrap()).collect();
+    let (s, c) = (0.5f32, 0.75f32.sqrt());
+    assert!((joint[0] - (32.5 - 3.5 * c)).abs() < 1e-4 && (joint[1] - (32.5 + 3.5 * s)).abs() < 1e-4, "{joint:?}");
+}
+
+/// `thing:part` answers the same in `on_tick` and in `on_draw`: the state's
+/// pose where the piece stands this tick, nothing of `frame:pose`, which
+/// moves the drawn part all the same.
+#[test]
+fn a_part_is_the_same_in_the_tick_and_the_picture() {
+    let main = format!("{SHOW_PART}function on_tick()\n  local door = level:thing('door')\n  door.state.parts = {{ leaf = {{ rotation = -3 * world.tick, offset = {{ 0.1, 0, 0 }} }}, handle = {{ pitch = world.tick }} }}\n  world.state.seen = show(door:part('handle'))\nend\nfunction on_draw(frame)\n  local door = level:thing('door')\n  if world.state.moved then frame:pose(door, {{ leaf = {{ rotation = 40 }}, handle = {{ offset = {{ 0, 3, 0 }} }} }}) end\n  frame:text(show(door:part('handle')), 4, 4)\nend\n");
+    let mut g = doorway("part-picture", &main);
+    steps(&mut g, 7);
+    let still = door_draws(&g);
+    assert_eq!(halted(&g), "");
+    let seen = said(&mut g, "world.state.seen").trim_matches('"').to_string();
+    assert_eq!(first_text(&g), seen, "on_draw as on_tick");
+    said(&mut g, "world.state.moved = true");
+    let moved = door_draws(&g);
+    assert_ne!(moved[2], still[2], "frame:pose moves the drawn handle");
+    assert_eq!(first_text(&g), seen, "and not the answer");
+}
+
+/// What `thing:part` cannot answer is a mistake at the line that asks: a
+/// thing of a kind (only a level's piece answers for now), a light alone, a
+/// model that is no figure, a part the model lacks (the parts named, many
+/// shortened), a pose its state holds that is wrong, a thing gone.
+#[test]
+fn what_thing_part_cannot_answer_is_a_mistake() {
+    let main = format!("{SHOW_PART}function on_level_start()\n  level.state.hero = level:spawn('hero', 40, 10)\nend\n");
+    let mut g = doorway("part-wrong", &main);
+    for (line, says) in [
+        ("level.state.hero:part('arm')", "thing:part: only a level's piece (a [[thing]] of its file with a model) answers where its parts are for now, not a thing of the kind 'hero'"),
+        ("level:thing('lamp'):part('leaf')", "thing:part: 'lamp' has no model (a light alone)"),
+        ("level:thing('box'):part('lid')", "thing:part: box.vvx is no figure of parts"),
+        ("level:thing('door'):part('leef')", "thing:part: door.vvx has no part 'leef'; did you mean 'leaf'? (its parts: frame, leaf, handle)"),
+        ("level:thing('door'):part()", "name should be a string, not nil"),
+    ] {
+        let e = said(&mut g, line);
+        assert!(e.contains(says), "{line}: {e}");
+    }
+    // (Its pose put right before the mistake is passed on, or the tick's
+    // end would halt the game for the pose itself.)
+    let mut g = doorway("part-wrong-pose", "function on_tick()\n  local door = level:thing('door')\n  door.state.parts = { leaf = { rotation = 9 } }\n  door.state.parts.leaf.pitch = 'up'\n  local ok, e = pcall(door.part, door, 'handle')\n  door.state.parts = nil\n  error(e, 0)\nend\n");
+    steps(&mut g, 1);
+    assert!(halted(&g).contains("thing.state.parts of 'door', part 'leaf': the rotation's pitch is a number of degrees") && halted(&g).contains("main.lua:5"), "{}", halted(&g));
+    let mut g = doorway("part-gone", "");
+    said(&mut g, "level.state.door = level:thing('door')");
+    said(&mut g, "level.state.door:remove()");
+    steps(&mut g, 2);
+    let e = said(&mut g, "level.state.door:part('leaf')");
+    let x = said(&mut g, "level.state.door.x");
+    assert!(e.contains("thing 1 is gone") && x.contains("thing 1 is gone"), "as any other call on a thing gone: {e} / {x}");
+    // A figure of many parts: the nearest and the first few named.
+    let tower: String = (1..=20).map(|i| format!("\n[[part]]\nname = \"seg_{i}\"\nat = [0, 0, {}]\n{}layers = \"\"\"\ns\n\"\"\"\n", i - 1, if i > 1 { format!("parent = \"seg_{}\"\n", i - 1) } else { String::new() })).collect();
+    let dir = pieces_folder("part-many", "", DOORWAY, "");
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    std::fs::write(dir.join("box.vvx"), format!("format = \"voxcade voxel 1\"\nsize = [1, 1, 20]\n\n[palette]\ns = \"#808080\"\n{tower}")).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    let e = said(&mut g, "level:thing('box'):part('seg_99')");
+    assert!(e.contains("box.vvx has no part 'seg_99'; did you mean 'seg_9'? (its parts: seg_1, seg_2, seg_3, seg_4, seg_5, seg_6, seg_7, seg_8, … 20 in all)"), "{e}");
+}
+
+/// A piece's model saved anew while the game runs: its rig is read again
+/// with it, and `thing:part` answers the part where the file now has it
+/// from the next call; a part the file no longer has is a mistake naming
+/// those it has (and a pose naming it halts at the tick's end, as ever).
+#[test]
+fn a_part_follows_its_model_saved_anew() {
+    let dir = pieces_folder("part-reload", "", DOORWAY, SHOW_PART);
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    assert_eq!(part_said(&mut g, "door", "handle"), "30.5,33.5,5.5 30.0,33.0,5.0 31.0,34.0,6.0 30.5,33.0,5.5");
+    std::fs::write(dir.join("door.vvx"), DOOR.replace("at = [2, -1, 5]", "at = [2, -1, 8]")).unwrap();
+    g.reload(&dir.join("door.vvx")).unwrap();
+    assert_eq!(part_said(&mut g, "door", "handle"), "30.5,33.5,8.5 30.0,33.0,8.0 31.0,34.0,9.0 30.5,33.0,8.5", "where the file has it now");
+    let handle = "\n[[part]]\nname = \"handle\"\nat = [2, -1, 5]\nparent = \"leaf\"\nlayers = \"\"\"\nh\n\"\"\"\n";
+    std::fs::write(dir.join("door.vvx"), DOOR.replace(handle, "")).unwrap();
+    g.reload(&dir.join("door.vvx")).unwrap();
+    assert!(said(&mut g, "level:thing('door'):part('handle')").contains("door.vvx has no part 'handle' (its parts: frame, leaf)"));
+}
+
 /// A piece only casting a shadow (`shadow_only = true`): its draws are the
 /// same as without the key, marked to go into the sun's shadow map alone
 /// (the renderer leaves them out of the scene and the outline); it is a

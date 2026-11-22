@@ -1778,7 +1778,7 @@ end
     },
     Topic {
         title: "A LAMP THAT BLINKS",
-        text: "A part of a piece can shine or go out without moving: glow in its pose, 0 to 1, in place of the colors' glow in its file (1 a lamp lit, 0 a lamp out). It lights nothing round it: a frame:light does that. frame:pose poses a piece for this picture only, over the pose its state holds, so what changes only for the eye (a lamp blinking, the part under the pointer lit) costs the game's rules nothing: they never see it. panel.vvx here is a figure of two parts, its case and its lamp. Walk up to it: it turns on, and its lamp blinks. Light the part under the pointer the same way (frame.pointer.part); move parts from on_tick, as the door's, for frame.pointer is of the picture before.",
+        text: "A part of a piece can shine or go out without moving: glow in its pose, 0 to 1, in place of the colors' glow in its file (1 a lamp lit, 0 a lamp out). It lights nothing round it: a frame:light does that. frame:pose poses a piece for this picture only, over the pose its state holds, so what changes only for the eye (a lamp blinking, the part under the pointer lit) costs the game's rules nothing: they never see it. panel.vvx here is a figure of two parts, its case and its lamp. Walk up to it: it turns on, and its lamp blinks, lighting the floor round it: thing:part(\"lamp\") says where the lamp is (its middle, a point), so the light goes wherever the model has it. Light the part under the pointer the same way (frame.pointer.part); move parts from on_tick, as the door's, for frame.pointer is of the picture before.",
         conf: r##"c.world.size = nil             -- no world made in code: the level is levels/hall.toml"##,
         files: &[
             ("levels/hall.toml", r##"format = "voxcade level 1"
@@ -1838,8 +1838,13 @@ end
 
 function on_draw(frame)
   -- on, its lamp blinks: lit (glow 1) or out (glow 0), only for the eye
+  local panel = level:thing("panel")
   local lit = world.state.on and world.tick // 20 % 2 == 0
-  frame:pose(level:thing("panel"), { lamp = { glow = lit and 1 or 0 } })
+  frame:pose(panel, { lamp = { glow = lit and 1 or 0 } })
+  -- lit, it lights what is round it, from where the model has the lamp
+  if lit then
+    frame:light{ at = panel:part("lamp"), radius = 16, color = "#ff4028" }
+  end
   for _, p in ipairs(level:players()) do
     frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
   end

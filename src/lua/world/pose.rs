@@ -13,7 +13,7 @@ pub(super) fn turning(t: &Table, what: &str) -> mlua::Result<[f32; 3]> {
 /// part's offset in voxels, `offset = { x, y, z }` (each 0 unless given),
 /// and how much it glows, `glow` from 0 to 1; each None where left out.
 /// Its part's name is the caller's.
-fn entry(t: &Table, what: &str, pose: bool) -> mlua::Result<crate::session::PoseEntry> {
+pub(super) fn entry(t: &Table, what: &str, pose: bool) -> mlua::Result<crate::session::PoseEntry> {
     const KEYS: [&str; 3] = ["rotation", "pitch", "roll"];
     for pair in t.pairs::<Value, Value>() {
         let (key, _) = pair?;

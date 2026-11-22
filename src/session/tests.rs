@@ -2469,3 +2469,148 @@ fn unset_words_draw_the_old_picture_and_more_than_sixteen_lights_draw() {
         assert!(b > a + 30.0, "the light at {:?} lit: {b} against {a}", l.pos);
     }
 }
+
+/// A figure of five parts for `the_ticks_part_is_where_the_picture_draws_it`:
+/// a body, a head on it (its joint worked out), an arm with a joint set by
+/// hand, turned and moved at rest, an empty part on the head, and a hat on
+/// that.
+const RIGGED: &str = r##"format = "voxcade voxel 1"
+size = [11, 5, 14]
+
+[palette]
+b = "#808080"
+h = "#c0a080"
+a = "#4060a0"
+
+[[part]]
+name = "body"
+at = [-2, -1, 0]
+layers = """
+bbbbb *3
+*8
+"""
+
+[[part]]
+name = "head"
+at = [-1, -1, 8]
+parent = "body"
+layers = """
+hhh *3
+*3
+"""
+
+[[part]]
+name = "arm"
+at = [3, 0, 5]
+parent = "body"
+joint = [3, 0.5, 6.5]
+rotation = 30
+offset = [0, 0.2, 0]
+layers = """
+aaa
+"""
+
+[[part]]
+name = "group"
+at = [-1, 0, 11]
+parent = "head"
+
+[[part]]
+name = "hat"
+at = [-1, -1, 11]
+parent = "group"
+layers = """
+hhh *2
+"""
+"##;
+
+/// The tick's walk (`sim::rig`, `thing:part`) places a figure's parts where
+/// the picture draws them (`figures::pieces`, `voxel_middle`, as the
+/// pointer's walk): every visible voxel's middle as the tick reckons it
+/// lies within `BOUND` of the picture's, turned freely, tipped and posed;
+/// on the quarter turns (the piece's way, its tip, the pose and the rest
+/// rotations all whole quarters) exactly the picture's rounded to the
+/// voxels' middles, and a part's box exactly that of its drawn voxels.
+#[test]
+fn the_ticks_part_is_where_the_picture_draws_it() {
+    const BOUND: f32 = 2e-4;
+    let dir = crate::scratch::Scratch::new("rig-walks");
+    std::fs::create_dir_all(&dir).unwrap();
+    let load = |name: &str, text: &str| {
+        let file = dir.join(name);
+        std::fs::write(&file, text).unwrap();
+        crate::vox::load_model(&file).unwrap()
+    };
+    let free = load("free.vvx", RIGGED);
+    let quartered = load("quartered.vvx", &RIGGED.replace("rotation = 30\noffset = [0, 0.2, 0]\n", ""));
+    let at = IVec3::new(100, 200, 7);
+    // [way's bearing, pitch, roll], and a pose by part: [rotation, pitch, roll], offset.
+    type Case = ([f32; 3], Vec<(&'static str, [f32; 3], [f32; 3])>);
+    let quarters: Vec<Case> = [0.0, 90.0, 180.0, 270.0]
+        .into_iter()
+        .flat_map(|b| {
+            [
+                ([b, 0.0, 0.0], vec![]),
+                ([b, 90.0, 0.0], vec![("head", [90.0, 0.0, 0.0], [0.0; 3])]),
+                ([b, 0.0, 270.0], vec![("head", [0.0, 180.0, 0.0], [0.0; 3]), ("arm", [0.0, -90.0, 0.0], [0.0; 3]), ("group", [0.0, 0.0, 90.0], [1.0, 0.0, -2.0])]),
+            ]
+        })
+        .collect();
+    let frees: Vec<Case> = vec![
+        ([30.0, 0.0, 0.0], vec![]),
+        ([0.0, 0.0, 0.0], vec![("head", [33.0, 0.0, 0.0], [0.0; 3]), ("arm", [0.0, 47.0, 0.0], [0.1, 0.0, 0.3])]),
+        ([200.0, 10.0, -20.0], vec![("head", [12.0, -8.0, 5.0], [0.0; 3]), ("arm", [-60.0, 20.0, 0.0], [0.0, 0.25, 0.0]), ("group", [0.0, 0.0, 35.0], [0.0; 3])]),
+        ([90.0, 33.0, 0.0], vec![("group", [90.0, 0.0, 0.0], [0.0; 3])]),
+    ];
+    let mut worst: f32 = 0.0;
+    for (model, cases, exact) in [(&quartered, &quarters, true), (&free, &frees, false), (&quartered, &frees, false)] {
+        let rig = rig_of(model).expect("a figure");
+        for ([bearing, pitch, roll], pose) in cases {
+            let mut body = crate::sim::Body::new(at.as_vec3() + Vec3::new(0.5, 0.5, 0.0), 14.0);
+            let (s, c) = crate::sim::math::sin_cos(bearing.to_radians());
+            body.face(Vec3::new(s, c, 0.0));
+            // As the picture draws a level's piece (`LuaGame::draw_game`).
+            let tipped = *pitch != 0.0 || *roll != 0.0;
+            let facing = facing(true, &body);
+            let turn = if tipped { facing * turning(0.0, *pitch, *roll) } else { facing };
+            let posed: Vec<PartPose> = model
+                .parts
+                .iter()
+                .map(|p| pose.iter().find(|e| e.0 == p.name).map_or(PartPose::REST, |&(_, [r, pi, ro], o)| PartPose { turn: turning(r, pi, ro), offset: Vec3::from(o), glow: None }))
+                .collect();
+            let way = crate::sim::rig::way(body.look, body.facing, *pitch, *roll);
+            let ticks = |k: usize| pose.iter().find(|e| e.0 == model.parts[k].name).map_or(crate::sim::rig::Posed::default(), |&(_, t, o)| crate::sim::rig::Posed { turn: t, offset: Vec3::from(o) });
+            let Pieces { turn: quarter, pieces, .. } = pieces(model, 0, body.look, turn, &posed);
+            let pivot = IVec3::new(model.size.x / 2, model.size.y / 2, 0);
+            let mut seen = 0;
+            for (part, visible, rot, shift) in pieces {
+                let i = part.expect("a part");
+                let (mut lo, mut hi) = (Vec3::INFINITY, Vec3::NEG_INFINITY);
+                for &k in visible {
+                    let l = model.frames[0][k as usize].0 - pivot;
+                    let (x, y) = crate::render::quarter(l.x, l.y, quarter);
+                    let (drawn, _) = voxel_middle(at.as_vec3(), IVec3::new(x, y, l.z).as_vec3(), rot, shift);
+                    // The tick's answer for a part of this one voxel.
+                    let mut one = rig.clone();
+                    one.parts[i].own = Some((l.as_vec3(), (l + 1).as_vec3()));
+                    let tick = one.place(i, at, way, ticks).middle;
+                    worst = worst.max((tick - drawn).abs().max_element());
+                    if exact {
+                        let on_grid = (drawn - 0.5).round() + 0.5;
+                        assert_eq!(tick, on_grid, "{} at {bearing}, {pitch}, {roll} {pose:?}: drawn at {drawn}", model.parts[i].name);
+                    } else {
+                        assert!(tick.abs_diff_eq(drawn, BOUND), "{} at {bearing}, {pitch}, {roll} {pose:?}: {tick} against {drawn}", model.parts[i].name);
+                    }
+                    (lo, hi) = (lo.min(drawn), hi.max(drawn));
+                    seen += 1;
+                }
+                if exact {
+                    let whole = rig.place(i, at, way, ticks);
+                    assert_eq!((whole.low, whole.high), ((lo - 0.5).round(), (hi + 0.5).round()), "{}'s box at {bearing}, {pitch}, {roll}", model.parts[i].name);
+                }
+            }
+            assert!(seen > 100, "every part drawn");
+        }
+    }
+    eprintln!("the walks lie at most {worst} apart");
+}

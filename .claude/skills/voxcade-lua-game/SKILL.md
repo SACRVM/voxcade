@@ -147,7 +147,13 @@ a glow in its place; two calls lay part by part and key by key), and
 the rules never see it (HELP's A LAMP THAT BLINKS). Light the part under
 `frame.pointer.part`, never move it there: the pointer is of the picture
 before, and a moved part can slip out from under it. Only a level's
-pieces are posed so for now, not things of a kind. A piece's
+pieces are posed so for now, not things of a kind. Where a part is:
+`level:thing("panel"):part("lamp")`, a Point at its middle with `low`,
+`high` (the box round it) and `joint`, as its state poses it, the same
+in `on_tick` and `on_draw` (`frame:light{ at = panel:part("lamp"),
+radius = 12 }`; HELP's A LAMP THAT BLINKS): never copy a model's layout
+into Lua. It leaves out `frame:pose` (the picture's), and only a level's
+piece answers. A piece's
 `at` is its pivot cell and `thing.x` reads `at + 0.5`: a cube beside it
 goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
 in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,

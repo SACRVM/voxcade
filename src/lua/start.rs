@@ -96,6 +96,7 @@ impl<K: Kit> LuaGame<K> {
                 bursts: kinds_bursting,
                 solids: kinds_solid,
                 parts: Arc::new(models.part_names()),
+                rigs: Arc::new(models.rigs()),
                 hud: host::HudState::new(cfg),
                 songs: Arc::new(songs),
                 music: Default::default(),

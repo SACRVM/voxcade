@@ -1247,6 +1247,7 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.bursts = Arc::new(bursts(&kinds, models));
         self.stage.solids = Arc::new(host::solid_cells(&kinds, models));
         self.stage.parts = Arc::new(models.part_names());
+        self.stage.rigs = Arc::new(models.rigs());
         match self.kit_mut() {
             Some(kit) => kit.reshape(models),
             None => self.plain_mut().expect("a plain host without a kit").kinds = kinds,

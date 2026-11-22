@@ -654,6 +654,27 @@ nearest; its replay `tests/two_ships`);
   `frame_pose_poses_a_piece_for_the_picture_alone`,
   `the_pointer_meets_a_part_where_frame_pose_drew_it`,
   `a_part_posed_to_glow_shows_brighter_on_the_gpu`.
+  `thing:part(name)` (the same draft, its item 5): where a part of a
+  level's piece's figure is, a `Part` (a Point at its own box's middle,
+  `low`, `high` round that box's corners as placed, `joint`), as the
+  state poses it and its parents (only their entries read, `pose::entry`)
+  on their rest, the piece at `floor(pos)` facing as its body does
+  (`sim::rig::way`, the picture's `facing`), the same in the tick and
+  `on_draw`, nothing of `frame:pose`; the tick's own walk in `src/sim/rig.rs`
+  (`Rig`, `place`: f32 in a fixed order, `sim::math`, whole quarter
+  turns through `quarter_matrix`, which lives there now), the rigs read
+  as the game loads from the levels' pieces' models alone
+  (`session::rig_of`, `Models::rigs`, `Stage::rigs`; in the fingerprint as
+  level files), made anew with a model saved. A piece is drawn at
+  `floor(pos)` whether the camera snaps or not (it was drawn half a voxel
+  off unsnapped). Tests `the_ticks_part_is_where_the_picture_draws_it`
+  (every voxel within 2e-4, exact on the quarters),
+  `a_part_is_where_its_state_poses_it`,
+  `a_part_on_the_quarter_turns_is_exact`,
+  `a_part_is_the_same_in_the_tick_and_the_picture`,
+  `what_thing_part_cannot_answer_is_a_mistake`,
+  `a_part_follows_its_model_saved_anew`,
+  `a_piece_is_drawn_on_its_cell_when_the_camera_does_not_snap`.
 - Tests on every push (the owner's D1, 2026-11-13;
   `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
   only, mesa's lavapipe standing in for the GPU): the release build,

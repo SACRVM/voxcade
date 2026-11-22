@@ -181,6 +181,14 @@ const TYPES: &str = "\
 ---@field offset? number[] Moved by voxels after its rotation, { x, y, z }, fractions too. What hangs on it moves along.
 ---@field glow? number How much every voxel of it shines in its own color, 0 to 1, in place of the file's: 1 a lamp lit, 0 a lamp out. Nil: as the file says. It lights nothing round it (frame:light does).
 
+---@class Part Where a part of a figure of parts is (thing:part), in voxels: a Point at its middle, with its box and its joint.
+---@field x number Its middle across, east.
+---@field y number Its middle deep, north.
+---@field z number Its middle up.
+---@field low Point The low corner of the box round it along the level's axes (round its own box as it is turned).
+---@field high Point The high corner of that box.
+---@field joint Point The point it turns about. An empty part (no voxels) is there, its middle and box too.
+
 ---@class DrawOptions How a model is drawn on the HUD (frame:draw).
 ---@field frame? integer Which of its frames, from 0 (0 unless given).
 ---@field rotation? integer Which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side.
@@ -538,6 +546,12 @@ pub const API: &[Item] = &[
         doc: "Jumps this high (voxels) if it stands on something. Only things your script moves." },
     Item { of: "thing", name: "ahead", what: Method { params: &[("distance", "number")], returns: "Point" },
         doc: "The point this far ahead of its feet, a voxel up." },
+    Item { of: "thing", name: "part", what: Method { params: &[("name", "string")], returns: "Part" },
+        doc: "Where a part of its figure of parts is now, by the part's name: a Point at its middle, with its box and its joint \
+            (frame:light{ at = p }, level:sound(\"click\", p)). Only a level's piece answers for now.\n- Posed as its state says \
+            (thing.state.parts) on its rest, where the piece stands this tick: the same in on_tick and on_draw, on every machine.\n- \
+            What only the picture does is left out: frame:pose, frame:model's pose, a kind's swing and spin. A light put at a part that \
+            frame:pose moved stays where the state has the part." },
     Item { of: "thing", name: "near", what: Method { params: &[("other", "Thing"), ("distance", "number")], returns: "boolean" },
         doc: "Whether the other thing stands closer than this." },
     Item { of: "thing", name: "place", what: Method { params: &[("x", "number|Place|Thing"), ("y?", "number"), ("z?", "number")], returns: "" },

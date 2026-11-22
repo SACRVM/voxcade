@@ -356,24 +356,8 @@ pub fn quarter_cells(model: &VoxModel, look: IVec2) -> Vec<IVec3> {
     piece_cells(model, [bearing, 0, 0]).expect("quarter turns")
 }
 
-/// A turn of whole quarter turns as a matrix of whole numbers: `turning`'s
-/// `Rz(-turn) · Rx(pitch) · Ry(roll)` for `[turn, pitch, roll]` in degrees,
-/// each a multiple of 90 (None if one is not).
-pub fn quarter_matrix([turn, pitch, roll]: [i32; 3]) -> Option<[[i32; 3]; 3]> {
-    if [turn, pitch, roll].iter().any(|d| d.rem_euclid(90) != 0) {
-        return None;
-    }
-    // The cosine and sine of a quarter turn by its count.
-    let cs = |d: i32| [(1, 0), (0, 1), (-1, 0), (0, -1)][(d.rem_euclid(360) / 90) as usize];
-    let mul = |a: [[i32; 3]; 3], b: [[i32; 3]; 3]| std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| a[i][k] * b[k][j]).sum()));
-    let (zc, zs) = cs(-turn);
-    let (xc, xs) = cs(pitch);
-    let (yc, ys) = cs(roll);
-    let z = [[zc, -zs, 0], [zs, zc, 0], [0, 0, 1]];
-    let x = [[1, 0, 0], [0, xc, -xs], [0, xs, xc]];
-    let y = [[yc, 0, ys], [0, 1, 0], [-ys, 0, yc]];
-    Some(mul(mul(z, x), y))
-}
+/// (The tick's, `sim::rig`, which turns a piece's part by it too.)
+pub use crate::sim::rig::quarter_matrix;
 
 /// The cells a model's first frame fills (every voxel, glass too: a
 /// figure's parts as they stand), turned by `[turn, pitch, roll]` in

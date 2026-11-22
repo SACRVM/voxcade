@@ -182,6 +182,14 @@ impl UserData for ThingRef {
             })?;
             point(lua, p)
         });
+        m.add_method("part", |lua, t, name: String| {
+            let placed = look(lua, |h| part_placed(lua, h, t.0, &name))?;
+            let p = point(lua, placed.middle)?;
+            p.raw_set("low", point(lua, placed.low)?)?;
+            p.raw_set("high", point(lua, placed.high)?)?;
+            p.raw_set("joint", point(lua, placed.joint)?)?;
+            Ok(p)
+        });
         m.add_method("near", |lua, t, (other, distance): (Value, f32)| {
             let o = thing_id(&other, "thing:near")?;
             look(lua, |h| Ok(h.thing(t.0)?.body.pos.distance(h.thing(o)?.body.pos) < distance))
@@ -366,6 +374,55 @@ fn on_target(lua: &Lua, t: u32, what: &'static str, act: impl FnOnce(&mut Stage,
         h.thing(t)?;
         act(h, Id::from_raw(id)).map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))
     })
+}
+
+/// Where part `name` of thing `id` is (`thing:part`): a level's piece's
+/// figure, standing on its pivot's cell (`floor(pos)`, as the picture draws
+/// a piece), facing as its body does, the part and its parents posed as
+/// its state says (`thing.state.parts`, only their entries read). The
+/// same in the tick and in `on_draw`: nothing of the picture's (its
+/// `frame:pose`, gliding).
+fn part_placed(lua: &Lua, h: &Stage, id: u32, name: &str) -> mlua::Result<crate::sim::rig::Placed> {
+    let what = "thing:part";
+    let fail = |why: String| mlua::Error::runtime(format!("{what}: {why}"));
+    let seen = h.thing(id)?;
+    let Some(piece) = h.here.pieces.get(&id) else {
+        let kind = h.kind_name(seen.kind).unwrap_or("player");
+        return Err(fail(format!("only a level's piece (a [[thing]] of its file with a model) answers where its parts are for now, not a thing of the kind '{kind}'")));
+    };
+    let Some(file) = &piece.model else { return Err(fail(format!("{} has no model (a light alone)", piece_name(h, id)))) };
+    let Some(rig) = h.rigs.get(file) else { return Err(fail(format!("{file} is no figure of parts (its objects named in the file)"))) };
+    let Some(i) = rig.index(name) else {
+        let names: Vec<&str> = rig.parts.iter().map(|p| p.name.as_str()).collect();
+        let near = crate::audio::words::near(name, names.iter().copied()).map_or(String::new(), |n| format!("; did you mean '{n}'?"));
+        let listed = if names.len() <= 12 { names.join(", ") } else { format!("{}, … {} in all", names[..8].join(", "), names.len()) };
+        return Err(fail(format!("{file} has no part '{name}'{near} (its parts: {listed})")));
+    };
+    // Only the entries of the part and those it hangs on, read from the
+    // state as it is (a pose of hundreds of parts read whole every call
+    // would cost the tick).
+    let chain = rig.chain(i);
+    let mut posed = vec![crate::sim::rig::Posed::default(); chain.len()];
+    let state = lua.named_registry_value::<Table>("voxcade.data")?.raw_get::<Option<Table>>(id)?;
+    match state.map(|s| s.raw_get::<Value>(PARTS)).transpose()?.unwrap_or(Value::Nil) {
+        Value::Nil => {}
+        Value::Table(pose) => {
+            for (n, &k) in chain.iter().enumerate() {
+                let part = &rig.parts[k].name;
+                let e = match pose.raw_get::<GivenValue>(part.as_str())?.0 {
+                    Value::Nil => continue,
+                    // (The mistake's words made only for a mistake.)
+                    Value::Table(e) => entry(&e, "", true).or_else(|_| entry(&e, &format!("thing.state.parts of {}, part '{part}'", piece_name(h, id)), true))?,
+                    _ => return Err(mlua::Error::runtime(format!("thing.state.parts of {}: a pose is parts by name, each a rotation: {{ leaf = {{ rotation = 90 }} }}", piece_name(h, id)))),
+                };
+                posed[n] = crate::sim::rig::Posed { turn: e.turn.unwrap_or_default(), offset: Vec3::from(e.offset.unwrap_or_default()) };
+            }
+        }
+        other => return Err(mlua::Error::runtime(format!("thing.state.parts of {}: a pose is parts by name, not a {}", piece_name(h, id), other.type_name()))),
+    }
+    let way = crate::sim::rig::way(seen.body.look, seen.body.facing, piece.pitch, piece.roll);
+    let at = seen.body.pos.floor().as_ivec3();
+    Ok(rig.place(i, at, way, |k| chain.iter().position(|&c| c == k).map_or(crate::sim::rig::Posed::default(), |n| posed[n])))
 }
 
 /// How fast a body leaves the ground to rise `height` voxels against

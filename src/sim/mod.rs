@@ -8,6 +8,7 @@
 //! same game. Nothing in here may read the clock or use global randomness.
 
 pub mod math;
+pub mod rig;
 pub mod things;
 
 use std::sync::Arc;
