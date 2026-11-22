@@ -1,0 +1,99 @@
+; Kit B: a drum kit after the drum machine of 1983 with the hard punchy
+; kick, analog drums and sampled hats and cymbals. A studio: instruments
+; and no channel. A game lays its channels over it (music:play's channels),
+; one a row of steps: `music:play("kit_b", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
+;
+; The machine's analog voices are known by their structure (oscillators,
+; waveshapers, envelopes, noise and filters); its service notes were not
+; at hand, so few of its numbers are: where a line says "ours", the number
+; is chosen and measured, not taken from a source. Its hats and cymbals
+; were samples of real cymbals: this synth has no samples, so they are
+; noise, filters and the bit crusher, an approximation and no more.
+;
+; Sources:
+; [BD]  G. Reid, "Practical bass drum synthesis", Synth Secrets, Sound On
+;       Sound 2002 (its Figure 13 is this machine's kick).
+; [SD]  G. Reid, "Practical snare drum synthesis", Synth Secrets, Sound On
+;       Sound 2002 (this machine's snare).
+; [W]   The machine's article in the English Wikipedia, read 2026-11-22:
+;       crash, ride and hi-hats are 6-bit samples of real cymbals; the
+;       clap and the snare share one noise source; the rest is analog.
+; [HKA] HKA Design, the manual of its cymbal board for a later sampled
+;       machine (2023): this machine's cymbals play at about 32 kHz with
+;       their tune knob at 12 o'clock.
+; [ED]  Electric Druid, "A look at the [machine's] noise generator"
+;       (2019): a 31-stage shift register clocked at about 300 kHz.
+;
+; The envelopes: the synth's decay is a straight line. A hit in a game's
+; row is a sixteenth, let go after 7/8 of it (0.105 s at 125 a minute);
+; `release` carries the decay's slope on to silence (release = decay -
+; 0.105), so a sixteenth and a longer note sound alike at 125.
+#title Kit B
+#tempo 125
+
+; Bass drum. [BD]: an oscillator whose wave a waveshaper turns into
+; "something very close to a sine wave", its pitch set by an envelope
+; with an instant attack and a slow decay; beside it noise through a low
+; pass and a short pulse, "essentially a click", on an envelope of their
+; own (the attack knob), mixed with it; an AR envelope on the tone. No
+; numbers in [BD]. Ours: a sine from 230 Hz falling 26 semitones (to
+; 51 Hz) over 45 ms, a little drive for the waveshaper's edge, decay
+; 350 ms. The click and noise are @kick_click on a second channel, the
+; same steps (K and k).
+@kick sine freq=230 sweep=-26 sweep_time=0.045 drive=6 attack=0.0005 decay=0.35 sustain=0 release=0.245 volume=0.9
+
+; The kick's click ([BD]: noise through a low pass and a pulse, on their
+; own short envelope). Ours: noise low-passed at 5 kHz, 5 ms.
+@kick_click noise freq=20000 filter=lowpass cutoff=5000 attack=0.0002 decay=0.005 sustain=0 release=0.001 volume=0.6
+
+; Snare drum, tone. [SD]: two oscillators with waveshapers make its two
+; partials at about 180 Hz and 330 Hz, each with its own VCA and envelope.
+; Ours: 330 is nearly twice 180, so one saw low-passed at 420 Hz holds
+; both, its fundamental and its octave: from 184 Hz it falls a semitone
+; over 30 ms (ours) to 174 Hz, the octave at 348 (3 % under 180, 5 % over
+; 330); one envelope for both, decay 120 ms (ours).
+; Played with @snare_noise on a second channel, the same steps (S and N).
+@snare saw freq=184 sweep=-1 sweep_time=0.03 filter=lowpass cutoff=420 attack=0.0005 decay=0.12 sustain=0 release=0.015 volume=0.7
+
+; Snare drum, noise. [SD]: the noise through a low pass, then two ways:
+; a high pass with its own envelope ("snappy") and one without a filter
+; on another. [ED]: the noise is a 31-stage shift register at ~300 kHz,
+; white across the audio band. Ours: one way, noise low-passed by the
+; gentle filter at 9 kHz and high-passed at 1.2 kHz, decay 180 ms (ours).
+@snare_noise noise freq=20000 lowpass=9000 filter=highpass cutoff=1200 attack=0.0005 decay=0.18 sustain=0 release=0.075 volume=0.5
+
+; Hand clap. [W]: the same noise as the snare. The clap of this family
+; is noise through a band pass, a few bursts and a tail (see kit A's
+; sources). No numbers for this machine's at hand. Ours: gated as kit
+; A's, three bursts 8 ms apart (the arpeggio at 500 steps a second: 2 ms
+; on, 6 ms off), then the tail; band pass at 1300 Hz, decay 0.2 s.
+@clap noise freq=20000 arp=0,-120,-120,-120,0,-120,-120,-120,0,-120,-120,-120,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 arp_speed=500 filter=bandpass cutoff=1300 resonance=0.55 attack=0.0005 decay=0.2 sustain=0 release=0.095 volume=0.9
+
+; Rim shot. Analog ([W]); no numbers at hand. Ours: a ring at 1700 Hz,
+; driven for its edge, high-passed at 700 Hz, 15 ms.
+@rim triangle freq=1700 drive=12 filter=highpass cutoff=700 attack=0.0005 decay=0.015 sustain=0 release=0.005 volume=0.55
+
+; Toms. Analog ([W]): an oscillator with a falling pitch and a little
+; noise, as the kick and the snare are built. No numbers at hand. Ours: a
+; sine falling five semitones over 100 ms to 95, 135 and 190 Hz, decays
+; 300, 250 and 200 ms.
+@tom_low sine freq=127 sweep=-5 sweep_time=0.1 drive=3 attack=0.0005 decay=0.3 sustain=0 release=0.195 volume=0.85
+@tom_mid sine freq=180 sweep=-5 sweep_time=0.1 drive=3 attack=0.0005 decay=0.25 sustain=0 release=0.145 volume=0.8
+@tom_high sine freq=254 sweep=-5 sweep_time=0.1 drive=3 attack=0.0005 decay=0.2 sustain=0 release=0.095 volume=0.75
+
+; Closed and open hi-hat. [W]: 6-bit samples of real hi-hats; [HKA]:
+; played at about 32 kHz. No samples here: noise high-passed at 7 kHz,
+; held at 32 kHz and rounded to 6 bits by the crusher (its grain; but the
+; crusher works after the envelope, the machine's VCA after the sample,
+; so here the grain grows as the hat dies away). Closed 60 ms, open
+; 350 ms (ours). Put @hat and @open_hat on one channel: a new note stops
+; the one before, as a closed hat stops an open one.
+@hat noise freq=20000 filter=highpass cutoff=7000 resonance=0.2 crush_rate=32000 crush_bits=6 attack=0.0005 decay=0.06 sustain=0 release=0.005 volume=0.45
+@open_hat noise freq=20000 filter=highpass cutoff=6500 resonance=0.2 crush_rate=32000 crush_bits=6 attack=0.0005 decay=0.35 sustain=0 release=0.245 volume=0.4
+
+; Crash and ride. [W]: 6-bit samples of a real crash and ride; [HKA]:
+; ~32 kHz. Ours: noise high-passed at 3.5 kHz for the crash, 1.6 s; the
+; ride's ringing band as noise through a resonant band pass at 5.5 kHz,
+; 1.2 s; both held at 32 kHz and rounded to 6 bits.
+@crash noise freq=20000 filter=highpass cutoff=3500 crush_rate=32000 crush_bits=6 attack=0.001 decay=1.6 sustain=0 release=1.5 volume=0.4
+@ride noise freq=20000 filter=bandpass cutoff=5500 resonance=0.6 crush_rate=32000 crush_bits=6 attack=0.0005 decay=1.2 sustain=0 release=1.1 volume=0.4
