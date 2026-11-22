@@ -2,13 +2,16 @@
 """Makes the Studio's first machine (games/studio), a drum machine as a
 figure of parts one plays with the mouse through the model: a low wide
 case, sixteen step buttons along its front edge in four colors by fours,
-a lamp (an LED) behind each, three instrument buttons, two pattern
-buttons, a start button and three knobs, each a part named for the code
-(`step_1` .. `step_16`, `led_1` .. `led_16`, `pick_kick`, `pattern_a`,
-`start`, `knob_level` ...). Lamps are parts too: main.lua lights one by
+a lamp (an LED) behind each; a column for each voice (its button, its
+lamp, its level knob); two pattern buttons, a start button, a tempo and a
+volume knob. Each control is a part named for the code (`step_1` ..
+`step_16`, `led_1` .. `led_16`, `pick_kick`, `knob_kick`, `pattern_a`,
+`start`, `knob_tempo` ...). Lamps are parts too: main.lua lights one by
 raising it into its socket and puts it out by sinking it into the case
-(a pose's offset), so nothing on the machine is drawn by Lua. Then the
-table it stands on and the level, levels/studio.toml.
+(a pose's offset), so nothing on the machine is drawn by Lua. The labels
+and the nameplate are painted into the case's top in a small alphabet of
+3 by 5 voxels (the nameplate twice as big). Then the table it stands on
+and the level, levels/studio.toml.
 
 It makes what is missing and keeps every file there: once made, the
 machine is the owner's, shaped in the voxel editor (a file deleted is
@@ -26,13 +29,18 @@ from figures import Fig  # noqa: E402
 GAME = Path(__file__).resolve().parent.parent / "games" / "studio"
 figures.KEEP_EXISTING = True
 
+# The machine's name on its nameplate: invented, a placeholder until the
+# owner names it.
+NAME = "RUMMS 80"
+
 # One color a material; the light is the engine's.
 CASE = (52, 52, 58)          # the case, dark plastic
-PLATE = (156, 152, 144)      # the top plate, grey plastic
+PLATE = (84, 82, 80)         # the top plate, grey plastic
 BAND = (28, 28, 32)          # the band the steps sit in
 SOCKET = (16, 16, 18)        # a lamp's socket, empty
+PAINT = (214, 212, 204)      # the labels and the name, painted on
 STEPS = [(208, 58, 42), (224, 122, 32), (224, 192, 48), (232, 228, 216)]
-PICK = (216, 212, 200)       # the instrument buttons
+PICK = (216, 212, 200)       # the voices' buttons
 PATTERN = (90, 106, 120)     # the pattern buttons
 START = (200, 56, 42)        # start and stop
 KNOB = (30, 30, 34)          # the knobs
@@ -42,7 +50,53 @@ GLOW = {"_type": "_emit", "_emit": "1.0"}
 figures.METALS[LAMP] = GLOW  # the toolkit's table of materials by color
 
 # The case: x across, y deep (0 the front edge), z up; its top at z 9.
-W, D, TOP = 151, 61, 9
+W, D, TOP = 151, 77, 9
+
+# The letters, 3 by 5 (M and N 5 and 4 wide, K 4: narrower they read as
+# H, n and h), the top row first.
+LETTERS = {
+    "A": [".#.", "#.#", "###", "#.#", "#.#"],
+    "B": ["##.", "#.#", "##.", "#.#", "##."],
+    "C": [".##", "#..", "#..", "#..", ".##"],
+    "E": ["###", "#..", "##.", "#..", "###"],
+    "H": ["#.#", "#.#", "###", "#.#", "#.#"],
+    "I": ["###", ".#.", ".#.", ".#.", "###"],
+    "K": ["#..#", "#.#.", "##..", "#.#.", "#..#"],
+    "L": ["#..", "#..", "#..", "#..", "###"],
+    "M": ["#...#", "##.##", "#.#.#", "#...#", "#...#"],
+    "N": ["#..#", "##.#", "#.##", "#..#", "#..#"],
+    "O": ["###", "#.#", "#.#", "#.#", "###"],
+    "P": ["##.", "#.#", "##.", "#..", "#.."],
+    "R": ["##.", "#.#", "##.", "#.#", "#.#"],
+    "S": [".##", "#..", ".#.", "..#", "##."],
+    "T": ["###", ".#.", ".#.", ".#.", ".#."],
+    "U": ["#.#", "#.#", "#.#", "#.#", "###"],
+    "V": ["#.#", "#.#", "#.#", "#.#", ".#."],
+    "0": ["###", "#.#", "#.#", "#.#", "###"],
+    "8": ["###", "#.#", "###", "#.#", "###"],
+    " ": ["..", "..", "..", "..", ".."],
+}
+
+
+def text_width(text, scale=1):
+    return sum((len(LETTERS[c][0]) + 1) * scale for c in text) - scale
+
+
+def paint(case, text, middle, top, scale=1):
+    """Paints `text` into the case's top, centred across on `middle`, its
+    top row at y `top` (the far side: letters read from the front)."""
+    x = middle - text_width(text, scale) // 2
+    for c in text:
+        rows = LETTERS[c]
+        for r, row in enumerate(rows):
+            for k, sign in enumerate(row):
+                if sign == "#":
+                    for dx in range(scale):
+                        for dy in range(scale):
+                            p = (x + k * scale + dx, top - r * scale - dy, TOP)
+                            if p in case.v:
+                                case.v[p] = PAINT
+        x += (len(rows[0]) + 1) * scale
 
 
 def step_x(i):
@@ -50,18 +104,23 @@ def step_x(i):
     return 8 + i * 8 + (i // 4) * 3
 
 
-# Buttons: (name, x0, y0, width, depth, color); a lamp behind each.
-BUTTONS = [(f"step_{i + 1}", step_x(i), 4, 6, 5, STEPS[i // 4]) for i in range(16)]
+# Buttons: (name, x0, y0, width, depth, color, label); a lamp behind each,
+# its label in front of it.
+BUTTONS = [(f"step_{i + 1}", step_x(i), 4, 6, 5, STEPS[i // 4], None) for i in range(16)]
 BUTTONS += [
-    ("pick_kick", 10, 22, 9, 6, PICK),
-    ("pick_snare", 24, 22, 9, 6, PICK),
-    ("pick_hat", 38, 22, 9, 6, PICK),
-    ("pattern_a", 96, 22, 9, 6, PATTERN),
-    ("pattern_b", 110, 22, 9, 6, PATTERN),
-    ("start", 130, 22, 11, 8, START),
+    ("pick_kick", 8, 26, 9, 6, PICK, "KICK"),
+    ("pick_snare", 32, 26, 9, 6, PICK, "SNARE"),
+    ("pick_hat", 56, 26, 9, 6, PICK, "HAT"),
+    ("pattern_a", 102, 26, 9, 6, PATTERN, "A"),
+    ("pattern_b", 116, 26, 9, 6, PATTERN, "B"),
+    ("start", 132, 26, 11, 6, START, "START"),
 ]
-# Knobs: (name, x0, y0), 9 by 9, 5 tall over the plate.
-KNOBS = [("knob_level", 24, 40), ("knob_tempo", 112, 40), ("knob_volume", 130, 40)]
+# Knobs: (name, x0, y0), 9 by 9, 5 tall over the plate: a voice's level
+# over its button, the tempo and the volume at the right.
+KNOBS = [("knob_kick", 8, 39), ("knob_snare", 32, 39), ("knob_hat", 56, 39),
+         ("knob_tempo", 104, 39), ("knob_volume", 131, 39)]
+# Labels over knobs: (text, the middle across).
+OVER_KNOBS = [("LEVEL", 36), ("TEMPO", 108), ("VOLUME", 135)]
 
 
 def lamp_of(name, x0, y0, width, depth):
@@ -81,12 +140,20 @@ def machine():
     case.recolour(lambda p: p[2] == TOP and p[1] >= 18 and 1 <= p[0] <= W - 2 and p[1] <= D - 2, PLATE)
     for x in range(2, W - 2):
         case.v.pop((x, 16, TOP), None)
-    # A grille of grooves between the instruments and the patterns.
-    for y in range(24, 50, 4):
-        for x in range(58, 89):
+    # A grille of grooves between the voices and the patterns.
+    for y in range(24, 52, 4):
+        for x in range(72, 97):
             case.v.pop((x, y, TOP), None)
+    # The labels: a voice's under its button, LEVEL, TEMPO and VOLUME over
+    # their knobs, the name at the top left.
+    for name, x0, _, w, _, _, label in BUTTONS:
+        if label:
+            paint(case, label, x0 + w // 2, 23)
+    for label, middle in OVER_KNOBS:
+        paint(case, label, middle, 58)
+    paint(case, NAME, 8 + text_width(NAME, 2) // 2, 72, scale=2)
     parts = [("case", case)]
-    for name, x0, y0, w, d, color in BUTTONS:
+    for name, x0, y0, w, d, color, _ in BUTTONS:
         # A well a voxel deep, the button standing in it, two over the top.
         for x in range(x0, x0 + w):
             for y in range(y0, y0 + d):

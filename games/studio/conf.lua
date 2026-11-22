@@ -11,7 +11,7 @@ function conf(c)
   -- The level is levels/studio.toml: the machine on a table, close up.
   c.world.size = nil
   c.camera.pitch = 62
-  c.camera.view_width = 168
+  c.camera.view_width = 180
   c.light.sun = { 0.3, 0.5, -1.0 }
   c.light.ambient = 0.45
   c.light.sky = "#18161a"
