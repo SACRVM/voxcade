@@ -22,7 +22,7 @@ const LENGTHS: (f32, f32) = (1.0, 192.0);
 const OCTAVES: (i32, i32) = (0, 9);
 /// Samples a loop's ends lie before its bar lines (`#loop`): a note on the
 /// bar line, its start a sum of lengths, may lie a sample before it.
-const LOOP_SLACK: f64 = 2.0;
+pub(super) const LOOP_SLACK: f64 = 2.0;
 
 /// Frequency of a note: octave 4's A is 440 Hz.
 pub(super) fn note_freq(octave: i32, semitone: i32) -> f32 {
@@ -215,6 +215,9 @@ struct State {
     tempo: f32,
     instrument: usize,
     time: f64,
+    /// A laid channel's length so far, exactly (None in a file's song;
+    /// none either once past what it can hold).
+    beats: Option<Beats>,
 }
 
 struct Parser<'a> {
@@ -235,6 +238,8 @@ struct Parser<'a> {
     sung: bool,
     /// The song names no instrument: its channels play the plain square.
     plain: bool,
+    /// A channel a game laid (`lay`): no `t`, no singing.
+    laid: bool,
 }
 
 impl Parser<'_> {
@@ -260,7 +265,8 @@ impl Parser<'_> {
     }
 
     /// A note length (`4`, `8.`), in beats; without a number the default.
-    fn duration(&mut self, state: &State) -> Result<f32> {
+    /// A laid channel's length grows by it exactly (`State::beats`).
+    fn duration(&mut self, state: &mut State) -> Result<f32> {
         let length = match self.number() {
             Some(n) if (LENGTHS.0..=LENGTHS.1).contains(&n) => n,
             Some(n) => bail!("a note length of {n} is out of range, {} to {}", LENGTHS.0, LENGTHS.1),
@@ -268,11 +274,14 @@ impl Parser<'_> {
         };
         let mut beats = 4.0 / length;
         let mut dot = beats / 2.0;
+        let mut dots = 0;
         while self.peek() == Some('.') {
             self.at += 1;
             beats += dot;
             dot /= 2.0;
+            dots += 1;
         }
+        state.beats = state.beats.and_then(|b| b.plus(Beats::of(length as u32, dots)?));
         Ok(beats)
     }
 
@@ -308,6 +317,14 @@ impl Parser<'_> {
             self.at += 1;
         }
         Ok(semitone)
+    }
+
+    /// Instrument `index` as a mistake names it.
+    fn instrument_name(&self, index: usize) -> String {
+        match self.instruments.iter().find(|(_, i)| **i == index) {
+            Some((name, _)) if !self.plain => format!("@{name}"),
+            _ => "the plain square".to_string(),
+        }
     }
 
     fn octave(&self, octave: i32) -> Result<i32> {
@@ -361,6 +378,9 @@ impl Parser<'_> {
                     let seconds = beats as f64 * 60.0 / state.tempo as f64;
                     let text = self.text.take();
                     if let Some(voicing) = self.voices[state.instrument] {
+                        if self.laid {
+                            bail!("{} sings ({}), which a channel a game lays does not yet", self.instrument_name(state.instrument), if voicing == Voicing::Clear { clear::WAVE } else { "voice" });
+                        }
                         if text.is_none() && !self.sung {
                             bail!("a voice's first note needs a text, the syllable it sings, like \"l a\" c4 (a note without one holds the vowel before)");
                         }
@@ -368,11 +388,7 @@ impl Parser<'_> {
                         let end = state.time + seconds;
                         self.sings.push(Sing { note: notes.len(), text, at: (state.time * rate) as u64, end: (end * rate) as u64, voicing });
                     } else if text.is_some() {
-                        let name = match self.instruments.iter().find(|(_, i)| **i == state.instrument) {
-                            Some((name, _)) if !self.plain => format!("@{name}"),
-                            _ => "the plain square".to_string(),
-                        };
-                        bail!("a text is sung only by a voice, and {name} plays no voice (an instrument like @vox voice)");
+                        bail!("a text is sung only by a voice, and {} plays no voice (an instrument like @vox voice)", self.instrument_name(state.instrument));
                     }
                     notes.push(Note {
                         start: (state.time * rate) as u64,
@@ -412,6 +428,7 @@ impl Parser<'_> {
                 'v' => state.volume = self.within("v (volume)", (0.0, 15.0))? / 15.0,
                 'q' => state.gate = self.within("q (how much of a note sounds)", (1.0, 8.0))? / 8.0,
                 'p' => state.pan = self.within("p (pan)", (-100.0, 100.0))? / 100.0,
+                't' if self.laid => bail!("t sets a channel's own tempo, which a channel a game lays takes from its file of instruments (#tempo)"),
                 't' => state.tempo = self.within("t (tempo)", TEMPOS)?,
                 '@' => {
                     let start = self.at;
@@ -467,20 +484,123 @@ pub fn parse(text: &str) -> Result<Song> {
     parse_song(text, false)
 }
 
-pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
-    let mut title = String::new();
-    let mut tempo = 120.0;
-    let mut meter = 4;
-    let mut looping = true;
-    // `#loop`: its bars, and its line once given.
-    let mut round: Option<(u32, Option<u32>)> = None;
-    let mut loop_line: Option<usize> = None;
-    let mut layered: Vec<(char, f32)> = Vec::new();
-    let mut instruments = Vec::new();
-    let mut names = HashMap::new();
-    let mut macros = HashMap::new();
-    let mut lines: Vec<(char, String, usize)> = Vec::new();
+/// A song file or a studio (`Song::studio`): a file of instruments and
+/// settings without a channel, which a game lays its own channels over
+/// (`lay`). A studio goes round whatever is laid whole, so it takes no
+/// `#loop`.
+pub fn read(text: &str) -> Result<Song> {
+    parse_song(text, true)
+}
 
+/// Whether a song file's text has a channel line (`A: c d e`), as the
+/// reader tells one: a file without is a studio even where it does not
+/// read.
+pub fn has_channels(text: &str) -> bool {
+    text.lines().map(|l| l.split(';').next().unwrap_or("").trim()).any(|l| !l.starts_with(['#', '@', '$']) && l.split_once(':').is_some_and(|(c, _)| c.trim().chars().count() == 1))
+}
+
+/// The song a game lays over a studio (`music:play`'s `channels`): the
+/// studio's instruments, settings and macros, and the laid channels in
+/// their letters' order. Every laid channel fills the same number of whole
+/// bars (counted exactly, in beats), changes no tempo (`t`) and sings no
+/// voice; a mistake names the channel, no line (the text is in no file).
+pub fn lay(studio: &str, laid: &Laid) -> Result<Song> {
+    let head = read_head(studio, true)?;
+    if !head.lines.is_empty() {
+        bail!("the song has channels of its own: a game lays channels over a file of instruments only");
+    }
+    let channels = laid.channels.iter().map(|(c, text)| (*c, text.chars().map(|ch| (ch, 0)).collect())).collect();
+    let mut song = build(head, channels, true)?;
+    song.sources = laid.channels.iter().map(|(_, text)| text_hash(text)).collect();
+    song.laid = Some(laid.digest);
+    Ok(song)
+}
+
+/// One channel's text as a number: whether a laid channel stayed the same.
+fn text_hash(text: &str) -> u64 {
+    u64::from_le_bytes(blake3::hash(text.as_bytes()).as_bytes()[..8].try_into().expect("eight bytes"))
+}
+
+/// Channels a game lays over a studio (`music:play`'s `channels`): each
+/// letter's MML, in the letters' order, and their digest (BLAKE3 of each
+/// letter and its text, length first): the same channels, the same digest,
+/// on every machine (only the text counts, never what is read of it).
+#[derive(Clone, Debug)]
+pub struct Laid {
+    pub channels: Vec<(char, String)>,
+    pub digest: [u8; 32],
+}
+
+impl Laid {
+    pub fn new(mut channels: Vec<(char, String)>) -> Laid {
+        channels.sort_by_key(|(c, _)| *c);
+        let mut h = blake3::Hasher::new();
+        for (c, text) in &channels {
+            h.update(&u32::from(*c).to_le_bytes()).update(&(text.len() as u64).to_le_bytes()).update(text.as_bytes());
+        }
+        Laid { digest: *h.finalize().as_bytes(), channels }
+    }
+}
+
+impl PartialEq for Laid {
+    fn eq(&self, other: &Laid) -> bool {
+        self.digest == other.digest
+    }
+}
+
+/// What a song file says before its channels: its settings, instruments,
+/// macros and channel lines.
+struct Head {
+    title: String,
+    tempo: f32,
+    meter: u32,
+    looping: bool,
+    /// `#loop`: its bars, and its line once given.
+    round: Option<(u32, Option<u32>)>,
+    loop_line: Option<usize>,
+    layered: Vec<(char, f32)>,
+    instruments: Vec<Instrument>,
+    names: HashMap<String, usize>,
+    macros: HashMap<String, String>,
+    lines: Vec<(char, String, usize)>,
+    /// It names no instrument: its channels play the plain square.
+    plain: bool,
+}
+
+pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
+    let head = read_head(text, may_be_empty)?;
+    // Lines of the same channel continue each other.
+    let mut channels: Vec<(char, Vec<(char, usize)>)> = Vec::new();
+    for (channel, notes, n) in &head.lines {
+        let at = match channels.iter().position(|(c, _)| c == channel) {
+            Some(at) => at,
+            None => {
+                channels.push((*channel, Vec::new()));
+                channels.len() - 1
+            }
+        };
+        let text = &mut channels[at].1;
+        text.push((' ', *n));
+        text.extend(notes.chars().map(|c| (c, *n)));
+    }
+    build(head, channels, false)
+}
+
+fn read_head(text: &str, may_be_empty: bool) -> Result<Head> {
+    let mut head = Head {
+        title: String::new(),
+        tempo: 120.0,
+        meter: 4,
+        looping: true,
+        round: None,
+        loop_line: None,
+        layered: Vec::new(),
+        instruments: Vec::new(),
+        names: HashMap::new(),
+        macros: HashMap::new(),
+        lines: Vec::new(),
+        plain: false,
+    };
     for (n, raw) in text.lines().enumerate() {
         let line = raw.split(';').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -490,9 +610,9 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         if let Some(rest) = line.strip_prefix('#') {
             let (key, value) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
             match key {
-                "title" => title = value.trim().to_string(),
+                "title" => head.title = value.trim().to_string(),
                 "tempo" => {
-                    tempo = value.trim().parse::<f32>().ok().filter(|t| (TEMPOS.0..=TEMPOS.1).contains(t)).with_context(|| format!("{}: #tempo is the beats a minute, {} to {} (not '{}')", at(), TEMPOS.0, TEMPOS.1, value.trim()))?
+                    head.tempo = value.trim().parse::<f32>().ok().filter(|t| (TEMPOS.0..=TEMPOS.1).contains(t)).with_context(|| format!("{}: #tempo is the beats a minute, {} to {} (not '{}')", at(), TEMPOS.0, TEMPOS.1, value.trim()))?
                 }
                 "layer" => {
                     // Channel letters, then the tension they sound from.
@@ -505,7 +625,7 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
                     for l in letters {
                         let mut chars = l.chars();
                         match (chars.next(), chars.next()) {
-                            (Some(c), None) => layered.push((c, from)),
+                            (Some(c), None) => head.layered.push((c, from)),
                             _ => bail!("{}: #layer: '{l}' is no channel (a letter)", at()),
                         }
                     }
@@ -513,13 +633,13 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
                 "meter" => {
                     // 3, or 3/4: the beats in a bar.
                     let beats = value.trim().split('/').next().unwrap_or("");
-                    meter = beats.trim().parse::<u32>().ok().filter(|&n| n > 0).with_context(|| format!("{}: #meter is the beats in a bar, like 4 or 3/4", at()))?;
+                    head.meter = beats.trim().parse::<u32>().ok().filter(|&n| n > 0).with_context(|| format!("{}: #meter is the beats in a bar, like 4 or 3/4", at()))?;
                 }
                 "loop" => {
-                    if loop_line.is_some() {
+                    if head.loop_line.is_some() {
                         bail!("{}: #loop is given twice (a song takes one)", at());
                     }
-                    loop_line = Some(n + 1);
+                    head.loop_line = Some(n + 1);
                     let wrong = || format!("{}: #loop is the bars that go round, whole numbers from 1: like 33 80, or 33 (from bar 33 to the end), or no (it plays once); not '{}'", at(), value.trim());
                     let bar = |w: &str| -> Result<u32> {
                         match w.parse::<u32>() {
@@ -530,9 +650,9 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
                     };
                     match value.split_whitespace().collect::<Vec<_>>().as_slice() {
                         [] | ["yes" | "on" | "true"] => {}
-                        ["no" | "off" | "false"] => looping = false,
-                        [from] => round = Some((bar(from)?, None)),
-                        [from, to] => round = Some((bar(from)?, Some(bar(to)?))),
+                        ["no" | "off" | "false"] => head.looping = false,
+                        [from] => head.round = Some((bar(from)?, None)),
+                        [from, to] => head.round = Some((bar(from)?, Some(bar(to)?))),
                         _ => bail!(wrong()),
                     }
                 }
@@ -542,11 +662,11 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         } else if let Some(rest) = line.strip_prefix('@') {
             let (name, spec) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
             let ins = parse_instrument(spec).with_context(|| format!("{}: @{name}", at()))?;
-            names.insert(name.to_string(), instruments.len());
-            instruments.push(ins);
+            head.names.insert(name.to_string(), head.instruments.len());
+            head.instruments.push(ins);
         } else if let Some(rest) = line.strip_prefix('$') {
             let (name, body) = rest.split_once('=').with_context(|| format!("{}: a macro is $name = notes", at()))?;
-            macros.insert(name.trim().to_string(), body.trim().to_string());
+            head.macros.insert(name.trim().to_string(), body.trim().to_string());
         } else if let Some((channel, notes)) = line.split_once(':')
             && channel.trim().chars().count() == 1
         {
@@ -557,56 +677,70 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
             if notes.trim().is_empty() {
                 bail!("line {}: channel {letter} has no notes", n + 1);
             }
-            lines.push((letter, notes.to_string(), n + 1));
+            head.lines.push((letter, notes.to_string(), n + 1));
         } else {
             bail!("line {}: expected #setting, @instrument, $macro or a channel like 'A: c d e'", n + 1);
         }
     }
-    if lines.is_empty() && !may_be_empty {
+    if head.lines.is_empty() && !may_be_empty {
         bail!("the song has no channel: write one like 'A: c d e f' (a letter, a colon, notes)");
     }
-    let plain = instruments.is_empty();
-    if plain {
-        instruments.push(Instrument::default());
-        names.insert("default".into(), 0);
+    head.plain = head.instruments.is_empty();
+    if head.plain {
+        head.instruments.push(Instrument::default());
+        head.names.insert("default".into(), 0);
     }
+    Ok(head)
+}
 
-    // Lines of the same channel continue each other.
-    let mut order: Vec<char> = Vec::new();
-    let mut texts: HashMap<char, Vec<(char, usize)>> = HashMap::new();
-    for (channel, notes, n) in lines {
-        if !order.contains(&channel) {
-            order.push(channel);
-        }
-        let text = texts.entry(channel).or_default();
-        text.push((' ', n));
-        text.extend(notes.chars().map(|c| (c, n)));
+/// The song of `head` with `channels` (each letter's characters with the
+/// line of the file they are on): laid ones (`lay`) or the file's own.
+fn build(head: Head, channels: Vec<(char, Vec<(char, usize)>)>, laid: bool) -> Result<Song> {
+    let Head { title, tempo, meter, looping, round, loop_line, layered, instruments, names, macros, lines, plain } = head;
+    if let (true, Some(line)) = (laid || lines.is_empty(), loop_line) {
+        bail!("line {line}: #loop: a file of instruments goes round whatever channels a game lays over it whole, so it takes no #loop");
     }
-    let mut channels = Vec::new();
+    let mut notes_of = Vec::new();
     let (mut segments, mut clear) = (Vec::new(), Vec::new());
     // Where the song ends exactly, a fraction of a sample too.
     let mut ends = 1.0f64;
     let voices: Vec<Option<Voicing>> = instruments.iter().map(|i: &Instrument| i.voice).collect();
-    let letters = order.clone();
-    for channel in order {
-        let (text, lines) = expand_lines(&texts[&channel], &macros).with_context(|| format!("channel {channel}"))?;
-        let mut state = State { octave: 4, length: 4.0, volume: 0.8, gate: 0.875, pan: 0.0, tempo, instrument: 0, time: 0.0 };
+    let letters: Vec<char> = channels.iter().map(|(c, _)| *c).collect();
+    // The first laid channel's length, exactly, and its letter.
+    let mut filled: Option<(char, Beats)> = None;
+    for (channel, text) in channels {
+        let (text, lines) = expand_lines(&text, &macros).with_context(|| format!("channel {channel}"))?;
+        let mut state = State { octave: 4, length: 4.0, volume: 0.8, gate: 0.875, pan: 0.0, tempo, instrument: 0, time: 0.0, beats: laid.then_some(Beats::ZERO) };
         let mut notes = Vec::new();
-        let mut parser = Parser { chars: text, lines, at: 0, steps: 0, instruments: &names, voices: &voices, text: None, sings: Vec::new(), sung: false, plain };
+        let mut parser = Parser { chars: text, lines, at: 0, steps: 0, instruments: &names, voices: &voices, text: None, sings: Vec::new(), sung: false, plain, laid };
         parser.sequence(&mut state, &mut notes, None).with_context(|| {
             let around: String = parser.chars[parser.at.saturating_sub(12)..(parser.at + 4).min(parser.chars.len())].iter().collect();
             let line = parser.lines.get(parser.at.saturating_sub(1)).or(parser.lines.last()).copied().unwrap_or(0);
-            format!("line {line}: channel {channel}, near '{}'", around.trim())
+            if laid { format!("channel {channel}, near '{}'", around.trim()) } else { format!("line {line}: channel {channel}, near '{}'", around.trim()) }
         })?;
+        if laid {
+            let beats = state.beats.with_context(|| format!("channel {channel}: its lengths are too many odd ones to add up exactly"))?;
+            let bars = beats.bars(meter).with_context(|| format!("channel {channel} lasts {}: a laid channel fills whole bars of {meter} beats", beats.said()))?;
+            match filled {
+                None => filled = Some((channel, beats)),
+                Some((first, b)) if b != beats => bail!("channel {channel} fills {}, channel {first} {}: every laid channel fills as many bars", said_bars(bars), said_bars(b.bars(meter).unwrap_or(0))),
+                _ => {}
+            }
+        }
         voice::lay_out(&mut notes, &parser.sings, &mut segments, &mut clear);
         // The channel's end is where its last note or rest ends.
         let end = (state.time * SAMPLE_RATE as f64) as u64;
         ends = ends.max(state.time * SAMPLE_RATE as f64);
         notes.push(Note { start: end, held: 0, freq: None, instrument: 0, volume: 0.0, pan: 0.0, sung: None });
-        channels.push(notes);
+        notes_of.push(notes);
     }
+    let channels = notes_of;
     let length = channels.iter().filter_map(|c| c.last().map(|n| n.start)).max().unwrap_or(0).max(1);
-    if let Some((c, _)) = layered.iter().find(|(c, _)| !letters.contains(c)) {
+    // A studio's layers name the letters a game lays, laid now or not.
+    if !laid
+        && !lines.is_empty()
+        && let Some((c, _)) = layered.iter().find(|(c, _)| !letters.contains(c))
+    {
         bail!("#layer names channel {c}, which plays nothing");
     }
     let layers = letters.iter().map(|c| layered.iter().rev().find(|(l, _)| l == c).map_or(0.0, |(_, f)| *f)).collect();
@@ -633,5 +767,67 @@ pub(super) fn parse_song(text: &str, may_be_empty: bool) -> Result<Song> {
         let end = if to.is_some() || from > 1 { last - LOOP_SLACK } else { last };
         span = (end - (last - line(from)), end);
     }
-    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, clear, length, looping, round, span, bars })
+    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, clear, length, looping, round, span, bars, sources: Vec::new(), laid: None })
+}
+
+/// `n` bars in words.
+fn said_bars(n: u64) -> String {
+    if n == 1 { "1 bar".into() } else { format!("{n} bars") }
+}
+
+/// A length in beats, exactly: a fraction (note lengths are 4 over 1 to
+/// 192, each dot adding half the last; ties and repeats add), so whether
+/// a laid channel fills whole bars never hangs on rounding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Beats {
+    num: u128,
+    den: u128,
+}
+
+impl Beats {
+    const ZERO: Beats = Beats { num: 0, den: 1 };
+
+    /// Four over `length` with `dots`; None past what it can hold.
+    fn of(length: u32, dots: u32) -> Option<Beats> {
+        // 4/n (2 - 1/2^d) = 4 (2^(d+1) - 1) / (n 2^d)
+        let two = 1u128.checked_shl(dots).filter(|t| t.leading_zeros() > 8)?;
+        Beats { num: 4 * (two * 2 - 1), den: u128::from(length) * two }.reduced()
+    }
+
+    fn plus(self, other: Beats) -> Option<Beats> {
+        let g = gcd(self.den, other.den);
+        let den = (self.den / g).checked_mul(other.den)?;
+        let num = self.num.checked_mul(other.den / g)?.checked_add(other.num.checked_mul(self.den / g)?)?;
+        Beats { num, den }.reduced()
+    }
+
+    fn reduced(self) -> Option<Beats> {
+        let g = gcd(self.num, self.den).max(1);
+        Some(Beats { num: self.num / g, den: self.den / g })
+    }
+
+    /// The whole bars of `meter` beats it is, if it is whole bars (and at
+    /// least one).
+    fn bars(self, meter: u32) -> Option<u64> {
+        let meter = u128::from(meter);
+        (self.den == 1 && self.num > 0 && self.num.is_multiple_of(meter)).then(|| u64::try_from(self.num / meter).unwrap_or(u64::MAX))
+    }
+
+    /// As a person says it: "3 beats", "1/2 beat", "7 and 1/4 beats".
+    fn said(self) -> String {
+        let (whole, rest) = (self.num / self.den, self.num % self.den);
+        match (whole, rest) {
+            (1, 0) => "1 beat".into(),
+            (w, 0) => format!("{w} beats"),
+            (0, r) => format!("{r}/{} beat", self.den),
+            (w, r) => format!("{w} and {r}/{} beats", self.den),
+        }
+    }
+}
+
+fn gcd(mut a: u128, mut b: u128) -> u128 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }

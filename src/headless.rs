@@ -1698,7 +1698,7 @@ pub(crate) fn sound_statements(lines: &[&str]) -> Vec<Statement> {
 /// `seconds` (looping as the game would).
 pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()> {
     let game = Session::<G>::load(dir)?;
-    let file = game.song_file().context("conf.lua names no music (c.audio.music)")?.to_string();
+    let file = game.song_file().context("conf.lua names no song a player hears (c.audio.music; a file of instruments plays only the channels a game lays over it)")?.to_string();
     song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive, game.cfg.audio.ceiling)), out, seconds)
 }
 
@@ -1719,6 +1719,9 @@ pub fn song(file: &Path, game: Option<(f32, f32, f32)>, out: &Path, seconds: Opt
     use crate::audio::SAMPLE_RATE;
 
     let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+    if !crate::audio::music::has_channels(&text) {
+        anyhow::bail!("{} is a file of instruments, no song: it plays only the channels a game lays over it (music:play's channels), so there is nothing to write without the game", file.display());
+    }
     let song = crate::audio::music::parse(&text).with_context(|| format!("in {}", file.display()))?;
     let length = song.length as f32 / SAMPLE_RATE as f32;
     let title = song_name(&song.title, file);

@@ -142,7 +142,8 @@ fn the_songs_line_up() {
     songs("music".as_ref(), &mut all);
     assert!(all.len() >= 7, "only {} songs found", all.len());
     for path in all {
-        let song = parse(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
+        // (A studio reads too: it has no channels to line up.)
+        let song = read(&std::fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
         let total = song.length as f32 / SR;
         for (channel, length) in song.channel_lengths() {
             assert!((length - total).abs() < 0.01, "{}: channel {channel} is {length:.2}s of {total:.2}s", path.display());
@@ -755,10 +756,10 @@ fn the_music_does_its_own_math() {
     ];
     let mut found = Vec::new();
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir("src/audio/music").expect("reading the music").map(|e| e.unwrap().path()).collect();
-    files.extend(["src/audio/limiter.rs", "src/audio/loudness.rs"].map(Into::into));
+    files.extend(["src/audio/limiter.rs", "src/audio/loudness.rs", "src/audio/synth.rs"].map(Into::into));
     for path in files {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if ["tests.rs", "loop_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
+        if ["tests.rs", "loop_tests.rs", "laid_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();

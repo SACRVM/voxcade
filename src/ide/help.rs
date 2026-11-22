@@ -829,6 +829,82 @@ end
 "##,
     },
     Topic {
+        title: "A DRUM MACHINE",
+        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. A studio is no song a player picks, and its whole text counts for replays.",
+        conf: r##"c.audio.music = { "music/kit.mml" }   -- the instruments: music:play calls it "kit"
+c.actions = { "toggle", "pattern" }
+c.keys = { toggle = { "Space" }, pattern = { "Tab" } }"##,
+        files: &[("music/kit.mml", "; instruments only: the game lays the channels\n#tempo 124\n@kick triangle freq=130 sweep=-34 sweep_time=0.08 decay=0.11 sustain=0 release=0.01 volume=0.85\n@hat noise freq=14000 decay=0.025 sustain=0 release=0.01 lowpass=6500 volume=0.14\n")],
+        code: r##"-- Two rows of sixteen steps: a row's channel letter, instrument and color.
+local ROWS = {
+  { channel = "K", instrument = "kick", color = "#e05a48" },
+  { channel = "H", instrument = "hat", color = "#d8d070" },
+}
+
+function on_world_start()
+  -- Two patterns of two rows; true is a hit.
+  world.state.patterns = {}
+  for p = 1, 2 do
+    world.state.patterns[p] = {}
+    for r = 1, #ROWS do
+      local row = {}
+      for i = 1, 16 do row[i] = (r == 1 and i % 4 == 1) or (r == 2 and i % (p * 2) == 1) end
+      world.state.patterns[p][r] = row
+    end
+  end
+  world.state.pattern, world.state.row, world.state.step = 1, 1, 1
+end
+
+-- The pattern as channels of MML: a row each, a hit (c) or a rest (r) a sixteenth.
+local function lay(from)
+  local channels = {}
+  for r, row in ipairs(ROWS) do
+    local notes = { "@" .. row.instrument .. " o4 l16" }
+    for i = 1, 16 do notes[#notes + 1] = world.state.patterns[world.state.pattern][r][i] and "c" or "r" end
+    channels[row.channel] = table.concat(notes, " ")
+  end
+  music:play("kit", { from = from, channels = channels })
+end
+
+function on_level_start(how)
+  lay("now")
+end
+
+function on_tick()
+  local s = world.state
+  if input:repeated("left") then s.step = (s.step - 2) % 16 + 1 end
+  if input:repeated("right") then s.step = s.step % 16 + 1 end
+  if input:pressed("up") or input:pressed("down") then s.row = 3 - s.row end
+  if input:pressed("toggle") then
+    local row = s.patterns[s.pattern][s.row]
+    row[s.step] = not row[s.step]
+    lay("now")                    -- it sounds when the light comes to it
+  end
+  if input:pressed("pattern") then
+    s.pattern = 3 - s.pattern
+    lay("bar")                    -- the other pattern from the next bar
+  end
+end
+
+function on_draw(frame)
+  local s = world.state
+  local light = music.position and math.floor(music.position * 4) % 16 + 1
+  local x0, y0 = math.floor(frame.width / 2) - 88, math.floor(frame.height / 2) - 12
+  frame:text("PATTERN " .. s.pattern, x0, y0 - 14)
+  for r, row in ipairs(ROWS) do
+    for i = 1, 16 do
+      local x, y = x0 + (i - 1) * 11, y0 + (r - 1) * 12
+      local on = s.patterns[s.pattern][r][i]
+      local color = on and (i == light and "#ffffff" or row.color) or (i == light and "#606070" or "#2a2a34")
+      frame:box(x, y, 9, 9, color)
+      -- drawn after its cell, so the cell lies on it: a frame round it
+      if r == s.row and i == s.step then frame:box(x - 1, y - 1, 11, 11, "#f0f0f0") end
+    end
+  end
+end
+"##,
+    },
+    Topic {
         title: "A SONG IN MML",
         text: "A song is a text file in the folder music, ending in .mml (the plus beside MUSIC makes one; PLAY SONG plays the text as it stands). Lines starting with # are settings (#tempo is beats a minute, 1 to 999, #meter the beats in a bar, #loop 33 80 plays the song from its start once and then bars 33 to 80 round and round, counted from 1, what comes after them never reached, #loop 33 goes round from bar 33 to the end and #loop no plays it once; a note held over the loop's end is let go there, its release ringing on as the loop begins again), lines starting with @ make an instrument (a wave, square, saw, triangle, sine or noise, then options like attack, decay, sustain and release, written name=number; a number out of its range is a mistake saying the range, a word one slip off says which it meant), and a line like A: is a channel of notes, one voice each (@lead in it picks the instrument; without one it plays a plain square). Notes are c d e f g a b (or C D E F G A B), + or - for sharp and flat (++ or -- twice), then a length (4 a quarter, 8 an eighth, a dot makes it longer), & holds a note on by another length (c4&8, or c4&c8: the same pitch), r a rest, o4 the octave (0 to 9), < and > one octave down and up, l8 the default length, v0 to v15 the volume, [ ... ]3 repeats three times, $name = ... a short piece to use again, | a bar line (ignored). A channel may go on over several lines; a mistake says the line it is on. Every channel should be as long as the others, or the short ones fall silent before the song starts over. Name the file in c.audio.music and play it by its file's name, without the folder and .mml: music:play(\"drive\"). decay in an instrument is the fall from the peak to the sustain level, not the fade to silence a sound file's decay is. An instrument can sing: singer or voice in place of a wave (@vox singer ...). singer is the clear one, made for words to be understood; voice the rougher one of before, good for short shouts. Then a text in quotes before a note is the syllable that note sings, its phonemes split by spaces, in small letters: \"l a\" c4, \"s ae ng\" e4 (consonants, one vowel, consonants). The vowel starts on the note's beat, the consonants before it sound just before the beat, the ones after it end where the note is let go. A voice note without a text holds the vowel before it (a melisma). The phonemes: vowels a ae e eh i ih o u ax er oe ue, diphthongs aw ow ai oi ei, consonants m n ng l r w j f v s z sh ch x h rr t k p d g b (ae as in cat, eh bed, ih bit, ax the a in sofa, er an unstressed German -er as in Schwester, oe and ue the German ö and ü, ng sing, j yes, sh she, ch the German ich, x the German ach, rr a rolled r as sung; singer sings r as the German r, voice as the English one). A voice also takes consonants: its consonants' hiss, bursts and breath against its vowels, in decibels (-24 to 12, 0 as they are). Every instrument, a voice too, takes drive (decibels, 0 to 36: pushed into a soft clipper, 12 rough, 20 a shout through a megaphone with filter=bandpass cutoff=1150) and a bit crusher, crush_rate (the sound held at that many Hz, 6000 the speech of old games) and crush_bits (1 to 16 bits).",
         conf: r##"c.audio.music = { "music/drive.mml" }
@@ -2096,13 +2172,16 @@ mod tests {
     }
 
     /// HELP's songs read, their channels are as long as each other (what
-    /// the text promises) and the MML topic is there.
+    /// the text promises) and the MML topic is there; a studio reads too.
     #[test]
     fn the_songs_help_writes_read_and_line_up() {
         let mut seen = 0;
         for topic in TOPICS {
             for (name, text) in topic.files.iter().filter(|(n, _)| n.ends_with(".mml")) {
-                let song = crate::audio::music::parse(text).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+                let song = crate::audio::music::read(text).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+                if song.studio() {
+                    continue;
+                }
                 let lengths = song.channel_lengths();
                 assert!(lengths.iter().all(|(_, l)| (l - lengths[0].1).abs() < 0.01), "{name}: {lengths:?}");
                 seen += 1;

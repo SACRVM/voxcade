@@ -8,10 +8,10 @@ shooter/shot 6836 4f8ac91318dd9b2b
 shooter/enemy_shot 7277 936cdfccbdac9c21
 shooter/rocket 23814 d01d34a8da7885e9
 shooter/knife 4851 7174a7efb3e68f32
-shooter/throw 7056 80c05962100f9889
+shooter/throw 7056 14fd484a2119077c
 shooter/splat 13671 db6ae4d5949c894a
 shooter/hurt 10143 d7fa3a1ec4adfff3
-shooter/down 52921 2a7783cf206dd73c
+shooter/down 52921 9ad34efc1e4fdb85
 shooter/pickup 13671 ff3e909b5ec0fe31
 shooter/rescue 22491 8553769d6c6eefcb
 shooter/jump 6174 884246f7db748f5a

@@ -74,19 +74,19 @@ impl<G: Game> Session<G> {
     pub fn load_from(files: Files, mut slots: Slots) -> Result<Self> {
         let dir = files.dir().to_path_buf();
         let cfg = config_in::<G>(&files)?;
-        check_title_bar(&files, &cfg)?;
+        let songs = song_timings(&files, &cfg)?;
+        check_title_bar(&files, &cfg, &songs)?;
         slots.set_count(cfg.saves.slots);
         let levels = std::sync::Arc::new(crate::levels::load::<G>(&files, &cfg)?);
         let level_files = levels.files.clone();
         let piece_models = levels.piece_models();
         let models = Models::load_for::<G>(&files, &cfg, &piece_models)?;
-        let songs = song_timings(&files, &cfg);
         let game = begun::<G>(&files, &cfg, &models, levels, None, &slots, &songs)?;
         let cue = game.music().map(|c| c.song);
         let game_mark = game.level_mark();
         let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg))?;
         let actions = G::actions(&cfg);
-        let song_titles = song_titles(&files, &cfg);
+        let song_titles = song_titles(&files, &cfg, &songs);
         let cfg_ui = cfg.ui.clone();
         let seats = session_seats(&cfg);
         let mut session = Self {
@@ -100,6 +100,7 @@ impl<G: Game> Session<G> {
             song_titles,
             songs,
             cue,
+            audio_laid: None,
             music_changed: true,
             fade_clock: false,
             crossfade: None,
@@ -223,6 +224,13 @@ impl<G: Game> Session<G> {
             };
             let beats: String = self.songs.iter().map(|t| format!("{} {} {}{}\n", t.name, t.tempo, t.meter, looped(t))).collect();
             files.push(("music".into(), beats.into_bytes()));
+            // A studio whole: whether a channel laid over it reads is the
+            // run's (a mistake halts it), and so is every word of it.
+            for (file, t) in self.cfg.audio.music.files().iter().zip(&self.songs) {
+                if let Some(text) = &t.studio {
+                    files.push((crate::files::slashed(Path::new(file)), text.as_bytes().to_vec()));
+                }
+            }
         }
         Ok(files)
     }
@@ -364,16 +372,15 @@ impl<G: Game> Session<G> {
             let before = self.cfg.audio.music.clone();
             let mut cfg = config_in::<G>(&self.files)?;
             crate::levels::check_start::<G>(&self.files, &cfg)?;
-            check_title_bar(&self.files, &cfg)?;
+            check_title_bar(&self.files, &cfg, &song_timings(&self.files, &cfg)?)?;
             let waiting = self.cfg.restart_only(&cfg);
             if !waiting.is_empty() {
                 self.cfg.keep_for_restart(&mut cfg);
                 eprintln!("{file}: {} take effect after a restart (F5)", waiting.join(", "));
             }
             self.cfg = cfg;
-            self.song_titles = song_titles(&self.files, &self.cfg);
             self.font = display_font(&self.files, &self.cfg.ui);
-            self.retime_songs();
+            self.retime_songs()?;
             self.music_changed |= self.cfg.audio.music != before;
             self.game.apply_config(&self.cfg)?;
             // As many save slots as the config says now.
@@ -405,8 +412,8 @@ impl<G: Game> Session<G> {
             }
             return Ok(Reloaded::Code);
         }
-        if self.cfg.audio.music.files().iter().chain(self.song_file().as_slice()).any(|f| same_file(&self.dir.join(f), changed)) {
-            self.retime_songs();
+        if self.cfg.audio.music.files().iter().any(|f| same_file(&self.dir.join(f), changed)) {
+            self.retime_songs()?;
             self.music_changed = true;
             return Ok(Reloaded::Music);
         }

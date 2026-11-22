@@ -69,6 +69,21 @@ impl<K: Kit> LuaGame<K> {
         if let Some(v) = &stage.entered {
             out["entered"] = value::to_json(v);
         }
+        // Channels laid over a studio: what plays, what comes and when.
+        let m = &stage.music;
+        let next = m.next.as_ref().and_then(|a| a.laid.as_ref());
+        if m.laid.is_some() || next.is_some() {
+            let texts = |l: &crate::audio::music::Laid| l.channels.iter().map(|(c, t)| (c.to_string(), serde_json::Value::from(t.as_str()))).collect::<serde_json::Map<_, _>>();
+            let name = |s: Option<usize>| s.and_then(|s| stage.songs.get(s)).map(|t| t.name.clone());
+            let mut music = serde_json::json!({ "song": name(m.song), "position": m.beats(&stage.songs) });
+            if let Some(laid) = &m.laid {
+                music["channels"] = texts(laid).into();
+            }
+            if let (Some(a), Some(laid)) = (&m.next, next) {
+                music["next"] = serde_json::json!({ "song": name(a.song), "due": m.due(&stage.songs), "channels": texts(laid) });
+            }
+            out["music"] = music;
+        }
         // The other seats, a game of several's.
         if stage.seats.len() > 1 {
             let players: Vec<serde_json::Value> = (2..=stage.seats.len())

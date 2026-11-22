@@ -41,6 +41,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         song_titles: Vec::new(),
         songs: Vec::new(),
         cue: None,
+        audio_laid: None,
         music_changed: false,
         fade_clock: false,
         crossfade: None,

@@ -148,7 +148,7 @@ impl Shell {
                             self.unload();
                         }
                     }
-                } else if path.ends_with(".mml") {
+                } else if path.ends_with(".mml") && !matches!(&self.shown, Some(Shown::Code(b)) if b.code.studio) {
                     let (word, tip) = if self.sound.listening.is_some() { ("STOP SONG", "Ends the song.") } else { ("PLAY SONG", "Plays the song as it stands, at the game's music volume.") };
                     if ui.button(word).on_hover_text(tip).clicked() {
                         self.listen();
@@ -487,7 +487,7 @@ pub(in crate::ide) fn model_line(m: &crate::vox::VoxModel, path: &str) -> String
 /// A line of what the song in `file` is: its title, how long until it
 /// starts over, its channels (or why it cannot be read).
 pub(super) fn song_facts(file: &Path) -> String {
-    let song = std::fs::read_to_string(file).map_err(anyhow::Error::from).and_then(|text| crate::audio::music::parse(&text));
+    let song = std::fs::read_to_string(file).map_err(anyhow::Error::from).and_then(|text| crate::audio::music::read(&text));
     match song {
         Ok(song) => crate::ide::code::song_line(&song),
         Err(e) => format!("The song cannot be read: {e:#}"),

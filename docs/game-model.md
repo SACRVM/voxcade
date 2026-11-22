@@ -301,6 +301,42 @@ settings. Several players: `player` is seat 1, the others are in
   save (a game loaded from one sets them in `on_level_start`); the
   title's and the settings' songs never hear them. Later: a tempo the game sets, stingers, sounds
   that play in the song's chord (`shots/reviews/music-plan.md`).
+- Songs from the game's data (stage 1 of `shots/reviews/music-from-data-draft.md`
+  as its review revised it): a file of `c.audio.music` with instruments
+  and `#settings` but no channel is a studio, no song a player picks (not
+  on the maker's keys, not in SETTINGS, never the title's or the player's
+  song, `voxcade music GAME` skips it; a studio that does not read, or
+  has a `#loop`, is a mistake as the game loads). The game lays channels
+  over it: `music:play("kit", { channels = { K = "@kick o4 l16 c r r r
+  ...", H = "..." }, from = "bar" })`, the whole set that plays, letters
+  sorted, read as the script sees the table (a read-only view too). Every
+  laid channel fills as many whole bars, counted exactly in beats; `t`
+  (a tempo of its own) and the singing voices are refused; a mistake
+  halts at the script's line, naming the channel (`music:play: channel
+  K, near '...': ...`). Asked again while that studio plays, it is a
+  change within the song: its clock goes on, only the channels change at
+  `from` ("now" for a step edited, which sounds when the music comes to
+  it; "bar" for the next pattern); `at` and `crossfade` are a mistake on
+  it; without `channels` the laid ones play on; the same channels again,
+  or those pending, cost a compare, nothing read. A song of other bars
+  goes round by the beats since the song began (`music.bar % 4` is a
+  four-bar pattern's bar). `music.position` is the beats with their
+  fraction (a running light: `math.floor(music.position * 4) % 16`). In
+  the hash's `music` part: the BLAKE3 of the sorted, length-prefixed
+  texts that play and that are pending, only where a game lays some; in
+  the fingerprint the studio's whole text (whether a channel reads is
+  the run's), so two studios meet as two games. The audio swaps on the
+  sample: the pending channels are handed ahead with their beat and the
+  player swaps there, a channel byte-equal untouched, a changed one's
+  sounding note ringing on until its next note; the session compares
+  what the game says plays and comes with what the mixer reports at
+  every feed (a state brought back, a cancel after the audio swapped
+  early, a new run) and corrects it. The studio saved while channels are
+  laid: its instruments are read anew, the channels kept and read again,
+  a channel that no longer reads halting the game as `music:play` would.
+  `inspect` prints the laid channels under `"music"`. Not yet (stage 2
+  on): faders and knobs per channel, a tempo of the game's, slides and
+  knob moves in MML, export. `games/drums` is the example.
 - `frame.pointer`: this machine's pointer in this picture (`x`, `y` in
   the HUD's measure, `hud`, `index`, `thing`, `part` and `area` of what
   it is over in the picture before), nil with the pad used last or no

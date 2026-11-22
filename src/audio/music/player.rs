@@ -1,11 +1,42 @@
 //! The player: renders a song's voices, sidechain, layers, filter and the game's mix.
 
 use super::SAMPLE_RATE;
+use super::parse::LOOP_SLACK;
 use super::mix::{Mix, SHORTEST, muffle_cutoff};
 use super::clear::{self, Seg};
 use super::song::{FilterMode, Instrument, Note, Song, Voicing};
 use super::voice::{Segment, Singer};
 use crate::audio::synth::{OnePole, Oscillator};
+
+/// Channels a game laid, made on the main thread to be swapped in by the
+/// audio (`Player::pend`): the song and a voice for each of its channels
+/// (a channel laid before brings its own), room for the notes of channels
+/// laid no more to ring out, and the beats since the song began it is due
+/// at (`f64::NEG_INFINITY`: at once).
+pub struct Swap {
+    song: Song,
+    voices: Vec<Voice>,
+    tails: Vec<Voice>,
+    loud: Vec<f32>,
+    due: f64,
+}
+
+/// What a song plays and is to swap to (`Player::laid`), by the digests of
+/// the channels a game laid (`parse::Laid`): none for a file's own.
+pub type Digests = (Option<[u8; 32]>, Option<[u8; 32]>);
+
+/// The most channels a song has: one a letter, A to Z and a to z.
+const MOST_LETTERS: usize = 52;
+
+impl Swap {
+    pub fn new(song: Song, due: f64) -> Box<Swap> {
+        let n = song.channels.len();
+        let voices = (0..n).map(|i| Voice::new(i as u32 * 7919)).collect();
+        let mut tails = Vec::with_capacity(n + MOST_LETTERS);
+        tails.resize_with(n, Voice::default);
+        Box::new(Swap { voices, tails, loud: vec![1.0; n], due, song })
+    }
+}
 
 /// One channel's voice: the note it plays (its own copy, so it can ring
 /// on after the song went round) and where the oscillator is.
@@ -79,7 +110,7 @@ impl Voice {
     fn sound(&mut self, song: &Song, time: u64, ducked: f32, (volume, fade, loud): (f32, f32, f32)) -> Option<[f32; 2]> {
         let sr = SAMPLE_RATE as f32;
         let n = self.note?;
-        let ins = &song.instruments[n.instrument];
+        let ins = song.instruments.get(n.instrument)?;
         let t = time.wrapping_sub(self.started) as f32 / sr;
         let held = n.held as f32 / sr;
 
@@ -385,6 +416,14 @@ pub struct Player {
     /// little before its start: below 0 while `time` is 0).
     pub(super) rate: f64,
     pub(super) carry: f64,
+    /// Samples into the song as written played on and on, never folded
+    /// round its loop (the game's beats, `follow`): where a swap is due.
+    pub(super) position: f64,
+    /// Channels a game laid, to swap in when `position` reaches their due
+    /// point (`pend`), and those swapped out, for the main thread to drop
+    /// (the audio thread gives no memory back).
+    pub(super) pending: Option<Box<Swap>>,
+    pub(in crate::audio) spent: Option<Box<Swap>>,
     /// Samples since a jump, fading in up to `FADE_IN`.
     pub(super) since_jump: u32,
     /// The game's tension (`music.intensity`), and how loud each channel's
@@ -404,7 +443,7 @@ impl Player {
         let voices = (0..song.channels.len()).map(|i| Voice::new(i as u32 * 7919)).collect();
         let tails = (0..song.channels.len()).map(|_| Voice::default()).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
-        Self { song, voices, tails, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
+        Self { song, voices, tails, time: 0, duck: None, volume, rate: 1.0, carry: 0.0, position: 0.0, pending: None, spent: None, since_jump: FADE_IN, intensity: 1.0, loud, bus: Bus::default() }
     }
 
     /// Sounds as the game's `mix` is now, gliding on where it still glides
@@ -453,6 +492,7 @@ impl Player {
     /// taking up the note that sounds there, faded in so it does not click;
     /// what rang on from before falls silent.
     pub fn seek(&mut self, at: f64) {
+        self.position = at;
         let at = self.within(at);
         let time = at.max(0.0) as u64;
         (self.time, self.carry, self.duck, self.since_jump) = (time, at - time as f64, None, 0);
@@ -476,7 +516,8 @@ impl Player {
     pub fn follow(&mut self, beats: f64) {
         let (from, to) = self.song.span;
         let length = to - from;
-        let target = self.within(self.at_beat(beats));
+        let unwrapped = self.at_beat(beats);
+        let target = self.within(unwrapped);
         let now = self.time as f64 + self.carry;
         let mut off = target - now;
         if self.song.looping && now >= from && target >= from {
@@ -488,7 +529,7 @@ impl Player {
             }
         }
         if off.abs() > JUMP as f64 {
-            self.seek(target);
+            self.seek(unwrapped);
             self.rate = 1.0;
         } else {
             self.rate = 1.0 + (off / (4.0 * SAMPLE_RATE as f64)).clamp(-0.003, 0.003);
@@ -551,6 +592,12 @@ impl Player {
         // The layers move towards the tension, a bar's worth a bar.
         let step = self.song.tempo / (60.0 * SAMPLE_RATE as f32 * self.song.meter as f32);
         for frame in out.as_chunks_mut::<2>().0 {
+            // Laid channels swapped in where they are due: a sample or two
+            // early rather than late (`LOOP_SLACK`), so a note a sum of
+            // lengths puts a sample before the bar line is not missed.
+            if self.pending.as_ref().is_some_and(|s| self.position + LOOP_SLACK >= s.due) {
+                self.swap();
+            }
             // Round the loop (`#loop`'s bars, else the whole song), or at
             // the end of a song that plays once: what sounds is let go.
             if self.time as f64 + self.carry >= self.song.span.1 {
@@ -588,6 +635,13 @@ impl Player {
                     sum[1] += r;
                 }
             }
+            // The notes of channels laid no more, ringing out.
+            for tail in &mut self.tails[self.voices.len()..] {
+                if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0)) {
+                    sum[0] += l;
+                    sum[1] += r;
+                }
+            }
             // As loud and as clear as the game asked (`Mix`).
             let (l, r) = self.bus.apply(sum[0], sum[1]);
             frame[0] += l;
@@ -595,10 +649,86 @@ impl Player {
             self.since_jump = self.since_jump.saturating_add(1);
             // A sample on, or a hair more or less when keeping time.
             self.carry += self.rate;
+            self.position += self.rate;
             let on = self.carry as u64;
             self.carry -= on as f64;
             self.time += on;
         }
+    }
+
+    /// The digests of the channels laid in the song it plays and in the one
+    /// it is to swap to (`parse::Laid`), where a game laid them.
+    pub fn laid(&self) -> Digests {
+        (self.song.laid, self.pending.as_ref().and_then(|s| s.song.laid))
+    }
+
+    /// The channels to swap to when their due point comes (`Swap`; None:
+    /// none, what was to come called off), in place of any to come before:
+    /// what it no longer holds handed back, for the main thread to drop.
+    pub fn pend(&mut self, swap: Option<Box<Swap>>) -> [Option<Box<Swap>>; 2] {
+        let swap = swap.map(|mut s| {
+            s.due = self.at_beat(s.due);
+            s
+        });
+        [std::mem::replace(&mut self.pending, swap), self.spent.take()]
+    }
+
+    /// What a swap let go of, for the main thread to drop.
+    pub fn spent(&mut self) -> Option<Box<Swap>> {
+        self.spent.take()
+    }
+
+    /// Swaps the laid channels pending in, at this sample: a channel the
+    /// same as before plays on untouched; a changed one's voice keeps the
+    /// note it sounds (its own copy) until the channel's next note takes
+    /// it, its notes from here on the new ones; a channel laid no more
+    /// rings out in a tail of its own; the layers go by letter. A song of
+    /// other bars is folded by the beats since it began (bar 9 of a
+    /// four-bar song is its bar 1). Nothing is made or dropped here: the
+    /// swap was made on the main thread, the old song is kept for it.
+    fn swap(&mut self) {
+        let Some(mut new) = self.pending.take() else { return };
+        for (i, letter) in new.song.names.iter().enumerate() {
+            match self.song.names.iter().position(|l| l == letter) {
+                Some(j) => {
+                    std::mem::swap(&mut new.voices[i], &mut self.voices[j]);
+                    std::mem::swap(&mut new.tails[i], &mut self.tails[j]);
+                    new.loud[i] = self.loud[j];
+                }
+                None => new.loud[i] = if self.intensity >= new.song.layers[i] { 1.0 } else { 0.0 },
+            }
+        }
+        for (j, letter) in self.song.names.iter().enumerate() {
+            if !new.song.names.contains(letter) && self.voices[j].note.is_some() && new.tails.len() < new.tails.capacity() {
+                new.tails.push(std::mem::take(&mut self.voices[j]));
+            }
+        }
+        let same_span = new.song.span == self.song.span;
+        std::mem::swap(&mut self.song, &mut new.song);
+        std::mem::swap(&mut self.voices, &mut new.voices);
+        std::mem::swap(&mut self.tails, &mut new.tails);
+        std::mem::swap(&mut self.loud, &mut new.loud);
+        // (`new` holds what played until now.)
+        if !same_span {
+            let at = self.within(self.position);
+            let time = at.max(0.0) as u64;
+            let shift = time.wrapping_sub(self.time);
+            (self.time, self.carry) = (time, at - time as f64);
+            for v in self.voices.iter_mut().chain(&mut self.tails) {
+                v.started = v.started.wrapping_add(shift);
+            }
+            if let Some(duck) = &mut self.duck {
+                duck.from = duck.from.wrapping_add(shift);
+            }
+        }
+        for (i, (v, notes)) in self.voices.iter_mut().zip(&self.song.channels).enumerate() {
+            let letter = self.song.names[i];
+            let same = same_span && new.song.names.iter().position(|l| *l == letter).is_some_and(|j| new.song.sources[j] == self.song.sources[i]);
+            if !same {
+                v.next = notes.partition_point(|n| n.start < self.time);
+            }
+        }
+        self.spent = Some(new);
     }
 
     /// The whole song (once; with `#loop` round its loop into its first

@@ -501,7 +501,7 @@ impl<G: Game> App<G> {
         let (mut title, mut new) = (None, None);
         if front.title_music {
             game.music_changed = false;
-            let last = game.cfg.audio.music.files().len().saturating_sub(1);
+            let last = game.player_songs().len().saturating_sub(1);
             let preview = front.menu.previews_song().then_some(settings.song.min(last));
             if preview != front.previewing {
                 front.previewing = preview;
@@ -520,7 +520,7 @@ impl<G: Game> App<G> {
                 && game.hand_music(&mut mixer, new, front.menu.is_open() || prompt.open)
             {
                 // The player's own choice numbered when there are several.
-                let choice = game.cfg.audio.music.files().len() > 1 && !game.steers_music();
+                let choice = game.player_songs().len() > 1 && !game.steers_music();
                 *now_playing = match mixer.music_title() {
                     Some(t) if choice => format!(" | \u{266a} {}: {t}", game.song + 1),
                     Some(t) => format!(" | \u{266a} {t}"),
@@ -892,7 +892,7 @@ impl<G: Game> App<G> {
 /// The game's own song (the one the settings chose) from the next tick on,
 /// started over.
 fn play_the_games_song<G: Game>(game: &mut Session<G>, settings: &Settings) {
-    game.select_song(settings.song.min(game.cfg.audio.music.files().len().saturating_sub(1)));
+    game.select_song(settings.song.min(game.player_songs().len().saturating_sub(1)));
     game.music_changed = true;
 }
 

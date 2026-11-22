@@ -65,7 +65,7 @@ impl Oscillator {
         match wave {
             Wave::Square => (if self.phase < duty { 1.0 } else { -1.0 }) - (2.0 * duty - 1.0),
             Wave::Saw => 2.0 * self.phase - 1.0,
-            Wave::Sine => (std::f32::consts::TAU * self.phase).sin(),
+            Wave::Sine => libm::sinf(std::f32::consts::TAU * self.phase),
             Wave::Triangle => 1.0 - 4.0 * (self.phase - 0.5).abs(),
             Wave::Noise => {
                 if wrapped || draw {
@@ -90,7 +90,7 @@ pub(crate) struct OnePole {
 impl OnePole {
     /// How far a sample moves it for a cutoff at `cut` Hz.
     pub(crate) fn alpha(cut: f32) -> f32 {
-        1.0 - (-std::f32::consts::TAU * cut / SAMPLE_RATE as f32).exp()
+        1.0 - libm::expf(-std::f32::consts::TAU * cut / SAMPLE_RATE as f32)
     }
 
     /// `s` through it, moving `alpha` of the way.
@@ -157,17 +157,17 @@ impl Default for Synth {
 
 /// A pitch `semitones` above `freq` (below if negative), in Hz.
 pub fn shifted(freq: f32, semitones: f64) -> f32 {
-    (freq as f64 * 2f64.powf(semitones / 12.0)) as f32
+    (freq as f64 * libm::pow(2.0, semitones / 12.0)) as f32
 }
 
 /// The frequency ratio of a step of `semitones` (12: 2, an octave).
 pub fn ratio(semitones: f64) -> f32 {
-    2f64.powf(semitones / 12.0) as f32
+    libm::pow(2.0, semitones / 12.0) as f32
 }
 
 /// The semitones from `from` to `to` Hz (or of a ratio, `from` 1).
 pub fn semitones(from: f64, to: f64) -> f64 {
-    12.0 * (to / from).log2()
+    12.0 * libm::log2(to / from)
 }
 
 impl Synth {
@@ -204,17 +204,17 @@ impl Synth {
             let t = i as f32 / sr;
             let u = t / total;
             let mut freq = match end {
-                Some(end) if end > 0.0 && self.freq > 0.0 => self.freq * (end / self.freq).powf(u),
+                Some(end) if end > 0.0 && self.freq > 0.0 => self.freq * libm::powf(end / self.freq, u),
                 _ => self.freq,
             };
             if self.jump != 0.0 && t >= self.jump_at {
                 freq *= jump;
             }
-            freq *= 1.0 + self.vibrato * (std::f32::consts::TAU * self.vibrato_speed * t).sin();
+            freq *= 1.0 + self.vibrato * libm::sinf(std::f32::consts::TAU * self.vibrato_speed * t);
             let mut s = osc.next(self.wave, freq.max(0.0) / sr, duty, i == 0);
             if let Some(cut) = self.lowpass {
                 let cut = match self.lowpass_end {
-                    Some(end) if end > 0.0 && cut > 0.0 => cut * (end / cut).powf(u),
+                    Some(end) if end > 0.0 && cut > 0.0 => cut * libm::powf(end / cut, u),
                     _ => cut,
                 };
                 s = low.next(s, OnePole::alpha(cut));

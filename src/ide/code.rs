@@ -70,8 +70,11 @@ pub struct Code {
     pub error: Option<(usize, String)>,
     /// The sound the text says, when it is a sound that reads.
     pub sound: Option<SoundDef>,
-    /// A line of what the song is, when it is a song that reads.
+    /// A line of what the song is, when it is a song that reads, and
+    /// whether it is a file of instruments (a studio: nothing to play
+    /// alone).
     pub song: Option<String>,
+    pub studio: bool,
     /// A line of what the model is, when it is a model that reads.
     pub model: Option<String>,
     /// The line the game played stopped at (a script's error while it
@@ -150,7 +153,7 @@ impl Code {
             "vvx" => Syntax::Model,
             _ => Syntax::Plain,
         };
-        let mut code = Self { text, revision: fresh_revision(), syntax, file: file.to_string(), error: None, sound: None, song: None, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: None, laid: Laid::default() };
+        let mut code = Self { text, revision: fresh_revision(), syntax, file: file.to_string(), error: None, sound: None, song: None, studio: false, model: None, stopped: None, checked: None, offer: None, declined: None, marking: None, reveal: None, reader: None, laid: Laid::default() };
         code.check();
         code
     }
@@ -199,8 +202,8 @@ impl Code {
                 Err(e) => (self.error, self.model) = (Some(line_trouble(&format!("{e:#}"))), None),
             },
             Syntax::Map => self.error = crate::map::MapData::read(&self.text).err().map(|e| line_trouble(&format!("{e:#}"))),
-            _ => match music::parse(&self.text) {
-                Ok(song) => (self.error, self.song) = (None, Some(song_line(&song))),
+            _ => match music::read(&self.text) {
+                Ok(song) => (self.error, self.song, self.studio) = (None, Some(song_line(&song)), song.studio()),
                 Err(e) => (self.error, self.song) = (Some(line_trouble(&format!("{e:#}"))), None),
             },
         }
@@ -759,6 +762,9 @@ fn line_trouble(message: &str) -> (usize, String) {
 pub(super) fn song_line(song: &music::Song) -> String {
     let seconds = (song.length / crate::audio::SAMPLE_RATE as u64) as u32;
     let title = if song.title.is_empty() { String::new() } else { format!("{} · ", song.title) };
+    if song.studio() {
+        return format!("{title}Instruments · {} beats a minute · {} to a bar · the game lays the channels", song.tempo, song.meter);
+    }
     let ending = if song.looping { "loops" } else { "once" };
     format!("{title}{}:{:02} · {} channels · {ending}", seconds / 60, seconds % 60, song.names.len())
 }

@@ -250,14 +250,20 @@ pub struct Session<G: Game> {
     pub sounds: SoundBank,
     /// The music changed (its file or which file): start it over.
     pub music_changed: bool,
-    /// Which of the game's songs plays.
+    /// Which of the songs a player hears plays (`player_songs`).
     pub song: usize,
-    /// The songs' titles (their `#title`, else the file name), in order.
+    /// The titles of the songs a player hears (their `#title`, else the
+    /// file name), in order.
     pub song_titles: Vec<String>,
-    /// The songs' beats (`song_timings`), as the game was told them.
+    /// The beats of the files of `c.audio.music` (`song_timings`), as the
+    /// game was told them.
     songs: Vec<audio::music::Timing>,
     /// The game's own song when the music last changed (`Game::music`).
     cue: Option<usize>,
+    /// The channels laid over a studio the song in the mixer plays and is
+    /// to swap to (`Mixer::music_laid`), as last handed: what the game's
+    /// are compared with (`Session::laid_swap`). None: no song there.
+    audio_laid: Option<audio::music::Digests>,
     /// The save slots: the player's on disk where someone plays, else this
     /// run's only (`crate::saves`).
     pub slots: Slots,

@@ -1,0 +1,26 @@
+# Voxcade replay: Drums, 531 ticks, quit, score 0
+version = 1
+game = "Drums"
+fingerprint = "c9805e5683b5e8d4"
+ticks = 531
+outcome = "quit"
+score = 0
+input = "none:20;right:1;none:3;right:1;none:3;toggle:1;none:10;down:1;none:3;right:1;none:3;right:1;none:3;right:1;none:3;toggle:1;none:30;pattern:1;none:10;toggle:1;none:10;pattern:1;none:5;pattern:1;none:150;down:1;none:3;toggle:1;none:60;pattern:1;none:200"
+checks = ["636861a3623da08f", "85bddbfca4ea7caf", "6435cd87b6de45ce", "d13614955472882b", "bd8b3fa23815d3b1", "38c7867b24d9c2a5", "e6759431b567804e", "5ef12ff3cb650632"]
+final_state = "79f2732cc05870cd"
+
+[fingerprint_parts]
+"conf.lua" = "783852f93f142beb"
+"main.lua" = "4df60af94113f134"
+music = "750a12ec4c28eaba"
+"music/kit.mml" = "a3a96074551c2121"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+pattern = "TAB"
+pause = "ESCAPE"
+toggle = "SPACE"

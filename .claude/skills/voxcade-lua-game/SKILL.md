@@ -418,6 +418,15 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   = 3 })` or `c.audio.crossfade = 3` (else the old ends, a short pause,
   the new begins). Only heard, never in the replays. Music is never a kit's:
   which song plays when is the game's code.
+- Music from the game's own data (a drum machine, patterns from a level):
+  a `.mml` of `c.audio.music` with instruments and no channel is a studio;
+  `music:play("kit", { from = "now", channels = { K = "@kick o4 l16 c r
+  r r ..." } })` lays channels of MML over it, built from the states
+  (`table.concat` of `c` and `r` a step). Every channel fills as many
+  whole bars; a mistake halts at the line naming the channel. "now" for
+  a step edited, "bar" for the next pattern; ask when a step changes.
+  `music.position` (beats with the fraction) drives a running light.
+  HELP's "A DRUM MACHINE", `games/drums`.
 
 ## main.lua: the rules
 
