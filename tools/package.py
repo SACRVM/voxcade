@@ -39,9 +39,10 @@ def main():
     out, source = Path(args.out), Path(args.source)
     out.mkdir(parents=True)
     # The Bench (a load test), the Arena (the first test yard), Lights
-    # (the lamps' and the fog's test hall) and Drums (songs from a game's
-    # data) are no games to show: they stay in the source.
-    shutil.copytree(source / "games", out / "games", ignore=shutil.ignore_patterns("bench", "arena", "lights", "drums", "shots", ".mcp.json"))
+    # (the lamps' and the fog's test hall), Drums (songs from a game's
+    # data) and Studio (a machine played through its model) are no games
+    # to show: they stay in the source.
+    shutil.copytree(source / "games", out / "games", ignore=shutil.ignore_patterns("bench", "arena", "lights", "drums", "studio", "shots", ".mcp.json"))
     shutil.copytree(source / "lua", out / "lua")
     for text in ["dist/README.txt", "dist/LIESMICH.txt", "LICENSE.txt", "NOTICE.txt"]:
         # Windows' own editor wants its line ends.

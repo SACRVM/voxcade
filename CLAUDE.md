@@ -612,6 +612,21 @@ nearest; its replay `tests/two_ships`);
   scenarios `second_pattern` and `empty_machine`; its replay
   `tests/toggle_and_switch` toggles steps, switches the pattern, calls a
   switch off before the bar and edits a pattern while it waits.
+- A machine played through its model (a trial, 2026-11-22): `games/studio`
+  (no cover, not listed, not packaged; `GAMES_OF_VOXCADE` names it), the
+  drum machine as a level's piece, `machine.vvx`, a figure of 48 parts
+  (`tools/gen_studio.py` made it and keeps it: the owner's now; main.lua's
+  `LAYOUT` mirrors its places): `step_1`..`step_16`, `pick_kick`/`_snare`/
+  `_hat`, `pattern_a`/`_b`, `start`, the knobs `knob_level`, `knob_tempo`
+  (shown only), `knob_volume` (`music:volume`) and a lamp `led_*` for
+  each button. `c.pointer = "system"`: a click reads `input.pointer.part`;
+  the machine answers by `thing.state.parts` set every tick (a button held
+  sinks by `offset`, a lamp out sinks into the case, a knob turns), the
+  mark under the pointer a `frame:light`; STOP plays the silent studio
+  `music/off.mml`. Its scenarios `empty_machine` and `stopped`; its replay
+  `tests/click_the_machine` clicks steps, the edge of one and the case
+  between two, an instrument, a pattern, drags and wheels the knobs,
+  stops and starts.
 - Tests on every push (the owner's D1, 2026-11-13;
   `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
   only, mesa's lavapipe standing in for the GPU): the release build,
@@ -651,7 +666,7 @@ nearest; its replay `tests/two_ships`);
   holds the packages back): Linux and Windows
   (macOS Intel only started by hand with it), SDL3 built in (`--features
   static-sdl`); `tools/package.py` puts the folder together (the games
-  but the Arena, the Bench, Lights and Drums, `dist/README.txt` and `LIESMICH.txt`, players first; on
+  but the Arena, the Bench, Lights, Drums and Studio, `dist/README.txt` and `LIESMICH.txt`, players first; on
   Linux `start-voxcade.sh`; `THIRD-PARTY-LICENSES.txt` from
   `tools/third_party_licenses.py`: the licences of every crate linked,
   SDL, Lua and egui's fonts). The program started without anything opens
@@ -665,7 +680,7 @@ nearest; its replay `tests/two_ships`);
   its picture, `cover.png` in its folder, 480 by 270, a shot of the
   game; without one the card shows its name; of the games beside the
   program only those with a cover are listed, and the package leaves
-  the Arena, the Bench, Lights and Drums out: only the games we show, the user). New versions
+  the Arena, the Bench, Lights, Drums and Studio out: only the games we show, the user). New versions
   (`src/update.rs`, `voxcade update [--install]`): the feed is the
   website's `release.toml` (the version, each system's package and its
   SHA-256; `VOXCADE_UPDATE_FEED` another, a file's path too), nothing

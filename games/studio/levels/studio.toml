@@ -1,0 +1,18 @@
+format = "voxcade level 1"
+size = [211, 121, 40]
+
+[[thing]]
+name = "table"
+model = "table.vvx"
+at = [105, 60, 0]
+facing = "north"
+
+[[thing]]
+name = "machine"
+model = "machine.vvx"
+at = [105, 64, 2]
+facing = "north"
+
+[[place]]
+name = "start"
+at = [105, 58, 2]

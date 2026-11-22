@@ -35,10 +35,10 @@ fn config_from(xdg: Option<PathBuf>, home: Option<PathBuf>, appdata: Option<Path
 }
 
 /// The games that come with Voxcade (the source's `games/`; the package
-/// has them but the Arena, the Bench, Lights and Drums): their folders' bare names are
+/// has them but the Arena, the Bench, Lights, Drums and Studio): their folders' bare names are
 /// theirs alone in the config folder (`settle`; test
 /// `the_games_of_voxcade_are_the_sources_games`).
-pub(crate) const GAMES_OF_VOXCADE: [&str; 9] = ["arena", "bench", "bunnyfarm", "drums", "lights", "moreblood", "pulsar", "sokovox", "voxkeep"];
+pub(crate) const GAMES_OF_VOXCADE: [&str; 10] = ["arena", "bench", "bunnyfarm", "drums", "lights", "moreblood", "pulsar", "sokovox", "studio", "voxkeep"];
 
 /// Who a game folder is for what is kept of it outside the folder: its
 /// settings and high scores, saves, kept runs, and the IDE's memory,

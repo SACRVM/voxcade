@@ -38,7 +38,8 @@ LÖVE is: a game you make with it is yours, to give away or to sell.
 
 `games/bench` is no game: a load test at 16-bit sprite scale; nor is
 `games/lights`, a test hall for the lamps, the fog and what stops them,
-nor `games/drums`, a drum machine that tries songs a game writes itself.
+nor `games/drums`, a drum machine that tries songs a game writes itself,
+nor `games/studio`, the same machine as a model played with the mouse.
 
 ## Run it from source
 
