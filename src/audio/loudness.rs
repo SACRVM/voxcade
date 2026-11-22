@@ -55,20 +55,20 @@ impl KWeighting {
         let pi = std::f64::consts::PI;
         let rate = f64::from(rate);
         let (f0, g, q) = (1681.974450955533, 3.999843853973347, 0.7071752369554196);
-        let k = (pi * f0 / rate).tan();
-        let vh = 10f64.powf(g / 20.0);
-        let vb = vh.powf(0.4996667741545416);
+        let k = libm::tan(pi * f0 / rate);
+        let vh = libm::pow(10.0, g / 20.0);
+        let vb = libm::pow(vh, 0.4996667741545416);
         let a0 = 1.0 + k / q + k * k;
         let shelf = [(vh + vb * k / q + k * k) / a0, 2.0 * (k * k - vh) / a0, (vh - vb * k / q + k * k) / a0, 2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0];
         let (f0, q) = (38.13547087602444, 0.5003270373238773);
-        let k = (pi * f0 / rate).tan();
+        let k = libm::tan(pi * f0 / rate);
         let a0 = 1.0 + k / q + k * k;
         let high_pass = [1.0, -2.0, 1.0, 2.0 * (k * k - 1.0) / a0, (1.0 - k / q + k * k) / a0];
         Self { shelf, high_pass, offset: STANDARD_OFFSET }
     }
 
     fn lufs(&self, mean_square: f64) -> f64 {
-        self.offset + 10.0 * mean_square.log10()
+        self.offset + 10.0 * libm::log10(mean_square)
     }
 }
 

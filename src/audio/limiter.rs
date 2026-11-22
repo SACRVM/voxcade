@@ -131,11 +131,11 @@ impl Limiter {
         Self {
             sample_rate,
             options,
-            ceiling: 10f64.powf(options.ceiling_db_tp / 20.0) as f32,
-            drive: if options.drive_db == 0.0 { 1.0 } else { 10f64.powf(options.drive_db / 20.0) as f32 },
+            ceiling: libm::pow(10.0, options.ceiling_db_tp / 20.0) as f32,
+            drive: if options.drive_db == 0.0 { 1.0 } else { libm::pow(10.0, options.drive_db / 20.0) as f32 },
             lookahead,
-            fast_release: (-1.0 / (options.fast_release_ms * rate / 1000.0)).exp(),
-            slow_release: (-1.0 / (options.slow_release_ms * rate / 1000.0)).exp(),
+            fast_release: libm::exp(-1.0 / (options.fast_release_ms * rate / 1000.0)),
+            slow_release: libm::exp(-1.0 / (options.slow_release_ms * rate / 1000.0)),
             phase: true_peak_phases(),
             fir_l: [0.0; FIR_DELAY],
             fir_r: [0.0; FIR_DELAY],
@@ -175,7 +175,7 @@ impl Limiter {
     pub fn set_drive_db(&mut self, drive_db: f64) {
         if drive_db != self.options.drive_db {
             self.options.drive_db = drive_db;
-            self.drive = if drive_db == 0.0 { 1.0 } else { 10f64.powf(drive_db / 20.0) as f32 };
+            self.drive = if drive_db == 0.0 { 1.0 } else { libm::pow(10.0, drive_db / 20.0) as f32 };
         }
     }
 
@@ -185,7 +185,7 @@ impl Limiter {
     pub fn set_ceiling_db(&mut self, ceiling_db_tp: f64) {
         if ceiling_db_tp != self.options.ceiling_db_tp {
             self.options.ceiling_db_tp = ceiling_db_tp;
-            self.ceiling = 10f64.powf(ceiling_db_tp / 20.0) as f32;
+            self.ceiling = libm::pow(10.0, ceiling_db_tp / 20.0) as f32;
         }
     }
 
@@ -222,7 +222,7 @@ impl Limiter {
     /// What it did since the last call, and starts counting anew.
     pub fn read_telemetry(&mut self) -> Telemetry {
         let t = Telemetry {
-            gain_reduction_db: if self.tel_min_gain >= 1.0 { 0.0 } else { 20.0 * self.tel_min_gain.log10() },
+            gain_reduction_db: if self.tel_min_gain >= 1.0 { 0.0 } else { 20.0 * libm::log10(self.tel_min_gain) },
             duty_cycle: if self.tel_total_frames > 0 { self.tel_active_frames as f64 / self.tel_total_frames as f64 } else { 0.0 },
             left_at_ceiling: self.tel_hit_l,
             right_at_ceiling: self.tel_hit_r,
@@ -337,9 +337,9 @@ fn true_peak_phases() -> [[f32; FIR_DELAY]; FACTOR] {
         let mut c = 1.0;
         if m != 0.0 {
             let x = m * std::f64::consts::PI / FACTOR as f64;
-            c = x.sin() / x;
+            c = libm::sin(x) / x;
         }
-        c *= 0.5 * (1.0 - (2.0 * std::f64::consts::PI * j as f64 / (TAPS - 1) as f64).cos());
+        c *= 0.5 * (1.0 - libm::cos(2.0 * std::f64::consts::PI * j as f64 / (TAPS - 1) as f64));
         phase[j % FACTOR][j / FACTOR] = c as f32;
     }
     phase
@@ -393,7 +393,7 @@ pub fn true_peak_stereo(samples: &[f32]) -> f32 {
 
 /// A linear amplitude in dBTP (minus infinity for 0).
 pub fn db_tp(linear: f32) -> f64 {
-    if linear <= 0.0 { f64::NEG_INFINITY } else { 20.0 * f64::from(linear).log10() }
+    if linear <= 0.0 { f64::NEG_INFINITY } else { 20.0 * libm::log10(f64::from(linear)) }
 }
 
 /// A whole recording limited offline, as the speaker would play it but

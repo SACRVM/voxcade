@@ -266,7 +266,7 @@ fn noise_of(p: &Phoneme, v: Five, burst: bool) -> ([(f32, f32, f32); 2], f32) {
 /// Bands and a flat part scaled so their noise lies `under` dB under a vowel.
 fn scaled(bands: [(f32, f32, f32); 2], flat: f32, under: f32) -> ([(f32, f32, f32); 2], f32) {
     let power: f32 = bands.iter().map(|(_, w, l)| l * l * std::f32::consts::PI * w / SAMPLE_RATE as f32).sum::<f32>() + flat * flat;
-    let scale = VOWEL * 10f32.powf(under / 20.0) / power.sqrt().max(1e-6);
+    let scale = VOWEL * libm::powf(10.0, under / 20.0) / power.sqrt().max(1e-6);
     (bands.map(|(f, w, l)| (f, w, l * scale)), flat * scale)
 }
 
@@ -634,10 +634,10 @@ impl Band {
     fn set(&mut self, f: f32, bw: f32) {
         let w = std::f64::consts::TAU * f64::from(f).min(SR * 0.45) / SR;
         // Q is the band's middle over its width.
-        let alpha = w.sin() * f64::from(bw) / (2.0 * f64::from(f).max(1.0));
+        let alpha = libm::sin(w) * f64::from(bw) / (2.0 * f64::from(f).max(1.0));
         let a0 = 1.0 + alpha;
         self.b = [alpha / a0, 0.0, -alpha / a0];
-        self.a = [-2.0 * w.cos() / a0, (1.0 - alpha) / a0];
+        self.a = [-2.0 * libm::cos(w) / a0, (1.0 - alpha) / a0];
     }
 
     fn next(&mut self, x: f64) -> f64 {
@@ -650,8 +650,8 @@ impl Band {
 
 /// A formant resonator's coefficients (Klatt's: unity gain at 0 Hz).
 fn resonator(f: f64, bw: f64) -> (f64, f64, f64) {
-    let c = -(-2.0 * std::f64::consts::PI * bw / SR).exp();
-    let b = 2.0 * (-std::f64::consts::PI * bw / SR).exp() * (std::f64::consts::TAU * f / SR).cos();
+    let c = -libm::exp(-2.0 * std::f64::consts::PI * bw / SR);
+    let b = 2.0 * libm::exp(-std::f64::consts::PI * bw / SR) * libm::cos(std::f64::consts::TAU * f / SR);
     (1.0 - b - c, b, c)
 }
 
@@ -773,7 +773,7 @@ impl Singer {
             low: 0.0,
             zero: (NASAL_POLE.0, NASAL_POLE.0),
             flat_low: 0.0,
-            pass: 1.0 - (-std::f64::consts::TAU * MURMUR / SR).exp(),
+            pass: 1.0 - libm::exp(-std::f64::consts::TAU * MURMUR / SR),
             pole: resonator(NASAL_POLE.0, NASAL_POLE.1),
             zero_made: (0.0, (0.0, 0.0, 0.0)),
             cursor: 0,
@@ -828,7 +828,7 @@ impl Singer {
                 }
             }
             let into = (t - s.from) as f64;
-            let k = if s.glide == 0 || into >= f64::from(s.glide) { 1.0 } else { 0.5 - 0.5 * (std::f64::consts::PI * into / f64::from(s.glide)).cos() };
+            let k = if s.glide == 0 || into >= f64::from(s.glide) { 1.0 } else { 0.5 - 0.5 * libm::cos(std::f64::consts::PI * into / f64::from(s.glide)) };
             let mut aim = s.formants;
             if let Some(turn) = s.turn {
                 let along = (t - s.from) as f32 / (s.to - s.from) as f32;
@@ -847,7 +847,7 @@ impl Singer {
             (voicing, aspiration, taps, murmur) = (f64::from(s.voicing), f64::from(s.aspiration), f64::from(s.taps), f64::from(s.murmur));
         }
         // The levels glide (5 ms voicing, murmur and breath).
-        let keep = |ms: f64| (-1000.0 / (SR * ms)).exp();
+        let keep = |ms: f64| libm::exp(-1000.0 / (SR * ms));
         self.levels[0] = voicing + (self.levels[0] - voicing) * keep(5.0);
         self.levels[1] = aspiration + (self.levels[1] - aspiration) * keep(4.0);
         self.levels[2] = murmur + (self.levels[2] - murmur) * keep(5.0);
@@ -929,7 +929,7 @@ impl Singer {
                 // strong as the glottis closes (Klatt 1980, p. 976-977: a
                 // square wave of 50 %; here a cosine, ours, so it does not
                 // step).
-                hiss *= 0.75 + 0.25 * (std::f64::consts::TAU * self.phase).cos();
+                hiss *= 0.75 + 0.25 * libm::cos(std::f64::consts::TAU * self.phase);
             }
         } else {
             for band in &mut self.bands {

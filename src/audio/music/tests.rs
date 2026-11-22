@@ -744,8 +744,9 @@ fn the_singer_tells_g_from_b_and_r_from_l() {
 /// maths library, whose last bit differs between glibc versions and systems
 /// and which the drive and the crusher blow up (as `sim::math` for the
 /// simulation); `libm` instead. `sqrt` is exactly rounded and stays.
-/// `clear.rs` (the clear voice) is left out until its rewrite is merged and
-/// it follows in a commit of its own.
+/// The limiter and the loudness meter, which the WAVs go through, too. The
+/// tests themselves (`tests.rs`, `loop_tests.rs`, what follows a
+/// `#[cfg(test)]`) only measure, and measure with std.
 #[test]
 fn the_music_does_its_own_math() {
     let banned = [
@@ -753,13 +754,16 @@ fn the_music_does_its_own_math() {
         ".exp(", ".exp2(", ".ln(", ".log(", ".log2(", ".log10(", ".powf(", ".powi(", ".cbrt(", ".hypot(",
     ];
     let mut found = Vec::new();
-    for entry in std::fs::read_dir("src/audio/music").expect("reading the music") {
-        let path = entry.unwrap().path();
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir("src/audio/music").expect("reading the music").map(|e| e.unwrap().path()).collect();
+    files.extend(["src/audio/limiter.rs", "src/audio/loudness.rs"].map(Into::into));
+    for path in files {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if ["clear.rs", "tests.rs", "loop_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
+        if ["tests.rs", "loop_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
-        for (n, line) in std::fs::read_to_string(&path).unwrap().lines().enumerate() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let text = text.split("#[cfg(test)]").next().unwrap_or("");
+        for (n, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or("");
             for b in banned.iter().filter(|b| code.contains(*b)) {
                 found.push(format!("{}:{}: {b}", path.display(), n + 1));
