@@ -614,19 +614,23 @@ nearest; its replay `tests/two_ships`);
   switch off before the bar and edits a pattern while it waits.
 - A machine played through its model (a trial, 2026-11-22): `games/studio`
   (no cover, not listed, not packaged; `GAMES_OF_VOXCADE` names it), the
-  drum machine as a level's piece, `machine.vvx`, a figure of 48 parts
+  drum machine as a level's piece, `machine.vvx`, a figure of 50 parts
   (`tools/gen_studio.py` made it and keeps it: the owner's now; main.lua's
-  `LAYOUT` mirrors its places): `step_1`..`step_16`, `pick_kick`/`_snare`/
-  `_hat`, `pattern_a`/`_b`, `start`, the knobs `knob_level`, `knob_tempo`
-  (shown only), `knob_volume` (`music:volume`) and a lamp `led_*` for
-  each button. `c.pointer = "system"`: a click reads `input.pointer.part`;
-  the machine answers by `thing.state.parts` set every tick (a button held
-  sinks by `offset`, a lamp out sinks into the case, a knob turns), the
-  mark under the pointer a `frame:light`; STOP plays the silent studio
-  `music/off.mml`. Its scenarios `empty_machine` and `stopped`; its replay
-  `tests/click_the_machine` clicks steps, the edge of one and the case
-  between two, an instrument, a pattern, drags and wheels the knobs,
-  stops and starts.
+  `LAYOUT` mirrors its places): `step_1`..`step_16`, a column a voice
+  (`pick_kick`/`_snare`/`_hat` under its level knob `knob_kick`/`_snare`/
+  `_hat`), `pattern_a`/`_b`, `start`, `knob_tempo` (shown only),
+  `knob_volume` (`music:volume`) and a lamp `led_*` for each button; its
+  labels and the nameplate (`NAME`, the placeholder RUMMS 80, the owner
+  names it) painted into the case's top in 3 by 5 voxel letters. A knob is
+  one value turned by the hand alone (the owner: a knob that turns by
+  itself cannot be). `c.pointer = "system"`: a click reads
+  `input.pointer.part`; the machine answers by `thing.state.parts` set
+  every tick (a button held sinks by `offset`, a lamp out sinks into the
+  case, a knob turns), the mark under the pointer a `frame:light`; STOP
+  plays the silent studio `music/off.mml`. Its scenarios `empty_machine`
+  and `stopped`; its replay `tests/click_the_machine` clicks steps, the
+  edge of one and the case between two, the voices, a pattern, drags and
+  wheels the knobs, stops and starts.
 - Tests on every push (the owner's D1, 2026-11-13;
   `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
   only, mesa's lavapipe standing in for the GPU): the release build,

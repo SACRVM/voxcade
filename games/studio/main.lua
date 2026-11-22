@@ -6,6 +6,9 @@
 -- sinks into the case), a knob turns. As in games/drums each row is a
 -- channel of MML laid over the instruments of music/kit.mml; the machine
 -- edits one instrument at a time, its sixteen buttons that one's steps.
+-- A knob is one value, turned by the hand alone (a drag or the wheel on
+-- it): each voice has its own level knob, so picking another voice moves
+-- none.
 
 local ROWS = {
   { name = "kick", channel = "K" },
@@ -17,12 +20,14 @@ local ROWS = {
 -- low corner (tools/gen_studio.py's numbers; the API gives no part's
 -- place): a button's corner, width and depth. Only for the mark under the
 -- pointer.
-local W, D, TOP = 151, 61, 9
+local W, D, TOP = 151, 77, 9
 local LAYOUT = {
-  pick_kick = { 10, 22, 9, 6 }, pick_snare = { 24, 22, 9, 6 }, pick_hat = { 38, 22, 9, 6 },
-  pattern_a = { 96, 22, 9, 6 }, pattern_b = { 110, 22, 9, 6 }, start = { 130, 22, 11, 8 },
-  knob_level = { 24, 40, 9, 9 }, knob_tempo = { 112, 40, 9, 9 }, knob_volume = { 130, 40, 9, 9 },
+  pick_kick = { 8, 26, 9, 6 }, pick_snare = { 32, 26, 9, 6 }, pick_hat = { 56, 26, 9, 6 },
+  pattern_a = { 102, 26, 9, 6 }, pattern_b = { 116, 26, 9, 6 }, start = { 132, 26, 11, 6 },
+  knob_kick = { 8, 39, 9, 9 }, knob_snare = { 32, 39, 9, 9 }, knob_hat = { 56, 39, 9, 9 },
+  knob_tempo = { 104, 39, 9, 9 }, knob_volume = { 131, 39, 9, 9 },
 }
+local KNOBS = { "knob_kick", "knob_snare", "knob_hat", "knob_tempo", "knob_volume" }
 for i = 1, 16 do
   LAYOUT["step_" .. i] = { 8 + (i - 1) * 8 + (i - 1) // 4 * 3, 4, 6, 5 }
 end
@@ -43,11 +48,9 @@ function on_world_start()
   world.state.row = 1        -- the instrument the step buttons edit
   world.state.step = 1       -- the keys' cursor
   world.state.running = true
-  -- The knobs, 0 to 1: each instrument's level, the tempo (shown only:
-  -- a game cannot set a song's tempo yet) and the volume.
-  world.state.levels = { 0.8, 0.8, 0.8 }
-  world.state.tempo = 0.5
-  world.state.volume = 1
+  -- The knobs by their parts' names, 0 to 1: each voice's level, the
+  -- tempo (shown only: a game cannot set a song's tempo yet), the volume.
+  world.state.knobs = { knob_kick = 0.8, knob_snare = 0.8, knob_hat = 0.8, knob_tempo = 0.5, knob_volume = 1 }
 end
 
 -- The pattern shown as channels of MML, a row each: its instrument and
@@ -55,7 +58,7 @@ end
 local function channels()
   local s, out = world.state, {}
   for r, row in ipairs(ROWS) do
-    local notes = { "@" .. row.name .. " v" .. math.floor(s.levels[r] * 15 + 0.5) .. " o4 l16" }
+    local notes = { "@" .. row.name .. " v" .. math.floor(s.knobs["knob_" .. row.name] * 15 + 0.5) .. " o4 l16" }
     for i = 1, 16 do notes[#notes + 1] = s.patterns[s.shown][r][i] and "c" or "r" end
     out[row.channel] = table.concat(notes, " ")
   end
@@ -86,33 +89,22 @@ end
 function on_level_start(how)
   world.state.playing = world.state.shown
   lay_pattern()
-  music:volume(world.state.volume, 0)
+  music:volume(world.state.knobs.knob_volume, 0)
 end
 
 function on_beat(beat)
   if beat % 4 == 0 then world.state.playing = world.state.shown end
 end
 
--- A knob turned by an amount: its value, and what it changes.
+-- A knob turned by the hand: its value, and what it changes.
 local function turn(knob, by)
   local s = world.state
-  local function clamp(v) return math.max(0, math.min(1, v)) end
-  if knob == "knob_level" then
-    s.levels[s.row] = clamp(s.levels[s.row] + by)
+  s.knobs[knob] = math.max(0, math.min(1, s.knobs[knob] + by))
+  if knob == "knob_volume" then
+    music:volume(s.knobs[knob], 0.05)
+  elseif knob ~= "knob_tempo" then
     lay_pattern()
-  elseif knob == "knob_tempo" then
-    s.tempo = clamp(s.tempo + by)
-  elseif knob == "knob_volume" then
-    s.volume = clamp(s.volume + by)
-    music:volume(s.volume, 0.05)
   end
-end
-
-local function knob_value(knob)
-  local s = world.state
-  if knob == "knob_level" then return s.levels[s.row] end
-  if knob == "knob_tempo" then return s.tempo end
-  return s.volume
 end
 
 -- What pressing a part does (the mouse's click, or the keys').
@@ -164,8 +156,8 @@ local function pose()
     lamp("led_" .. name, p == s.shown or (p == s.playing and blink))
   end
   lamp("led_start", s.running)
-  for _, knob in ipairs({ "knob_level", "knob_tempo", "knob_volume" }) do
-    parts[knob] = { rotation = (knob_value(knob) - 0.5) * 270 }
+  for _, knob in ipairs(KNOBS) do
+    parts[knob] = { rotation = (s.knobs[knob] - 0.5) * 270 }
   end
   if s.held then parts[s.held] = { offset = { 0, 0, -1 } } end
   return parts
@@ -189,7 +181,7 @@ function on_tick()
   -- The mouse: a press on a part, a knob dragged up or down or wheeled.
   if input:pressed("click") and over then
     if over:match("^knob_") then
-      s.drag = { knob = over, y = p.y, from = knob_value(over) }
+      s.drag = { knob = over, y = p.y, from = s.knobs[over] }
     else
       s.held = over
       press(over)
@@ -197,7 +189,7 @@ function on_tick()
   end
   if s.drag then
     if input:held("click") and p then
-      turn(s.drag.knob, s.drag.from + (s.drag.y - p.y) / 40 - knob_value(s.drag.knob))
+      turn(s.drag.knob, s.drag.from + (s.drag.y - p.y) / 40 - s.knobs[s.drag.knob])
     else
       s.drag = nil
     end

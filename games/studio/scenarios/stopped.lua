@@ -3,9 +3,10 @@
 return {
   about = "Stopped on pattern B, the levels and the volume turned down",
   setup = function()
+    local knobs = world.state.knobs
     world.state.shown, world.state.playing = 2, 2
-    world.state.levels = { 0.6, 0.4, 0.3 }
-    world.state.volume = 0.7
+    knobs.knob_kick, knobs.knob_snare, knobs.knob_hat = 0.6, 0.4, 0.3
+    knobs.knob_volume = 0.7
     music:volume(0.7, 0)
     start_stop()
   end,

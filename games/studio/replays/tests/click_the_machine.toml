@@ -1,19 +1,19 @@
-# Voxcade replay: Studio, 420 ticks, quit, score 0
+# Voxcade replay: Studio, 460 ticks, quit, score 0
 version = 1
 game = "Studio"
-fingerprint = "09fec1dd6da78cdf"
-ticks = 420
+fingerprint = "62dab850335bd4b3"
+ticks = 460
 outcome = "quit"
 score = 0
-input = "none:30;pointer=33,115+picture=21857+thing=1+part=step_2:5;click+pointer=33,115+picture=21857+thing=1+part=step_2:4;pointer=33,115+picture=21857+thing=1+part=step_2:20;pointer=25,115+picture=21857+thing=1+part=case:3;click+pointer=25,115+picture=21857+thing=1+part=case:3;pointer=25,115+picture=21857+thing=1+part=case:10;click+pointer=10,115+picture=21857+thing=1+part=step_1:3;pointer=10,115+picture=21857+thing=1+part=step_1:10;pointer=62,79+picture=21857+thing=1+part=pick_snare:5;click+pointer=62,79+picture=21857+thing=1+part=pick_snare:3;pointer=62,79+picture=21857+thing=1+part=pick_snare:10;click+pointer=51,115+picture=21857+thing=1+part=step_3:3;pointer=51,115+picture=21857+thing=1+part=step_3:20;click+pointer=239,79+picture=21857+thing=1+part=pattern_b:3;pointer=239,79+picture=21857+thing=1+part=pattern_b:60;pointer=69,47+picture=21857+thing=1+part=knob_level:3;click+pointer=69,47+picture=21857+thing=1+part=knob_level:2;click+pointer=69,42+picture=21857+thing=1+part=knob_level:2;click+pointer=69,37+picture=21857+thing=1+part=knob_level:2;pointer=69,37+picture=21857+thing=1+part=knob_level:10;pointer=272,47+picture=21857+thing=1+part=knob_volume:3;turn_down+pointer=272,47+picture=21857+thing=1+part=knob_volume:1;pointer=272,47+picture=21857+thing=1+part=knob_volume:1;turn_down+pointer=272,47+picture=21857+thing=1+part=knob_volume:1;pointer=272,47+picture=21857+thing=1+part=knob_volume:5;click+pointer=282,78+picture=21857+thing=1+part=start:3;pointer=282,78+picture=21857+thing=1+part=start:40;click+pointer=282,78+picture=21857+thing=1+part=start:3;pointer=282,78+picture=21857+thing=1+part=start:60;none:5;right:1;none:3;toggle:1;none:20;pattern:1;none:61"
-checks = ["4b53c9e37941ef67", "a8169d06c67cb91c", "5785e9d3dd3ae881", "ecb6a489805acebf", "ea9d23ede1ce8309", "2356ba707bc0a613", "e4988b422c4552dc"]
-final_state = "e4988b422c4552dc"
+input = "none:30;pointer=39,128+picture=21857+thing=1+part=step_2:5;click+pointer=39,128+picture=21857+thing=1+part=step_2:4;pointer=39,128+picture=21857+thing=1+part=step_2:20;pointer=31,128+picture=21857+thing=1+part=case:3;click+pointer=31,128+picture=21857+thing=1+part=case:3;pointer=31,128+picture=21857+thing=1+part=case:10;click+pointer=16,128+picture=21857+thing=1+part=step_1:1;click+pointer=16,128+picture=21857+thing=1+part=case:2;pointer=16,128+picture=21857+thing=1+part=case:1;pointer=16,128+picture=21857+thing=1+part=step_1:9;pointer=83,87+picture=21857+thing=1+part=pick_snare:5;click+pointer=83,87+picture=21857+thing=1+part=pick_snare:3;pointer=83,87+picture=21857+thing=1+part=pick_snare:10;click+pointer=56,128+picture=21857+thing=1+part=step_3:3;pointer=56,128+picture=21857+thing=1+part=step_3:20;pointer=87,63+picture=21857+thing=1+part=knob_snare:3;click+pointer=87,63+picture=21857+thing=1+part=knob_snare:2;click+pointer=87,58+picture=21857+thing=1+part=knob_snare:2;click+pointer=87,53+picture=21857+thing=1+part=knob_snare:2;pointer=87,53+picture=21857+thing=1+part=knob_snare:10;click+pointer=130,87+picture=21857+thing=1+part=pick_hat:3;pointer=130,87+picture=21857+thing=1+part=pick_hat:10;click+pointer=37,87+picture=21857+thing=1+part=pick_kick:3;pointer=37,87+picture=21857+thing=1+part=pick_kick:10;click+pointer=246,87+picture=21857+thing=1+part=pattern_b:3;pointer=246,87+picture=21857+thing=1+part=pattern_b:60;pointer=270,63+picture=21857+thing=1+part=knob_volume:3;turn_down+pointer=270,63+picture=21857+thing=1+part=knob_volume:1;pointer=270,63+picture=21857+thing=1+part=knob_volume:1;turn_down+pointer=270,63+picture=21857+thing=1+part=knob_volume:1;pointer=270,63+picture=21857+thing=1+part=knob_volume:5;click+pointer=279,87+picture=21857+thing=1+part=start:3;pointer=279,87+picture=21857+thing=1+part=start:40;click+pointer=279,87+picture=21857+thing=1+part=start:3;pointer=279,87+picture=21857+thing=1+part=start:60;none:5;right:1;none:3;toggle:1;none:20;up:1;none:5;pattern:1;none:69"
+checks = ["4094e2e84f7c45cf", "2fce6bc3a9159d66", "ba43119d5f066334", "dee09a448ba6391c", "4a5cce4188224770", "44fe6416d6c89e08", "9a8d26b8c92fd1d9"]
+final_state = "666c1748bdfdf9e8"
 
 [fingerprint_parts]
 "conf.lua" = "bb8e9c89a4860381"
 "levels/studio.toml" = "e3860ffe658096bb"
-"machine.vvx" = "f5c98724c67f9988"
-"main.lua" = "fd7d62074fefd54b"
+"machine.vvx" = "bb0f17b1ce76acb6"
+"main.lua" = "f24882602559e5a5"
 music = "376b42609fde1210"
 "music/kit.mml" = "a3a96074551c2121"
 "music/off.mml" = "fd25e22f77f773fc"
