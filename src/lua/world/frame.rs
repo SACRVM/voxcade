@@ -216,6 +216,24 @@ impl UserData for Frame {
             o.cmds.push(Cmd::Model { file, thing, frame, turn, pose: posed });
             Ok(())
         });
+        // A level's piece posed for this picture alone, over its state's
+        // pose (laid as the pieces are drawn, `LuaGame::draw_game`).
+        m.add_method_mut("pose", |lua, o, (thing, pose): (Value, Given)| {
+            let what = "frame:pose";
+            let thing = thing_id(&thing, what)?;
+            let pose = look(lua, |h| match h.here.pieces.get(&thing) {
+                Some(p) => match &p.model {
+                    Some(file) => pose_of(&pose, file, h.parts.get(file), what),
+                    None => Err(mlua::Error::runtime(format!("{what}: {} has no model to pose (a light alone)", piece_name(h, thing)))),
+                },
+                None => {
+                    let kind = h.kind_name(h.thing(thing)?.kind).unwrap_or("player");
+                    Err(mlua::Error::runtime(format!("{what}: only a level's piece (a [[thing]] of its file with a model) is posed for now, not a thing of the kind '{kind}'")))
+                }
+            })?;
+            o.cmds.push(Cmd::Pose { thing, pose });
+            Ok(())
+        });
         m.add_method_mut("cube", |_, o, (x, y, z, rgba, glow): (f32, f32, f32, Option<GivenValue>, Option<f32>)| {
             o.cmds.push(Cmd::Cube { at: Vec3::new(x, y, z), color: color(rgba.as_ref().map(|g| &g.0), "frame:cube: color", [255, 255, 255, 255])?, glow: glow.unwrap_or(0.0) });
             Ok(())

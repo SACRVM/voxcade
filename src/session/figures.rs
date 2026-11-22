@@ -57,32 +57,54 @@ pub fn swinging<'a>(swing: &'a BTreeMap<String, f32>, body: &Body, tall: f32) ->
 
 /// How a figure's part is posed: turned about its joint (on its rest
 /// rotation), and moved by less than a voxel (`offset`, on its own), with
-/// what hangs on it. Only the picture.
+/// what hangs on it; and how much it glows (`glow`, 0 to 1, every voxel of
+/// it, in place of its colors' own; None: as the file says). Only the
+/// picture.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PartPose {
     pub turn: Quat,
     pub offset: Vec3,
+    pub glow: Option<f32>,
 }
 
 impl PartPose {
-    pub const REST: Self = Self { turn: Quat::IDENTITY, offset: Vec3::ZERO };
+    pub const REST: Self = Self { turn: Quat::IDENTITY, offset: Vec3::ZERO, glow: None };
 
     pub fn turned(turn: Quat) -> Self {
         Self { turn, ..Self::REST }
     }
+
+    /// Whether it moves the part (a glow alone moves nothing: the part
+    /// stands as at rest, its depth as it lies).
+    pub fn moves(&self) -> bool {
+        self.turn != Quat::IDENTITY || self.offset != Vec3::ZERO
+    }
 }
 
 /// A script's pose entry: a part by its name, degrees round, nose up,
-/// rolled (`turning`), and its offset in voxels.
-pub type PoseEntry = (String, [f32; 3], [f32; 3]);
+/// rolled (`turning`), its offset in voxels and its glow, each None where
+/// the script left it out.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PoseEntry {
+    pub part: String,
+    pub turn: Option<[f32; 3]>,
+    pub offset: Option<[f32; 3]>,
+    pub glow: Option<f32>,
+}
 
 /// A script's pose (each part by its name: degrees round, nose up, rolled,
-/// `turning`, an offset) over `under` (the kind's swing).
+/// `turning`, an offset, a glow) over `under` (a kind's swing, a piece's
+/// state's pose): its turn on top, its offset added, its glow in place of
+/// the one under it.
 pub fn posing<'a>(pose: &'a [PoseEntry], under: impl Fn(&str) -> PartPose + 'a) -> impl Fn(&str) -> PartPose + 'a {
     move |part| {
         let under = under(part);
-        match pose.iter().find(|(p, ..)| p == part) {
-            Some((_, [round, pitch, roll], offset)) => PartPose { turn: turning(*round, *pitch, *roll) * under.turn, offset: Vec3::from(*offset) + under.offset },
+        match pose.iter().find(|e| e.part == part) {
+            Some(e) => PartPose {
+                turn: e.turn.map_or(Quat::IDENTITY, |[round, pitch, roll]| turning(round, pitch, roll)) * under.turn,
+                offset: Vec3::from(e.offset.unwrap_or_default()) + under.offset,
+                glow: e.glow.or(under.glow),
+            },
             None => under,
         }
     }
@@ -100,8 +122,9 @@ pub(super) type Put<'a> = dyn FnMut(Vec3, [u8; 4], u8, u8, [i8; 4], [i8; 4], u8)
 
 /// What `draw` puts down at once: its voxels in the bank (if there), the
 /// see-through ones and all the visible ones (indices into the frame), its
-/// turn and its shift (`render::turned_centre`).
-pub(super) type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], &'a [u8], Quat, Vec3, f32);
+/// turn and its shift (`render::turned_centre`), how many steps nearer its
+/// depth is taken and its pose's glow.
+pub(super) type Piece<'a> = (Option<std::ops::Range<u32>>, &'a [u32], &'a [u32], &'a [u8], Quat, Vec3, f32, Option<f32>);
 
 /// Draws one frame of a model with its feet at `origin`, turned in quarter
 /// turns (model forward is +y) around a whole-voxel pivot, and freely by
@@ -161,14 +184,14 @@ pub(super) fn draw_placed(
     // directions, seen after the quarter turns and the free turn).
     let mut pieces: Vec<Piece> = Vec::new();
     if model.parts.is_empty() {
-        pieces.push((model.bank.get(frame).cloned(), &model.glass[frame], &model.visible[frame], model.covered.get(frame).map_or(&[][..], |c| &c[..]), rot, crate::render::turn_about(rot, about), 0.0));
+        pieces.push((model.bank.get(frame).cloned(), &model.glass[frame], &model.visible[frame], model.covered.get(frame).map_or(&[][..], |c| &c[..]), rot, crate::render::turn_about(rot, about), 0.0, None));
     } else {
         let mut chain: Vec<Option<(Quat, Vec3)>> = vec![None; model.parts.len()];
         let centre = Vec3::new(0.5, 0.5, 0.0);
         // Posed (or a part turned at rest), a part's depth is taken nearer
         // by how far down the figure it hangs (`ModelDraw::nearer`); at
         // rest nothing overlaps.
-        let posed = pose.iter().any(|q| *q != PartPose::REST) || rests_turned(model);
+        let posed = pose.iter().any(PartPose::moves) || rests_turned(model);
         let steps = |mut i: usize| {
             let mut n = 0.0;
             while let Some(p) = model.parts[i].parent.filter(|_| n < 16.0) {
@@ -186,7 +209,7 @@ pub(super) fn draw_placed(
             let shift = about + rot * (-(seen * centre) + quarter_turn * (own * centre) + quarter_turn * (b - centre) + centre - about);
             let p = &model.parts[i];
             let bank = (!model.bank.is_empty()).then(|| p.bank.clone());
-            pieces.push((bank, &p.glass, &p.visible, &p.covered, rot * seen, shift, if posed { steps(i) } else { 0.0 }));
+            pieces.push((bank, &p.glass, &p.visible, &p.covered, rot * seen, shift, if posed { steps(i) } else { 0.0 }, pose.get(i).and_then(|q| q.glow)));
         }
     }
     // What each set of lit faces (bits in mesh::DIRS order) becomes after
@@ -198,12 +221,12 @@ pub(super) fn draw_placed(
     });
     let turned_faces: [i8; 64] = std::array::from_fn(|mask| (0..6).filter(|f| mask >> f & 1 == 1).fold(0, |bits, f| bits | 1 << to[f]));
     let voxels = &model.frames[frame];
-    for (bank, glass, visible, covered, rot, shift, nearer) in pieces {
+    for (bank, glass, visible, covered, rot, shift, nearer, posed_glow) in pieces {
         // As cubes the visible voxels carry the faces their own neighbours
         // cover, as the bank's do (`vox::covered`); glass carries none.
         let (as_cubes, covered) = match (on_gpu.as_deref_mut(), bank) {
             (Some(on_gpu), Some(voxels)) => {
-                on_gpu.push(ModelDraw { voxels, origin, turn, rot, shift, tint: tint.map(|[r, g, b, _]| [r, g, b]), nearer, shadow_only: false });
+                on_gpu.push(ModelDraw { voxels, origin, turn, rot, shift, tint: tint.map(|[r, g, b, _]| [r, g, b]), nearer, glow: posed_glow, shadow_only: false });
                 (glass, &[][..])
             }
             _ => (visible, covered),
@@ -241,7 +264,9 @@ pub(super) fn draw_placed(
             } else {
                 origin + IVec3::new(x, y, l.z).as_vec3()
             };
-            put(corner, [r, g, b, color[3]], metal.and_then(|m| m.get(k)).copied().unwrap_or(0), glow.and_then(|g| g.get(k)).copied().unwrap_or(0), lit, snorm, hidden);
+            // A pose's glow in place of the voxel's own, as the shader takes it.
+            let shine = posed_glow.map_or_else(|| glow.and_then(|g| g.get(k)).copied().unwrap_or(0), crate::render::glow_byte);
+            put(corner, [r, g, b, color[3]], metal.and_then(|m| m.get(k)).copied().unwrap_or(0), shine, lit, snorm, hidden);
         }
     }
 }

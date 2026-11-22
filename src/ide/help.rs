@@ -1777,6 +1777,76 @@ end
 "##,
     },
     Topic {
+        title: "A LAMP THAT BLINKS",
+        text: "A part of a piece can shine or go out without moving: glow in its pose, 0 to 1, in place of the colors' glow in its file (1 a lamp lit, 0 a lamp out). It lights nothing round it: a frame:light does that. frame:pose poses a piece for this picture only, over the pose its state holds, so what changes only for the eye (a lamp blinking, the part under the pointer lit) costs the game's rules nothing: they never see it. panel.vvx here is a figure of two parts, its case and its lamp. Walk up to it: it turns on, and its lamp blinks. Light the part under the pointer the same way (frame.pointer.part); move parts from on_tick, as the door's, for frame.pointer is of the picture before.",
+        conf: r##"c.world.size = nil             -- no world made in code: the level is levels/hall.toml"##,
+        files: &[
+            ("levels/hall.toml", r##"format = "voxcade level 1"
+size = [64, 48, 24]
+
+[[thing]]
+name = "floor"
+model = "hall/floor.vvx"
+at = [32, 24, 0]
+solid = true
+
+[[thing]]
+name = "panel"
+model = "hall/panel.vvx"
+at = [32, 30, 1]
+facing = "north"
+
+[[place]]
+name = "start"
+at = [32, 12, 1]
+facing = "north"
+"##),
+            ("hall/floor.vvx", "format = \"voxcade voxel 1\"\nsize = [64, 48, 1]\n\n[palette]\na = { color = \"#5b4a3a\" }\n\n[[frame]]\nlayers = \"\"\"\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *48\n\"\"\"\n"),
+            ("hall/panel.vvx", r##"format = "voxcade voxel 1"
+size = [7, 3, 9]
+
+[palette]
+c = "#3a3a42"
+r = "#ff4028"
+
+[[part]]
+name = "case"
+at = [-3, -1, 0]
+layers = """
+ccccccc *3
+*8
+"""
+
+[[part]]
+name = "lamp"
+at = [-1, -1, 8]
+parent = "case"
+layers = """
+rrr *3
+"""
+"##),
+        ],
+        code: r##"-- The hall is levels/hall.toml: a floor and the panel, a piece whose
+-- model hall/panel.vvx is a figure of two parts, its case and its lamp.
+function on_tick()
+  for _, p in ipairs(level:players()) do
+    p:walk(p.input.dir, 40)
+  end
+  -- the player near: the panel is on (the rules' to know)
+  world.state.on = player:near(level:thing("panel"), 24)
+end
+
+function on_draw(frame)
+  -- on, its lamp blinks: lit (glow 1) or out (glow 0), only for the eye
+  local lit = world.state.on and world.tick // 20 % 2 == 0
+  frame:pose(level:thing("panel"), { lamp = { glow = lit and 1 or 0 } })
+  for _, p in ipairs(level:players()) do
+    frame:model(p.seat == 2 and "hero2.vvx" or "hero.vvx", p)
+  end
+end
+"##,
+    },
+    Topic {
         title: "THE LEVEL EDITOR",
         text: "EDIT on a level (or a double click on it under LEVELS) opens it in a window of its own.
 # THE THREE ZONES

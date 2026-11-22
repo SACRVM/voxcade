@@ -131,7 +131,9 @@ struct Actor {
     // rgb: the flash colour, w: 1 while it flashes
     tint: vec4<f32>,
     // x: how many steps nearer the eye its depth is taken (a posed
-    // figure's part, render::ModelDraw::nearer)
+    // figure's part, render::ModelDraw::nearer); y: how much every voxel
+    // glows in place of its own (a part posed with a glow,
+    // render::ModelDraw::glow; below 0: its own)
     extra: vec4<f32>,
     // Turned freely after the quarter turns (0 0 0 1: not at all), then
     // shifted by pivot.xyz (render::turned_centre); pivot.w 1: off the grid.
@@ -177,7 +179,9 @@ fn vs_model(
     // directions: ask with the face turned back.
     let own = vec3<f32>(quarter(normal.xy, 4u - k), normal.z);
     let lit = vec4<f32>(model_shade(shade.xyz), shade.w);
-    return model_out(cube_at(model_corner(pos_size.xyz, pos * pos_size.w), normal.xyz, own, model_centre(pos_size.xyz), model_color(color), fx, lit, actor.rot));
+    var drawn = fx;
+    drawn[FX_GLOW] = model_glow(fx[FX_GLOW]);
+    return model_out(cube_at(model_corner(pos_size.xyz, pos * pos_size.w), normal.xyz, own, model_centre(pos_size.xyz), model_color(color), drawn, lit, actor.rot));
 }
 
 // A model's colour as it is drawn: its own, or the flash's while it flashes.
@@ -186,6 +190,15 @@ fn model_color(color: vec4<f32>) -> vec4<f32> {
         return vec4<f32>(actor.tint.rgb, color.a);
     }
     return color;
+}
+
+// How much a model's voxel glows as it is drawn: its own, or its part's
+// pose's in place of it.
+fn model_glow(glow: f32) -> f32 {
+    if (actor.extra.y >= 0.0) {
+        return actor.extra.y;
+    }
+    return glow;
 }
 
 // The way a model's voxel is lit by (vox::VoxModel::shade, its own
@@ -230,7 +243,7 @@ fn vs_face(
     let local = face_cell(cell);
     let pos = CUBE_CORNERS[face_index(normal) * 4u + corner];
     let lit = f32(extractBits(cell, FACE_LIT_AT, 1u));
-    return model_out(voxel_face(model_corner(local, pos), normal, model_centre(local), model_color(look), look.a, 1.0, bytes.w, model_shade(shade.xyz), lit, actor.rot));
+    return model_out(voxel_face(model_corner(local, pos), normal, model_centre(local), model_color(look), model_glow(look.a), 1.0, bytes.w, model_shade(shade.xyz), lit, actor.rot));
 }
 
 // A baked face's voxel: its cell from the model's pivot cell

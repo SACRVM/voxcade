@@ -6,11 +6,13 @@ use super::*;
 
 impl<K: Kit> LuaGame<K> {
     /// `Game::draw`: the kits' things, the level's pieces with their lights, the
-    /// effects, then `on_draw` and what it asked for.
+    /// effects, then what `on_draw` asked for. `on_draw` runs before the
+    /// pieces are drawn (it only asks), so its `frame:pose` poses them.
     pub(super) fn draw_game(&self, out: &mut Drawing) {
         if let Some(kit) = self.kit() {
             kit.draw(out);
         }
+        self.run_on_draw(out);
         // The pieces the level set down, each its model where its pivot
         // stands, facing its way, and its light as bright as its state says
         // (off at 0). The script draws nothing for them.
@@ -40,11 +42,13 @@ impl<K: Kit> LuaGame<K> {
                 // It stops lamps, unless it brings a light of its own: a
                 // lantern's frame and glass round its flame stop none.
                 out.piece(p.lights.is_empty());
+                // This picture's pose (`frame:pose`) over it.
+                let picture = self.picture_pose(id);
                 out.of_thing(Some(self.stage.drawn_key(id)));
-                if pose.is_empty() {
+                if pose.is_empty() && picture.is_empty() {
                     out.model_turned(model, 0, out.body_origin(t.body), t.body.look, turn, None);
                 } else {
-                    let posed = crate::session::posing_alone(&pose);
+                    let posed = crate::session::posing(&picture, crate::session::posing_alone(&pose));
                     out.model_posed(model, 0, out.body_origin(t.body), t.body.look, turn, &posed, None);
                 }
                 out.of_thing(None);
@@ -83,8 +87,77 @@ impl<K: Kit> LuaGame<K> {
         for e in &self.stage.effects {
             out.model(&e.model, (e.age as f32 * e.fps / 60.0) as usize, e.at.floor(), glam::IVec2::NEG_Y, None);
         }
-        // Stopped by `on_tick`, the game is still drawn as it stands;
-        // stopped by `on_draw`, as `on_draw` last showed it.
+        for cmd in self.drawn.borrow().iter() {
+            match cmd {
+                Cmd::Model { file, thing, frame, turn, pose } => {
+                    let Some(t) = self.stage.seen(*thing) else { continue };
+                    let kind = self.stage.kinds.get(t.kind);
+                    let frame = frame.unwrap_or_else(|| out.figure_frame(file, kind.map_or(&NO_FRAMES, |k| &k.frames), t.body));
+                    let origin = out.body_origin(t.body);
+                    // Its kind may face exactly its way and spin; the
+                    // script turns it further.
+                    let facing = crate::session::facing(kind.is_some_and(|k| k.free_turn), t.body);
+                    let spin = crate::session::spinning(kind.map_or(0.0, |k| k.spin), self.stage.host.sim().tick as f32 + out.alpha());
+                    let [round, pitch, roll] = *turn;
+                    let turn = facing * spin * crate::session::turning(round, pitch, roll);
+                    // A figure of parts swings as its kind says, the
+                    // script's pose on top.
+                    let tall = out.model_of(file).map_or(1.0, |m| m.size.z as f32);
+                    let swung = crate::session::swinging(kind.map_or(&NO_SWING, |k| &k.swing), t.body, tall);
+                    let posed = crate::session::posing(pose, swung);
+                    out.of_thing(Some(self.stage.drawn_key(*thing)));
+                    out.model_posed(file, frame, origin, t.body.look, turn, &posed, (t.flash > 0).then_some(FLASH));
+                    out.of_thing(None);
+                }
+                // On the grid when the camera snaps, gliding as the models
+                // do otherwise.
+                Cmd::Cube { at, color, glow } => out.cube(out.snapped(*at), *color, *glow, color[3] as f32 / 255.0),
+                Cmd::Light(light) => out.light(*light),
+                Cmd::Daylight(day) => out.daylight(*day),
+                Cmd::Fog(fog) => out.fog(*fog),
+                // (Its code names it as Lua writes a call, or what is out
+                // of the game's own view would be missing.)
+                Cmd::Camera(_) if !self.code.moves_camera => {
+                    if self.halted.borrow().is_none() {
+                        self.halt(anyhow::anyhow!("frame:camera: call it as frame:camera({{ ... }}) in the game's code, so the engine knows the game sets its camera"));
+                    }
+                }
+                Cmd::Camera(cam) => out.camera(*cam),
+                // The pieces' (`picture_pose`); the HUD's, drawn by `hud`.
+                _ => {}
+            }
+        }
+    }
+
+    /// This picture's pose of piece `id`, its `frame:pose`s laid one over
+    /// the other in their order: per part, a later one's rotation, offset
+    /// and glow each in place of an earlier one's, what it leaves out kept
+    /// (a glow from one and a rotation from another both hold).
+    fn picture_pose(&self, id: u32) -> Vec<crate::session::PoseEntry> {
+        let mut laid: Vec<crate::session::PoseEntry> = Vec::new();
+        for cmd in self.drawn.borrow().iter() {
+            let Cmd::Pose { thing, pose } = cmd else { continue };
+            if *thing != id {
+                continue;
+            }
+            for e in pose {
+                match laid.iter_mut().find(|l| l.part == e.part) {
+                    Some(l) => {
+                        l.turn = e.turn.or(l.turn);
+                        l.offset = e.offset.or(l.offset);
+                        l.glow = e.glow.or(l.glow);
+                    }
+                    None => laid.push(e.clone()),
+                }
+            }
+        }
+        laid
+    }
+
+    /// Runs `on_draw` for this picture: what it asks for kept in
+    /// `drawn` (stopped by `on_tick`, the game is still drawn as it
+    /// stands; stopped by `on_draw`, as `on_draw` last showed it).
+    fn run_on_draw(&self, out: &Drawing) {
         if let Some(draw) = &self.code.draw
             && !self.draw_failed.get()
         {
@@ -125,46 +198,6 @@ impl<K: Kit> LuaGame<K> {
                         self.draw_halted.set(true);
                     }
                 }
-            }
-        }
-        for cmd in self.drawn.borrow().iter() {
-            match cmd {
-                Cmd::Model { file, thing, frame, turn, pose } => {
-                    let Some(t) = self.stage.seen(*thing) else { continue };
-                    let kind = self.stage.kinds.get(t.kind);
-                    let frame = frame.unwrap_or_else(|| out.figure_frame(file, kind.map_or(&NO_FRAMES, |k| &k.frames), t.body));
-                    let origin = out.body_origin(t.body);
-                    // Its kind may face exactly its way and spin; the
-                    // script turns it further.
-                    let facing = crate::session::facing(kind.is_some_and(|k| k.free_turn), t.body);
-                    let spin = crate::session::spinning(kind.map_or(0.0, |k| k.spin), self.stage.host.sim().tick as f32 + out.alpha());
-                    let [round, pitch, roll] = *turn;
-                    let turn = facing * spin * crate::session::turning(round, pitch, roll);
-                    // A figure of parts swings as its kind says, the
-                    // script's pose on top.
-                    let tall = out.model_of(file).map_or(1.0, |m| m.size.z as f32);
-                    let swung = crate::session::swinging(kind.map_or(&NO_SWING, |k| &k.swing), t.body, tall);
-                    let posed = crate::session::posing(pose, swung);
-                    out.of_thing(Some(self.stage.drawn_key(*thing)));
-                    out.model_posed(file, frame, origin, t.body.look, turn, &posed, (t.flash > 0).then_some(FLASH));
-                    out.of_thing(None);
-                }
-                // On the grid when the camera snaps, gliding as the models
-                // do otherwise.
-                Cmd::Cube { at, color, glow } => out.cube(out.snapped(*at), *color, *glow, color[3] as f32 / 255.0),
-                Cmd::Light(light) => out.light(*light),
-                Cmd::Daylight(day) => out.daylight(*day),
-                Cmd::Fog(fog) => out.fog(*fog),
-                // (Its code names it as Lua writes a call, or what is out
-                // of the game's own view would be missing.)
-                Cmd::Camera(_) if !self.code.moves_camera => {
-                    if self.halted.borrow().is_none() {
-                        self.halt(anyhow::anyhow!("frame:camera: call it as frame:camera({{ ... }}) in the game's code, so the engine knows the game sets its camera"));
-                    }
-                }
-                Cmd::Camera(cam) => out.camera(*cam),
-                // The HUD's, drawn by `hud`.
-                _ => {}
             }
         }
     }

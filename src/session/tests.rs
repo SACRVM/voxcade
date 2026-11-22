@@ -513,9 +513,9 @@ fn baked_models_draw_the_picture_their_cubes_draw() {
     }
     put(&smooth, [34.0, 56.0, 4.0], IVec2::X, turning(30.0, 10.0, -20.0), &[], None);
     put(&plain, [44.0, 56.0, 1.0], IVec2::Y, Quat::IDENTITY, &[], Some([255, 255, 255, 255]));
-    let posed = [PartPose::REST, PartPose::turned(turning(-70.0, 15.0, 0.0)), PartPose { turn: Quat::IDENTITY, offset: Vec3::new(0.3, -0.4, 0.0) }];
+    let posed = [PartPose::REST, PartPose::turned(turning(-70.0, 15.0, 0.0)), PartPose { offset: Vec3::new(0.3, -0.4, 0.0), ..PartPose::REST }];
     put(&edges, [56.0, 54.0, 1.0], IVec2::NEG_Y, Quat::IDENTITY, &posed, None);
-    put(&edges, [64.0, 40.0, 1.0], IVec2::X, Quat::IDENTITY, &[PartPose::REST, PartPose { turn: Quat::IDENTITY, offset: Vec3::new(0.0, 0.4, 0.3) }, PartPose::REST], None);
+    put(&edges, [64.0, 40.0, 1.0], IVec2::X, Quat::IDENTITY, &[PartPose::REST, PartPose { offset: Vec3::new(0.0, 0.4, 0.3), ..PartPose::REST }, PartPose::REST], None);
     // Last, a ceiling only casting its shadow over the floor.
     put(&plain, [40.0, 26.0, 9.0], IVec2::Y, Quat::IDENTITY, &[], None);
     draws.last_mut().unwrap().shadow_only = true;

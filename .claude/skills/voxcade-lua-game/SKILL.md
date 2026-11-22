@@ -135,7 +135,19 @@ is no number stop the game naming the piece and the part. It lasts this
 visit of the level only (not in saves): keep what must stay open in
 `world.state` (`world.state.door_open = true`) and set the pose again in
 `on_level_start`. A solid piece blocks where it stands at rest, whatever
-its pose (HELP's A DOOR THAT OPENS). A piece's
+its pose (HELP's A DOOR THAT OPENS). A pose entry (a `PoseEntry`, the
+same in `frame:model`'s pose, the state's and `frame:pose`'s) takes
+`offset = { x, y, z }` and `glow` too: 0 to 1, every voxel of the part
+shining in its own colors in place of the file's (`{ led_3 = { glow = 1
+} }` a lamp lit, `glow = 0` one out); it lights nothing round it (that is
+`frame:light`). What changes only for the eye goes in `on_draw`:
+`frame:pose(piece, { led_3 = { glow = 1 } })` poses a level's piece for
+that picture over its state's pose (a rotation on top, an offset added,
+a glow in its place; two calls lay part by part and key by key), and
+the rules never see it (HELP's A LAMP THAT BLINKS). Light the part under
+`frame.pointer.part`, never move it there: the pointer is of the picture
+before, and a moved part can slip out from under it. Only a level's
+pieces are posed so for now, not things of a kind. A piece's
 `at` is its pivot cell and `thing.x` reads `at + 0.5`: a cube beside it
 goes at `math.floor(thing.x) + dx`. A level's own daylight: `[light]`
 in its file with `c.light`'s words (`sun = [x, y, z]`, `sun_color`,

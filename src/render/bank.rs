@@ -63,6 +63,11 @@ pub struct ModelDraw {
     /// lie in one plane with its parent's the part further out wins,
     /// instead of both flickering through each other. 0: as it lies.
     pub nearer: f32,
+    /// How much every voxel glows, 0 to 1, in place of its colour's own (a
+    /// figure's part posed with a glow: a lamp lit or put out); None: its
+    /// own. Only how it is drawn: what stops a lamp keeps the colours'
+    /// own (`volume`, `movers`), and `volume::pieces_key` leaves it out.
+    pub glow: Option<f32>,
     /// Only in the sun's shadow map: casting, never drawn in the scene,
     /// outlined or glowing (a level's `shadow_only` piece: a ceiling the
     /// camera looks through).
@@ -102,6 +107,11 @@ pub fn turn_about(rot: Quat, about: Vec3) -> Vec3 {
 /// axis do not depend on the height.
 pub fn turn_centre(size: IVec3) -> Vec3 {
     Vec3::new(0.5, 0.5, (size.z / 2) as f32 + 0.5)
+}
+
+/// A glow of 0 to 1 as a voxel's byte (a cube's, the bank's `fx`).
+pub fn glow_byte(glow: f32) -> u8 {
+    (glow.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 /// Whether a draw leaves the grid: turned, or shifted (a figure's part).
@@ -170,6 +180,13 @@ impl ModelBank {
         self.runs().filter(|(_, f)| f.is_some()).count()
     }
 
+    /// Whether the run of `voxels` is drawn from its faces (`vs_face`),
+    /// else from its cubes (`vs_model`): the tests'.
+    #[cfg(test)]
+    pub(crate) fn drawn_from_faces(&self, voxels: &Range<u32>) -> bool {
+        self.runs().any(|(r, f)| r == *voxels && f.is_some())
+    }
+
     /// Every run, in order: its voxels, and its faces where it is drawn
     /// from them.
     pub(super) fn runs(&self) -> impl Iterator<Item = (Range<u32>, Option<&Faces>)> {
@@ -224,6 +241,7 @@ impl ModelBank {
             let shade = [nx as i8, ny as i8, nz, lit];
             // The covered faces too, as a cube carries them (`vs_inst`).
             let [glow, opacity, covered, metal] = v.fx;
+            let glow = draw.glow.map_or(glow, glow_byte);
             let covered = (0..6).filter(|f| covered >> f & 1 == 1).fold(0u8, |bits, f| bits | 1 << to[f]);
             Instance { pos_size: centre.extend(size).to_array(), color, fx: [glow, opacity, covered, metal], shade, turn: snorm_turn(draw.rot) }
         })
@@ -238,7 +256,9 @@ pub(super) struct ActorData {
     pub(super) origin: [f32; 4],
     /// rgb: the flash colour, w: 1 while it flashes.
     pub(super) tint: [f32; 4],
-    /// x: how many steps nearer the eye its depth is taken (`ModelDraw::nearer`).
+    /// x: how many steps nearer the eye its depth is taken (`ModelDraw::nearer`),
+    /// y: how much it glows in place of its voxels' own (`ModelDraw::glow`;
+    /// below 0: their own).
     pub(super) extra: [f32; 4],
     /// The free turn (xyzw; 0 0 0 1 none), and the shift after it (xyz;
     /// w 1 when it is off the grid at all).
