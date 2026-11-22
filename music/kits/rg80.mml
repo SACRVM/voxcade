@@ -1,7 +1,7 @@
-; Kit A: a drum kit after the analog drum machine of 1980 with the long
+; RG-80: a drum kit after the analog drum machine of 1980 with the long
 ; booming bass drum, the cowbell and the hand clap. A studio: instruments
 ; and no channel. A game lays its channels over it (music:play's channels),
-; one a row of steps: `music:play("kit_a", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
+; one a row of steps: `music:play("rg80", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
 ;
 ; Every sound comes from the voice circuits as their sources describe them;
 ; the source is named above each line, then what is our own because this
@@ -37,7 +37,7 @@
 ; carries the same slope on to silence (release = decay - 0.105), so a
 ; sixteenth and a longer note sound alike at 125. An exponential tail
 ; lingers longer under -20 dB than these lines do.
-#title Kit A
+#title RG-80
 #tempo 125
 
 ; Bass drum. [BD]: a 1 ms trigger pulse rings a bridged-T band pass, centre

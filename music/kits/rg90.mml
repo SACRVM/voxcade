@@ -1,7 +1,7 @@
-; Kit B: a drum kit after the drum machine of 1983 with the hard punchy
+; RG-90: a drum kit after the drum machine of 1983 with the hard punchy
 ; kick, analog drums and sampled hats and cymbals. A studio: instruments
 ; and no channel. A game lays its channels over it (music:play's channels),
-; one a row of steps: `music:play("kit_b", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
+; one a row of steps: `music:play("rg90", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
 ;
 ; The machine's analog voices are known by their structure (oscillators,
 ; waveshapers, envelopes, noise and filters); its service notes were not
@@ -28,7 +28,7 @@
 ; row is a sixteenth, let go after 7/8 of it (0.105 s at 125 a minute);
 ; `release` carries the decay's slope on to silence (release = decay -
 ; 0.105), so a sixteenth and a longer note sound alike at 125.
-#title Kit B
+#title RG-90
 #tempo 125
 
 ; Bass drum. [BD]: an oscillator whose wave a waveshaper turns into
@@ -63,7 +63,7 @@
 @snare_noise noise freq=20000 lowpass=9000 filter=highpass cutoff=1200 attack=0.0005 decay=0.18 sustain=0 release=0.075 volume=0.5
 
 ; Hand clap. [W]: the same noise as the snare. The clap of this family
-; is noise through a band pass, a few bursts and a tail (see kit A's
+; is noise through a band pass, a few bursts and a tail (see RG-80's
 ; sources). No numbers for this machine's at hand. Ours: gated as kit
 ; A's, three bursts 8 ms apart (the arpeggio at 500 steps a second: 2 ms
 ; on, 6 ms off), then the tail; band pass at 1300 Hz, decay 0.2 s.

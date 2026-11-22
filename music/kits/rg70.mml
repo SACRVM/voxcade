@@ -1,9 +1,9 @@
-; Kit C: a drum kit after the all-sampled drum machine of 1984/85: every
+; RG-70: a drum kit after the all-sampled drum machine of 1984/85: every
 ; sound a short recording of a real drum, in 8 bits (crash and ride in
 ; 6), played at a fixed rate, the hats and cymbals through analog
 ; envelopes. A studio: instruments and no channel. A game lays its
 ; channels over it (music:play's channels), one a row of steps:
-; `music:play("kit_c", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
+; `music:play("rg70", { channels = { K = "@kick o4 l16 c r r r ..." } })`.
 ;
 ; This synth has no samples. What can be taken from the machine is how it
 ; played them (the rate, the bits, which sounds had an envelope); the
@@ -31,7 +31,7 @@
 ; its 8 bits (grain growing as it dies away), as here; the hats' and
 ; cymbals' analog envelopes came after the sample, which ours cannot
 ; (their grain grows as they die away, the machine's did not).
-#title Kit C
+#title RG-70
 #tempo 125
 
 ; Bass drums ([W]: two). Ours: a sine falling from 110 Hz an octave to
@@ -60,10 +60,10 @@
 
 ; Cowbell ([W]): a recording of a real one. Ours: a square at 800 Hz in
 ; a band pass at 1600 Hz, 250 ms (a real bell's two strong partials need
-; two voices: kit A's two channels show how).
+; two voices: RG-80's two channels show how).
 @cowbell square freq=800 filter=bandpass cutoff=1600 resonance=0.5 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.25 sustain=0 release=0.145 volume=0.45
 
-; Hand clap ([W]). Ours: as kit A's (noise gated by its arpeggio, three
+; Hand clap ([W]). Ours: as RG-80's (noise gated by its arpeggio, three
 ; bursts 10 ms apart, then the tail), band pass at 1300 Hz, 0.2 s.
 @clap noise freq=20000 arp=0,0,-120,-120,-120,0,0,-120,-120,-120,0,0,-120,-120,-120,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 arp_speed=500 filter=bandpass cutoff=1300 resonance=0.5 crush_rate=25000 crush_bits=8 attack=0.0005 decay=0.2 sustain=0 release=0.095 volume=0.85
 

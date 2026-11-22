@@ -39,11 +39,11 @@ channel, over which a game lays its own channels (`music:play`'s
 classic drum machine of the 1980s so its sound can be modeled, made with
 this synth's own voices:
 
-- `kit_a.mml`, after the analog machine of 1980 with the long booming
+- `rg80.mml`, after the analog machine of 1980 with the long booming
   bass drum, the cowbell and the hand clap;
-- `kit_b.mml`, after the machine of 1983 with the hard punchy kick,
+- `rg90.mml`, after the machine of 1983 with the hard punchy kick,
   analog drums and sampled hats and cymbals;
-- `kit_c.mml`, after the all-sampled machine of 1984/85, 8 bits at
+- `rg70.mml`, after the all-sampled machine of 1984/85, 8 bits at
   25 kHz.
 
 Every instrument says above its line what its sources say the sound is
