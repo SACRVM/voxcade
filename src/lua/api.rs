@@ -174,6 +174,13 @@ const TYPES: &str = "\
 ---@field pitch? number Its nose up (below 0: down).
 ---@field roll? number Its right side down, as when banking right (below 0: its left).
 
+---@class PoseEntry How a part of a figure of parts is posed (frame:model's pose, frame:pose, a level's piece's thing.state.parts). Each key may be left out.
+---@field rotation? number Turned about its joint, round, clockwise seen from above, in degrees.
+---@field pitch? number Its front up about its joint, in degrees (below 0: down).
+---@field roll? number Its right side down about its joint, in degrees (below 0: its left).
+---@field offset? number[] Moved by voxels after its rotation, { x, y, z }, fractions too. What hangs on it moves along.
+---@field glow? number How much every voxel of it shines in its own color, 0 to 1, in place of the file's: 1 a lamp lit, 0 a lamp out. Nil: as the file says. It lights nothing round it (frame:light does).
+
 ---@class DrawOptions How a model is drawn on the HUD (frame:draw).
 ---@field frame? integer Which of its frames, from 0 (0 unless given).
 ---@field rotation? integer Which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side.
@@ -500,9 +507,10 @@ pub const API: &[Item] = &[
             the shooter kit (c.kit = \"shooter\"):\n- freed: for a captive. Set true: the cage bursts, it runs off.\n- flying: for a \
             gunship, up in the air fighting. Only to read.\nFor a piece of a level's file:\n- light: a lamp's brightness, all its lights \
             together, 0 (off) to 1 (the start). Their colors, places and reach are the file's.\n- parts: a figure of parts posed, as \
-            frame:model's pose: { leaf = { rotation = 90 } } swings a door's leaf open; nil at rest. Drawn so every picture, for this visit \
-            of the level: keep what must stay open in world.state and set it again in on_level_start. A solid piece still blocks where its \
-            model stands at rest." },
+            frame:model's pose: { leaf = { rotation = 90 } } swings a door's leaf open, { lamp = { glow = 0 } } puts a lamp out; nil at \
+            rest. Drawn so every picture, for this visit of the level: keep what must stay open in world.state and set it again in \
+            on_level_start. A solid piece still blocks where its model stands at rest. Only a level's piece is posed by its state for now, \
+            not a thing of a kind. What changes only for the eye (a lamp blinking, the part under the pointer lit) is frame:pose's." },
     Item { of: "thing", name: "x", what: Field { ty: "number", set: false }, doc: "Where it stands: the middle of its feet. A piece's is the \
             middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx." },
     Item { of: "thing", name: "y", what: Field { ty: "number", set: false }, doc: "Where it stands: the middle of its feet. A piece's is the \
@@ -688,7 +696,7 @@ pub const API: &[Item] = &[
             says it." },
     Item { of: "screen", name: "flash", what: Method { params: &[("strength", "number")], returns: "" },
         doc: "Flashes the screen white, 0..1 (times c.effects.screen_flash); it fades by itself. Players can turn flashes off." },
-    Item { of: "frame", name: "model", what: Method { params: &[("file", "string"), ("thing", "Thing"), ("index?", "integer"), ("rotation?", "Rotation"), ("pose?", "table<string, Rotation>")], returns: "" },
+    Item { of: "frame", name: "model", what: Method { params: &[("file", "string"), ("thing", "Thing"), ("index?", "integer"), ("rotation?", "Rotation"), ("pose?", "table<string, PoseEntry>")], returns: "" },
         doc: "Draws a model where a thing stands, facing its way. file is any model file of the game, by its path in the game folder \
             (\"sheet.vvx\", \"props/sheet.vvx\"): loaded the first time it is drawn, let go when the level is left; a file that is not there \
             is a mistake. The thing is a thing, never a point.\n- index: which of its frames, from 0. Without it, its kind's frames for what \
@@ -698,10 +706,19 @@ pub const API: &[Item] = &[
             first, then pitch, then rotation, as for a level's piece. Off the quarter turns its voxels leave the grid.\n- pose: moves a \
             figure of parts (a model whose parts have names: head, body, arm_left ...), each part by its name, a rotation about its joint, \
             what hangs on it moving along. { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. offset = { \
-            x, y, z } moves a part by voxels (fractions too) after its rotation: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. It goes \
+            x, y, z } moves a part by voxels (fractions too) after its rotation: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. glow = 1 \
+            makes every voxel of a part shine in its own color, glow = 0 puts out one that glows in the file (a PoseEntry). It goes \
             over its kind's swing (c.things.NAME.swing).\nA kind with rotates = \"free\" faces exactly its way (a diagonal too), else the \
             nearest quarter turn. A model's pivot is the middle cell of its size across and deep: of an even size one voxel off the middle, \
             so facing -y or sideways it fills cells a voxel further on the flipped axis (use odd sizes where that matters)." },
+    Item { of: "frame", name: "pose", what: Method { params: &[("thing", "Thing"), ("pose", "table<string, PoseEntry>")], returns: "" },
+        doc: "Poses a level's piece for this picture only, each part by its name, over the pose its state holds (thing.state.parts): \
+            a rotation turned on top, an offset added, a glow in place of the state's. For what changes only for the eye: a lamp blinking, \
+            the part under the pointer lit. frame:pose(machine, { led_3 = { glow = 1 } }) lights a lamp.\nCalled twice for one thing, \
+            each part keeps what both give: a glow from one and a rotation from the other; a key given twice, the later.\nThe game's \
+            rules never see it: not in a state, a replay or a save. The pointer meets a part where this picture drew it. \
+            frame.pointer.part is of the picture before: light the part under the pointer, but move it from on_tick, or it can slip out \
+            from under the pointer and back.\nOnly a level's piece for now, not a thing of a kind." },
     Item { of: "frame", name: "cube", what: Method { params: &[("x", "number"), ("y", "number"), ("z", "number"), ("color?", "Color"), ("glow?", "number")], returns: "" },
         doc: "Draws one voxel in the level, at x, y, z in the level's voxels. Its color is a Color (white unless given), with a fourth value below 255 see-through. glow is 0 (none) to 1." },
     Item { of: "frame", name: "light", what: Method { params: &[("at", "Thing|Point|Light"), ("radius?", "number"), ("color?", "Color")], returns: "" },

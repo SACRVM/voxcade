@@ -209,7 +209,7 @@ mod tests {
     /// both; one without voxels into neither.
     #[test]
     fn a_draw_only_casting_is_in_the_shadow_pass_alone() {
-        let plain = crate::render::ModelDraw { voxels: 0..8, origin: glam::Vec3::ZERO, turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None, nearer: 0.0, shadow_only: false };
+        let plain = crate::render::ModelDraw { voxels: 0..8, origin: glam::Vec3::ZERO, turn: 0, rot: glam::Quat::IDENTITY, shift: glam::Vec3::ZERO, tint: None, nearer: 0.0, glow: None, shadow_only: false };
         let casting = crate::render::ModelDraw { shadow_only: true, ..plain.clone() };
         assert!(plain.in_pass(true) && plain.in_pass(false));
         assert!(casting.in_pass(true) && !casting.in_pass(false));

@@ -29,7 +29,7 @@ use passes::PassTimes;
 use pipelines::{Memory, ScenePipelines, Targets};
 
 pub use baked::Baked;
-pub use bank::{ModelBank, ModelDraw, off_grid, quarter, turn_about, turn_centre, turned_centre};
+pub use bank::{ModelBank, ModelDraw, glow_byte, off_grid, quarter, turn_about, turn_centre, turned_centre};
 pub use cubes::{SeeThroughBody, hide_faces_against, hide_inner_faces, join_by_body, join_see_through, leave_out_unseen, see_through_body, see_through_side};
 pub use frame::{FrameData, Mover, Stats};
 #[cfg(test)]

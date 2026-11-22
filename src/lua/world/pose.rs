@@ -6,12 +6,14 @@ use super::*;
 /// unless given), any other key a mistake (`turn`, its name before, says
 /// the new one).
 pub(super) fn turning(t: &Table, what: &str) -> mlua::Result<[f32; 3]> {
-    turning_with(t, what, false).map(|(r, _)| r)
+    entry(t, what, false).map(|e| e.turn.unwrap_or_default())
 }
 
-/// A pose entry: `turning`'s rotation, and with `offset` allowed the
-/// part's offset in voxels, `offset = { x, y, z }` (each 0 unless given).
-fn turning_with(t: &Table, what: &str, offset: bool) -> mlua::Result<([f32; 3], [f32; 3])> {
+/// A pose entry (`pose`; else a rotation alone): `turning`'s rotation, the
+/// part's offset in voxels, `offset = { x, y, z }` (each 0 unless given),
+/// and how much it glows, `glow` from 0 to 1; each None where left out.
+/// Its part's name is the caller's.
+fn entry(t: &Table, what: &str, pose: bool) -> mlua::Result<crate::session::PoseEntry> {
     const KEYS: [&str; 3] = ["rotation", "pitch", "roll"];
     for pair in t.pairs::<Value, Value>() {
         let (key, _) = pair?;
@@ -22,13 +24,23 @@ fn turning_with(t: &Table, what: &str, offset: bool) -> mlua::Result<([f32; 3], 
         if name == "turn" {
             return Err(mlua::Error::runtime(format!("{what}: 'turn' is called 'rotation' now: {{ rotation = 45 }}")));
         }
-        if !KEYS.contains(&name.as_str()) && !(offset && name == "offset") {
-            let words = if offset { "a pose entry has rotation, pitch and roll in degrees and an offset in voxels ({ roll = 20, offset = { 0, 0.5, 0 } })" } else { "a rotation has rotation, pitch and roll in degrees ({ roll = 20 })" };
+        if !KEYS.contains(&name.as_str()) && !(pose && (name == "offset" || name == "glow")) {
+            let words = if pose { "a pose entry has rotation, pitch and roll in degrees, an offset in voxels and a glow from 0 to 1 ({ roll = 20, offset = { 0, 0.5, 0 }, glow = 1 })" } else { "a rotation has rotation, pitch and roll in degrees ({ roll = 20 })" };
             return Err(mlua::Error::runtime(format!("{what}: {words}, not '{name}'")));
         }
     }
+    let glow = match t.raw_get::<Value>("glow")? {
+        Value::Nil => None,
+        Value::Integer(n) if (0..=1).contains(&n) => Some(n as f32),
+        Value::Number(n) if (0.0..=1.0).contains(&n) => Some(n as f32),
+        other => return Err(mlua::Error::runtime(format!("{what}: glow is how much the part shines, a number from 0 (not at all) to 1, not {}", match other {
+            Value::Integer(n) => n.to_string(),
+            Value::Number(n) => n.to_string(),
+            other => format!("a {}", other.type_name()),
+        }))),
+    };
     let moved = match t.raw_get::<GivenValue>("offset")?.0 {
-        Value::Nil => [0.0; 3],
+        Value::Nil => None,
         Value::Table(o) => {
             let n = |k: i64| -> mlua::Result<f32> {
                 match o.raw_get::<Value>(k)? {
@@ -41,25 +53,28 @@ fn turning_with(t: &Table, what: &str, offset: bool) -> mlua::Result<([f32; 3], 
             if o.raw_len() > 3 {
                 return Err(mlua::Error::runtime(format!("{what}: an offset is three numbers of voxels, {{ x, y, z }}")));
             }
-            [n(1)?, n(2)?, n(3)?]
+            Some([n(1)?, n(2)?, n(3)?])
         }
         _ => return Err(mlua::Error::runtime(format!("{what}: an offset is three numbers of voxels, {{ x, y, z }}"))),
     };
-    let get = |key: &str| -> mlua::Result<f32> {
+    let get = |key: &str| -> mlua::Result<Option<f32>> {
         match t.raw_get::<Value>(key)? {
-            Value::Nil => Ok(0.0),
-            Value::Integer(i) => Ok(i as f32),
-            Value::Number(n) if n.is_finite() => Ok(n as f32),
+            Value::Nil => Ok(None),
+            Value::Integer(i) => Ok(Some(i as f32)),
+            Value::Number(n) if n.is_finite() => Ok(Some(n as f32)),
             _ => Err(mlua::Error::runtime(format!("{what}: the rotation's {key} is a number of degrees"))),
         }
     };
-    Ok(([get("rotation")?, get("pitch")?, get("roll")?], moved))
+    let [round, pitch, roll] = [get("rotation")?, get("pitch")?, get("roll")?];
+    let turn = (round.is_some() || pitch.is_some() || roll.is_some()).then(|| [round.unwrap_or(0.0), pitch.unwrap_or(0.0), roll.unwrap_or(0.0)]);
+    Ok(crate::session::PoseEntry { part: String::new(), turn, offset: moved, glow })
 }
 
-/// A pose of the figure of parts `file` (`frame:model`'s, a piece's
-/// `thing.state.parts`): each part by its name, a rotation about its joint
-/// (`turning`) and an offset in voxels, in the parts' names' order. `parts` are the figure's parts
-/// (none: no figure); `what` names it in a mistake.
+/// A pose of the figure of parts `file` (`frame:model`'s, `frame:pose`'s, a
+/// piece's `thing.state.parts`): each part by its name, a rotation about
+/// its joint (`turning`), an offset in voxels and a glow, in the parts'
+/// names' order. `parts` are the figure's parts (none: no figure); `what`
+/// names it in a mistake.
 pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str) -> mlua::Result<Vec<crate::session::PoseEntry>> {
     let mut posed = Vec::new();
     for pair in pose.pairs::<Value, GivenValue>() {
@@ -78,10 +93,7 @@ pub fn pose_of(pose: &Table, file: &str, parts: Option<&Vec<String>>, what: &str
     posed.sort_by(|a, b| a.0.cmp(&b.0));
     posed
         .into_iter()
-        .map(|(part, t)| {
-            let (turn, offset) = turning_with(&t, &format!("{what}, part '{part}'"), true)?;
-            Ok((part, turn, offset))
-        })
+        .map(|(part, t)| Ok(crate::session::PoseEntry { part: part.clone(), ..entry(&t, &format!("{what}, part '{part}'"), true)? }))
         .collect()
 }
 

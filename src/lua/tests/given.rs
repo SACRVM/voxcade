@@ -128,6 +128,8 @@ const CALLS: &[(&str, &str, &str, &str)] = &[
     ("model", "rotation?", "frame:model('fig.vvx', level.state.r, nil, T)", "{ rotation = 30, pitch = 10, roll = 5 }"),
     ("model", "pose?", "frame:model('fig.vvx', level.state.r, nil, nil, T)", "{ arm = { pitch = 20, offset = { 0, 0.5, 0 } } }"),
     ("model", "pose?", "frame:model('fig.vvx', level.state.r, nil, nil, { arm = T })", "{ roll = 15, offset = { 0.25, 0, 0 } }"),
+    ("pose", "pose", "frame:pose(level:thing('rig'), T)", "{ arm = { pitch = 20, glow = 1 } }"),
+    ("pose", "pose", "frame:pose(level:thing('rig'), { arm = T })", "{ roll = 15, offset = { 0.25, 0, 0 }, glow = 0.5 }"),
     ("cube", "color?", "frame:cube(1, 2, 3, T, 0.5)", "{ 10, 20, 30, 200 }"),
     ("light", "at", "frame:light(T)", "{ at = { 5, 6, 7 }, radius = 30, color = { 255, 128, 0 }, cone = 40, pitch = -30, shadows = 'none', fog = 2 }"),
     ("light", "at", "frame:light(T, 30)", "{ x = 5, y = 6, z = 7 }"),
@@ -211,6 +213,10 @@ fn every_frame_method_reads_a_view_as_its_literal() {
     );
     let dir = folder("given-frame", &main);
     crate::vox::write_figure(&dir.join("fig.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO), ("arm", glam::IVec3::new(1, 2, 5), glam::IVec3::new(4, 1, 3))]);
+    // A level of a file, for a piece to pose (frame:pose).
+    std::fs::write(dir.join("conf.lua"), CONF.replace("c.world.size = { 64, 64, 16 }", "c.world.size = nil")).unwrap();
+    std::fs::create_dir_all(dir.join("levels")).unwrap();
+    std::fs::write(dir.join("levels/room.toml"), "format = \"voxcade level 1\"\nsize = [64, 64, 16]\n\n[[thing]]\nname = \"rig\"\nmodel = \"fig.vvx\"\nat = [10, 10, 1]\n").unwrap();
     let mut g = game_in(&dir);
     assert_eq!(halted(&g), "");
     let mut pictures = Vec::new();

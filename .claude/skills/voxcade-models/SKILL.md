@@ -179,7 +179,14 @@ leaves unset), so a bigger figure is no extra work there.
   voxels of that colour glow; the voxel editor keeps it when it saves,
   and sets it on the held colour (the quiet word beside the colour:
   GLASS, METAL, ROUGH, GLOW).
-  `_flux` and `_ldr` are not read. No model of ours glows yet.
+  `_flux` and `_ldr` are not read. The Studio's lamps glow
+  (`games/studio/machine.vvx`).
+  A pose may light a part or put it out without the file
+  (`{ led_3 = { glow = 1 } }`, `glow = 0`: every voxel of the part, in
+  place of its colours' glow), so a lamp that must go out need not sink
+  into its case. A lamp's colour is what shows when it is out (glow 0
+  draws it lit by the scene like any colour): a bright red reads as lit
+  either way.
 - The game's light decides how a colour looks (front faces are often
   darker than tops): judge colours in it (`voxcade sheet`), not in the
   editor's.
@@ -307,7 +314,8 @@ Two ways, chosen per figure:
   `frame:model(file, thing, nil, nil, { arm_right = { pitch = 90 } })`
   poses parts by name from the script (attacks, waves, looking round),
   a level's piece by its state (`thing.state.parts = { leaf = { rotation
-  = 90 } }`: a door, a lid). A part may rest turned in the file
+  = 90 } }`: a door, a lid) or for one picture (`frame:pose`: a lamp
+  blinking, a button under the pointer lit). A part may rest turned in the file
   (`rotation`, `pitch`, `roll` on its `[[part]]`, above): the poses turn
   on from there.
   A figure of parts has one frame. `save_parts` writes one, a cell

@@ -1,9 +1,10 @@
 -- Studio: a drum machine one plays through its model. machine.vvx is a
 -- figure of parts (tools/gen_studio.py made it; the editor shapes it
 -- now): a click names the part under the pointer (input.pointer.part),
--- and the machine answers on itself, posed by its state each tick: a
--- button held sinks a voxel, a lamp lit stands in its socket (put out, it
--- sinks into the case), a knob turns. As in games/drums each row is a
+-- and the machine answers on itself, posed by its state each tick (a
+-- button held sinks a voxel, a knob turns) and for each picture (a lamp
+-- lit or out by its glow, the part under the pointer lit a little:
+-- frame:pose). As in games/drums each row is a
 -- channel of MML laid over the instruments of music/kit.mml; the machine
 -- edits one instrument at a time, its sixteen buttons that one's steps.
 -- A knob is one value, turned by the hand alone (a drag or the wheel on
@@ -16,21 +17,11 @@ local ROWS = {
   { name = "hat", channel = "H" },
 }
 
--- Where the parts lie on the machine, in its own voxels from its box's
--- low corner (tools/gen_studio.py's numbers; the API gives no part's
--- place): a button's corner, width and depth. Only for the mark under the
--- pointer.
-local W, D, TOP = 151, 77, 9
-local LAYOUT = {
-  pick_kick = { 8, 26, 9, 6 }, pick_snare = { 32, 26, 9, 6 }, pick_hat = { 56, 26, 9, 6 },
-  pattern_a = { 102, 26, 9, 6 }, pattern_b = { 116, 26, 9, 6 }, start = { 132, 26, 11, 6 },
-  knob_kick = { 8, 39, 9, 9 }, knob_snare = { 32, 39, 9, 9 }, knob_hat = { 56, 39, 9, 9 },
-  knob_tempo = { 104, 39, 9, 9 }, knob_volume = { 131, 39, 9, 9 },
-}
+-- The parts one plays, by their names in machine.vvx.
 local KNOBS = { "knob_kick", "knob_snare", "knob_hat", "knob_tempo", "knob_volume" }
-for i = 1, 16 do
-  LAYOUT["step_" .. i] = { 8 + (i - 1) * 8 + (i - 1) // 4 * 3, 4, 6, 5 }
-end
+local CONTROLS = { pick_kick = true, pick_snare = true, pick_hat = true, pattern_a = true, pattern_b = true, start = true }
+for _, knob in ipairs(KNOBS) do CONTROLS[knob] = true end
+for i = 1, 16 do CONTROLS["step_" .. i] = true end
 
 local function steps(picture)
   local row = {}
@@ -135,12 +126,23 @@ local function sounding()
   end
 end
 
--- The machine's pose: buttons held down, lamps lit or sunk, knobs turned.
+-- The machine's pose by its state: knobs turned, the button held down.
 local function pose()
   local s = world.state
   local parts = {}
+  for _, knob in ipairs(KNOBS) do
+    parts[knob] = { rotation = (s.knobs[knob] - 0.5) * 270 }
+  end
+  if s.held then parts[s.held] = { offset = { 0, 0, -1 } } end
+  return parts
+end
+
+-- The lamps, each lit (glow 1) or out (glow 0): only for the eye.
+local function lamps()
+  local s = world.state
+  local parts = {}
   local function lamp(name, lit)
-    if not lit then parts[name] = { offset = { 0, 0, -3 } } end
+    parts[name] = { glow = lit and 1 or 0 }
   end
   local light, live = sounding(), s.shown == s.playing
   for i = 1, 16 do
@@ -156,10 +158,6 @@ local function pose()
     lamp("led_" .. name, p == s.shown or (p == s.playing and blink))
   end
   lamp("led_start", s.running)
-  for _, knob in ipairs(KNOBS) do
-    parts[knob] = { rotation = (s.knobs[knob] - 0.5) * 270 }
-  end
-  if s.held then parts[s.held] = { offset = { 0, 0, -1 } } end
   return parts
 end
 
@@ -170,7 +168,7 @@ local function control(p)
   local part = p and p.thing and p.thing.name == "machine" and p.part
   if not part then return nil end
   local n = part:match("^led_(%d+)$")
-  return n and "step_" .. n or LAMPS[part] or (LAYOUT[part] and part)
+  return n and "step_" .. n or LAMPS[part] or (CONTROLS[part] and part)
 end
 
 function on_tick()
@@ -215,21 +213,14 @@ function on_tick()
   level:thing("machine").state.parts = pose()
 end
 
--- Where a part's top middle lies in the level (from LAYOUT; the machine
--- faces north, its pivot the middle of its box).
-local function top_of(part)
-  local m, l = level:thing("machine"), LAYOUT[part]
-  return {
-    x = math.floor(m.x) - W // 2 + l[1] + l[3] / 2,
-    y = math.floor(m.y) - D // 2 + l[2] + l[4] / 2,
-    z = math.floor(m.z) + TOP + 5,
-  }
-end
-
 function on_draw(frame)
-  -- The part under the pointer, else the keys' cursor, marked by a small
-  -- light over it.
+  local machine = level:thing("machine")
+  frame:pose(machine, lamps())
+  -- The part under the pointer, else the keys' cursor, lit a little (lit,
+  -- not moved: frame.pointer is of the picture before, and a part moved
+  -- could slip out from under it). A black knob shines only in its white
+  -- line: fully.
   local mark = control(frame.pointer) or "step_" .. world.state.step
-  frame:light{ at = top_of(mark), radius = 9, color = "#c8dcff", shadows = "none" }
+  frame:pose(machine, { [mark] = { glow = mark:match("^knob_") and 1 or 0.5 } })
   frame:text("ARROWS {toggle} STEP  {pattern} PATTERN  {start} START", 4, frame.height - 9, "#8a8690")
 end

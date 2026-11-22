@@ -354,6 +354,30 @@ settings. Several players: `player` is seat 1, the others are in
   of parts (`pose`: each part by its name, a rotation about its joint): only the
   picture, decided anew each frame from the states, as a kind's `swing`
   (parts swinging with its steps) is decided from its body.
+  `frame:pose(thing, pose)` poses a level's piece for this picture only
+  (the owner's, 2026-11-22), over its `thing.state.parts`: per part a
+  rotation turned on top, an offset added, a glow in place of the
+  state's (the rule `frame:model`'s pose has over a swing,
+  `session::posing`); two calls on one thing lay per part and per key
+  (rotation, pitch and roll together; offset; glow), the later's where
+  both give one. For what changes only for the eye: a lamp blinking, the
+  part under the pointer lit. Nothing of it reaches the rules (no state,
+  hash, replay or save); the pointer meets a part where the picture drew
+  it, and `frame.pointer.part` is of the picture before: light the part
+  under the pointer, move it from `on_tick` (a part moved could slip out
+  from under the pointer and back). `on_draw` runs before the pieces are
+  drawn so that it can (it only asks; the drawing order is kept). Only a
+  level's piece for now: a thing of a kind is a mistake saying so (kinds
+  posed by state, then kits' figures, are a draft of their own).
+  A pose entry, wherever it is read (`frame:model`'s, `frame:pose`'s, a
+  piece's `thing.state.parts`; the type `PoseEntry`), takes `rotation`,
+  `pitch`, `roll`, `offset` and `glow`: 0 to 1, how much every voxel of
+  the part shines in its own colors, in place of the file's (1 a lamp
+  lit, 0 a lamp out; nil as the file says). It lights nothing round it
+  (a `frame:light` does), and what stops a lamp's light keeps reading
+  the file's glow (`render::volume`, `movers`; a blinking lamp rebuilds
+  no walls). Carried by the part's draw (`ModelDraw::glow`, the shader's
+  `Actor.extra.y`, below 0 none): unset, every picture is drawn as before.
   `frame:model` draws any model file of the game by its path in the game
   folder (`"sheet.vvx"`, `"props/sheet.vvx"`), named nowhere else (the
   owner, 2026-11-14: "ich gebe den ort an wo das model geladen wird -
@@ -1237,7 +1261,8 @@ handle = { roll = 20 } }`, exactly the pose `frame:model` takes (each
 part by its name, `rotation`, `pitch`, `roll` in degrees about its
 joint, `offset = { x, y, z }` in voxels (moved after the rotation, its
 joint along: a part's `offset` in the file and the pose's add up), what
-hangs on it moving along; `turn` refused with its new name), and the engine draws the piece so every picture, its own
+hangs on it moving along, `glow` from 0 to 1 in place of its colors' own;
+`turn` refused with its new name), and the engine draws the piece so every picture, its own
 rotation, pitch, roll and lights as before (its lights do not follow a
 part). nil or an empty table: at rest, drawn exactly as an unposed
 piece. It is the script's data in the thing's state, an engine key only

@@ -615,8 +615,8 @@ nearest; its replay `tests/two_ships`);
 - A machine played through its model (a trial, 2026-11-22): `games/studio`
   (no cover, not listed, not packaged; `GAMES_OF_VOXCADE` names it), the
   drum machine as a level's piece, `machine.vvx`, a figure of 50 parts
-  (`tools/gen_studio.py` made it and keeps it: the owner's now; main.lua's
-  `LAYOUT` mirrors its places): `step_1`..`step_16`, a column a voice
+  (`tools/gen_studio.py` made it and keeps it: the owner's now; main.lua
+  knows its parts by name only): `step_1`..`step_16`, a column a voice
   (`pick_kick`/`_snare`/`_hat` under its level knob `knob_kick`/`_snare`/
   `_hat`), `pattern_a`/`_b`, `start`, `knob_tempo` (shown only),
   `knob_volume` (`music:volume`) and a lamp `led_*` for each button; its
@@ -625,12 +625,35 @@ nearest; its replay `tests/two_ships`);
   one value turned by the hand alone (the owner: a knob that turns by
   itself cannot be). `c.pointer = "system"`: a click reads
   `input.pointer.part`; the machine answers by `thing.state.parts` set
-  every tick (a button held sinks by `offset`, a lamp out sinks into the
-  case, a knob turns), the mark under the pointer a `frame:light`; STOP
+  every tick (a button held sinks by `offset`, a knob turns) and by
+  `frame:pose` each picture (a lamp lit or out by its `glow`, the part
+  under the pointer, else the keys' cursor, lit a little); STOP
   plays the silent studio `music/off.mml`. Its scenarios `empty_machine`
   and `stopped`; its replay `tests/click_the_machine` clicks steps, the
   edge of one and the case between two, the voices, a pattern, drags and
   wheels the knobs, stops and starts.
+- A part lit or out, a pose for one picture (the owner's yes,
+  2026-11-22, to `shots/reviews/machines-as-models-draft.md` as its
+  review narrowed it): a pose entry (one type, `PoseEntry`, in
+  `frame:model`'s pose, a piece's `thing.state.parts` and `frame:pose`;
+  `session::PoseEntry`, read by `lua::world::pose_of`) takes `glow`, 0 to
+  1, every voxel of the part in place of its colors' own
+  (`PartPose::glow`, `ModelDraw::glow`, the shader's `Actor.extra.y`,
+  below 0 none: `model_glow` in `vs_model` and `vs_face`; the cubes, the
+  bank's `cubes` too, `render::glow_byte`); a glow alone moves nothing
+  (`PartPose::moves`: no depth taken nearer, the box as at rest); what
+  stops a lamp keeps the file's glow (`volume`, `movers`) and
+  `volume::pieces_key` leaves it out. `frame:pose(thing, pose)` poses a
+  level's piece for the picture over its state's pose (`session::posing`,
+  the rule `frame:model`'s pose has over a swing: a rotation on top, an
+  offset added, a glow in place), two calls laid per part and key
+  (`LuaGame::picture_pose`); `on_draw` runs before the pieces' loop
+  (`LuaGame::run_on_draw`, its commands after the effects as before); a
+  thing of a kind is a mistake saying so. Tests
+  `a_glow_in_a_pose_lights_a_part_and_moves_nothing`,
+  `frame_pose_poses_a_piece_for_the_picture_alone`,
+  `the_pointer_meets_a_part_where_frame_pose_drew_it`,
+  `a_part_posed_to_glow_shows_brighter_on_the_gpu`.
 - Tests on every push (the owner's D1, 2026-11-13;
   `.github/workflows/tests.yml`, push to `main` and pull requests, Linux
   only, mesa's lavapipe standing in for the GPU): the release build,

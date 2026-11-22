@@ -140,6 +140,13 @@
 ---@field pitch? number Its nose up (below 0: down).
 ---@field roll? number Its right side down, as when banking right (below 0: its left).
 
+---@class PoseEntry How a part of a figure of parts is posed (frame:model's pose, frame:pose, a level's piece's thing.state.parts). Each key may be left out.
+---@field rotation? number Turned about its joint, round, clockwise seen from above, in degrees.
+---@field pitch? number Its front up about its joint, in degrees (below 0: down).
+---@field roll? number Its right side down about its joint, in degrees (below 0: its left).
+---@field offset? number[] Moved by voxels after its rotation, { x, y, z }, fractions too. What hangs on it moves along.
+---@field glow? number How much every voxel of it shines in its own color, 0 to 1, in place of the file's: 1 a lamp lit, 0 a lamp out. Nil: as the file says. It lights nothing round it (frame:light does).
+
 ---@class DrawOptions How a model is drawn on the HUD (frame:draw).
 ---@field frame? integer Which of its frames, from 0 (0 unless given).
 ---@field rotation? integer Which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side.
@@ -403,7 +410,7 @@ local Player = {}
 ---- flying: for a gunship, up in the air fighting. Only to read.
 ---For a piece of a level's file:
 ---- light: a lamp's brightness, all its lights together, 0 (off) to 1 (the start). Their colors, places and reach are the file's.
----- parts: a figure of parts posed, as frame:model's pose: { leaf = { rotation = 90 } } swings a door's leaf open; nil at rest. Drawn so every picture, for this visit of the level: keep what must stay open in world.state and set it again in on_level_start. A solid piece still blocks where its model stands at rest.
+---- parts: a figure of parts posed, as frame:model's pose: { leaf = { rotation = 90 } } swings a door's leaf open, { lamp = { glow = 0 } } puts a lamp out; nil at rest. Drawn so every picture, for this visit of the level: keep what must stay open in world.state and set it again in on_level_start. A solid piece still blocks where its model stands at rest. Only a level's piece is posed by its state for now, not a thing of a kind. What changes only for the eye (a lamp blinking, the part under the pointer lit) is frame:pose's.
 ---@field state table
 ---@field x number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
 ---@field y number Where it stands: the middle of its feet. A piece's is the middle of the cell its file's at names (at + 0.5): a cube for it goes at math.floor(thing.x) + dx.
@@ -595,14 +602,22 @@ local Frame = {}
 ---Draws a model where a thing stands, facing its way. file is any model file of the game, by its path in the game folder ("sheet.vvx", "props/sheet.vvx"): loaded the first time it is drawn, let go when the level is left; a file that is not there is a mistake. The thing is a thing, never a point.
 ---- index: which of its frames, from 0. Without it, its kind's frames for what it does (c.things.NAME.frames: idle, walk, jump), else the model's own: 0 standing, 1 in the air, the rest walking, a frame every half its height walked.
 ---- rotation: turns it further, in degrees about its middle (the voxel at half its height over its pivot). { roll = 20 } banks a ship right, { rotation = 45 } faces a diagonal, { pitch = 10 } lifts its nose. Roll is taken first, then pitch, then rotation, as for a level's piece. Off the quarter turns its voxels leave the grid.
----- pose: moves a figure of parts (a model whose parts have names: head, body, arm_left ...), each part by its name, a rotation about its joint, what hangs on it moving along. { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. offset = { x, y, z } moves a part by voxels (fractions too) after its rotation: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. It goes over its kind's swing (c.things.NAME.swing).
+---- pose: moves a figure of parts (a model whose parts have names: head, body, arm_left ...), each part by its name, a rotation about its joint, what hangs on it moving along. { head = { rotation = 30 }, arm_right = { pitch = 90 } } raises the right arm forward. offset = { x, y, z } moves a part by voxels (fractions too) after its rotation: { bust = { pitch = 10, offset = { 0, 1, 0 } } }. glow = 1 makes every voxel of a part shine in its own color, glow = 0 puts out one that glows in the file (a PoseEntry). It goes over its kind's swing (c.things.NAME.swing).
 ---A kind with rotates = "free" faces exactly its way (a diagonal too), else the nearest quarter turn. A model's pivot is the middle cell of its size across and deep: of an even size one voxel off the middle, so facing -y or sideways it fills cells a voxel further on the flipped axis (use odd sizes where that matters).
 ---@param file string
 ---@param thing Thing
 ---@param index? integer
 ---@param rotation? Rotation
----@param pose? table<string, Rotation>
+---@param pose? table<string, PoseEntry>
 function Frame:model(file, thing, index, rotation, pose) end
+
+---Poses a level's piece for this picture only, each part by its name, over the pose its state holds (thing.state.parts): a rotation turned on top, an offset added, a glow in place of the state's. For what changes only for the eye: a lamp blinking, the part under the pointer lit. frame:pose(machine, { led_3 = { glow = 1 } }) lights a lamp.
+---Called twice for one thing, each part keeps what both give: a glow from one and a rotation from the other; a key given twice, the later.
+---The game's rules never see it: not in a state, a replay or a save. The pointer meets a part where this picture drew it. frame.pointer.part is of the picture before: light the part under the pointer, but move it from on_tick, or it can slip out from under the pointer and back.
+---Only a level's piece for now, not a thing of a kind.
+---@param thing Thing
+---@param pose table<string, PoseEntry>
+function Frame:pose(thing, pose) end
 
 ---Draws one voxel in the level, at x, y, z in the level's voxels. Its color is a Color (white unless given), with a fourth value below 255 see-through. glow is 0 (none) to 1.
 ---@param x number

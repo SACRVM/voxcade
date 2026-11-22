@@ -388,7 +388,7 @@ end
     std::fs::write(dir.join("main.lua"), main.replace("{ arm = { pitch = 90 } }", "{ arm = { pitch = 90, shift = 1 } }")).unwrap();
     let g = game_in(&dir);
     let _ = g.frame(1.0, 16.0 / 9.0);
-    assert!(halted(&g).contains("a pose entry has rotation, pitch and roll in degrees and an offset in voxels"), "{}", halted(&g));
+    assert!(halted(&g).contains("a pose entry has rotation, pitch and roll in degrees, an offset in voxels and a glow from 0 to 1"), "{}", halted(&g));
     std::fs::write(dir.join("main.lua"), main.replace("{ arm =", "{ leg =")).unwrap();
     let g = game_in(&dir);
     let _ = g.frame(1.0, 16.0 / 9.0);

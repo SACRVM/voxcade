@@ -464,7 +464,7 @@ mod tests {
         let (mut piece, mut later) = (crate::vvx::read(text).unwrap(), crate::vvx::read(text).unwrap());
         let mut bank = ModelBank::default();
         bank.add(&mut piece);
-        let draws = [ModelDraw { voxels: piece.bank[0].clone(), origin: Vec3::new(5.0, 5.0, 1.0), turn: 0, rot: glam::Quat::IDENTITY, shift: Vec3::ZERO, tint: None, nearer: 0.0, shadow_only: false }];
+        let draws = [ModelDraw { voxels: piece.bank[0].clone(), origin: Vec3::new(5.0, 5.0, 1.0), turn: 0, rot: glam::Quat::IDENTITY, shift: Vec3::ZERO, tint: None, nearer: 0.0, glow: None, shadow_only: false }];
         let key = pieces_key(&bank, &draws);
         let mut grown = bank.clone();
         grown.add(&mut later);

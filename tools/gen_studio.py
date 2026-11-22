@@ -6,18 +6,17 @@ a lamp (an LED) behind each; a column for each voice (its button, its
 lamp, its level knob); two pattern buttons, a start button, a tempo and a
 volume knob. Each control is a part named for the code (`step_1` ..
 `step_16`, `led_1` .. `led_16`, `pick_kick`, `knob_kick`, `pattern_a`,
-`start`, `knob_tempo` ...). Lamps are parts too: main.lua lights one by
-raising it into its socket and puts it out by sinking it into the case
-(a pose's offset), so nothing on the machine is drawn by Lua. The labels
+`start`, `knob_tempo` ...). Lamps are parts too: main.lua lights one or
+puts it out by its glow (a pose's `glow`), so nothing on the machine is
+drawn by Lua. The labels
 and the nameplate are painted into the case's top in a small alphabet of
 3 by 5 voxels (the nameplate twice as big). Then the table it stands on
 and the level, levels/studio.toml.
 
 It makes what is missing and keeps every file there: once made, the
 machine is the owner's, shaped in the voxel editor (a file deleted is
-made again). main.lua knows where the parts lie (its LAYOUT mirrors the
-numbers below), so a part moved in the editor needs its line there too.
-Plain Python, no numpy."""
+made again). main.lua knows the parts by their names only. Plain Python,
+no numpy."""
 
 import sys
 from pathlib import Path

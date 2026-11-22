@@ -57,7 +57,7 @@ impl Editor {
             };
             // The pose drawn while POSE is lit.
             f.pose = if posing && !pose.is_empty() {
-                f.model.parts.iter().map(|o| pose.get(&o.name).map_or(crate::session::PartPose::REST, |q| crate::session::PartPose { turn: crate::session::turning(q.turn[0], q.turn[1], q.turn[2]), offset: Vec3::from(q.offset) })).collect()
+                f.model.parts.iter().map(|o| pose.get(&o.name).map_or(crate::session::PartPose::REST, |q| crate::session::PartPose { turn: crate::session::turning(q.turn[0], q.turn[1], q.turn[2]), offset: Vec3::from(q.offset), glow: None })).collect()
             } else {
                 Vec::new()
             };

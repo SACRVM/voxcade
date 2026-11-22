@@ -7,6 +7,9 @@ use super::*;
 pub enum Cmd {
     /// `turn`: degrees round, nose up, rolled right (`session::turning`).
     Model { file: String, thing: u32, frame: Option<usize>, turn: [f32; 3], pose: Vec<crate::session::PoseEntry> },
+    /// A level's piece posed for this picture over its state's pose
+    /// (`frame:pose`).
+    Pose { thing: u32, pose: Vec<crate::session::PoseEntry> },
     Cube { at: Vec3, color: [u8; 4], glow: f32 },
     Light(crate::render::Light),
     /// The HUD's, from its top left in UI voxels.

@@ -569,6 +569,125 @@ fn a_pieces_pose_is_checked() {
     assert_eq!(halted(&g), "");
 }
 
+/// `glow` in a pose entry (a piece's state, `frame:model`'s, `frame:pose`'s)
+/// makes every voxel of a part shine in its own colors, 0 to 1, in place of
+/// the file's: carried by the part's draw alone (the bank's cubes take it
+/// too), it moves nothing (the draws as at rest, no depth taken nearer). A
+/// glow out of 0 to 1 or no number is a mistake.
+#[test]
+fn a_glow_in_a_pose_lights_a_part_and_moves_nothing() {
+    let mut g = doorway("glow", "");
+    let rest = door_draws(&g);
+    assert!(rest.iter().all(|m| m.glow.is_none()), "unset: the file's own");
+    said(&mut g, "level:thing('door').state.parts = { leaf = { glow = 1 }, handle = { glow = 0 } }");
+    assert_eq!(halted(&g), "");
+    let lit = door_draws(&g);
+    assert_eq!((lit[0].glow, lit[1].glow, lit[2].glow, lit[3].glow), (None, Some(1.0), Some(0.0), None), "the leaf lit, the handle out");
+    let unlit: Vec<_> = lit.iter().cloned().map(|m| crate::render::ModelDraw { glow: None, ..m }).collect();
+    assert_eq!(unlit, rest, "a glow alone moves nothing");
+    let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+    assert!(f.bank.cubes(&f.models[1]).all(|c| c.fx[crate::render::FX_GLOW] == 255), "the bank's cubes as the shader draws them");
+    let drawn = doorway("glow-model", "function on_draw(frame)\n  frame:model('door.vvx', level:thing('door'), nil, nil, { handle = { glow = 0.5 } })\nend\n");
+    assert_eq!(door_draws(&drawn)[4..].iter().map(|m| m.glow).collect::<Vec<_>>(), [None, None, Some(0.5)], "frame:model's pose takes it too");
+    for (pose, says) in [("{ leaf = { glow = 2 } }", "part 'leaf': glow is how much the part shines, a number from 0 (not at all) to 1, not 2"), ("{ leaf = { glow = 'on' } }", "glow is how much the part shines, a number from 0 (not at all) to 1, not a string")] {
+        let e = said(&mut g, &format!("level:thing('door').state.parts = {pose}"));
+        assert!(e.contains(says), "{pose}: {e}");
+    }
+}
+
+/// `frame:pose` poses a level's piece for one picture over its state's
+/// pose: a rotation turned on top, an offset added, a glow in place of the
+/// state's; two calls on one thing lay per part and key (what one leaves
+/// out the other's, a key both give the later's). Nothing of it reaches
+/// the game: the state hash and `inspect` are those of the same run never
+/// drawn. A thing of a kind, a light alone, a model with no parts and a
+/// part the model lacks are mistakes.
+#[test]
+fn frame_pose_poses_a_piece_for_the_picture_alone() {
+    let tick = "function on_tick()\n  level:thing('door').state.parts = { leaf = { rotation = -90, glow = 1 } }\nend\n";
+    let main = format!("{tick}function on_draw(frame)\n  local door = level:thing('door')\n  frame:pose(door, {{ leaf = {{ rotation = 10 }}, handle = {{ offset = {{ 0, 1, 0 }} }} }})\n  frame:pose(door, {{ leaf = {{ glow = 0 }}, handle = {{ offset = {{ 0, 2, 0 }} }} }})\nend\n");
+    let mut g = doorway("picture-pose", &main);
+    let mut plain = doorway("picture-pose-plain", tick);
+    let mut same = doorway("picture-pose-same", "function on_tick()\n  level:thing('door').state.parts = { leaf = { rotation = -80, glow = 0 }, handle = { offset = { 0, 2, 0 } } }\nend\n");
+    for _ in 0..3 {
+        steps(&mut g, 1);
+        let _ = door_draws(&g);
+    }
+    steps(&mut plain, 3);
+    steps(&mut same, 3);
+    assert_eq!(halted(&g), "");
+    let (drawn, want) = (door_draws(&g), door_draws(&same));
+    assert_eq!(drawn.len(), want.len());
+    for (a, b) in drawn.iter().zip(&want) {
+        assert!(a.rot.abs_diff_eq(b.rot, 1e-5) && a.shift.abs_diff_eq(b.shift, 1e-4), "{a:?} against {b:?}");
+        assert_eq!((&a.voxels, a.origin, a.glow, a.nearer), (&b.voxels, b.origin, b.glow, b.nearer));
+    }
+    assert_eq!(g.game.state_hash(), plain.game.state_hash(), "the run as never drawn");
+    assert_eq!(g.game.inspect()["things"], plain.game.inspect()["things"]);
+    for (call, says) in [
+        ("frame:pose(level.state.hero, { arm = { pitch = 9 } })", "frame:pose: only a level's piece (a [[thing]] of its file with a model) is posed for now, not a thing of the kind 'hero'"),
+        ("frame:pose(level:thing('lamp'), { leaf = { glow = 1 } })", "frame:pose: 'lamp' has no model to pose (a light alone)"),
+        ("frame:pose(level:thing('box'), { lid = { glow = 1 } })", "frame:pose: box.vvx is no figure of parts"),
+        ("frame:pose(level:thing('door'), { leef = { glow = 1 } })", "frame:pose: door.vvx has no part 'leef' (its parts: frame, leaf, handle)"),
+        ("frame:pose(level:thing('door'), { leaf = { glow = 1, shine = 1 } })", "frame:pose, part 'leaf': a pose entry has rotation, pitch and roll in degrees, an offset in voxels and a glow from 0 to 1"),
+    ] {
+        let g = doorway("picture-pose-wrong", &format!("function on_draw(frame)\n  {call}\nend\nfunction on_level_start()\n  level.state.hero = level:spawn('hero', 40, 10)\nend\n"));
+        let _ = door_draws(&g);
+        assert!(halted(&g).contains(says) && halted(&g).contains("main.lua:2"), "{call}: {}", halted(&g));
+    }
+}
+
+/// The pointer meets a part where this picture's `frame:pose` drew it: the
+/// handle moved out in front of the door by its picture's pose is met
+/// there, and without that pose, nothing of the door is.
+#[test]
+fn the_pointer_meets_a_part_where_frame_pose_drew_it() {
+    let moved = "function on_draw(frame)\n  frame:pose(level:thing('door'), { handle = { offset = { 0, 6, 0 } } })\nend\n";
+    let (g, rest) = (doorway("pose-pointer", moved), doorway("pose-pointer-rest", "function on_draw(frame) end\n"));
+    let aspect = 16.0 / 9.0;
+    let f = g.compose(0.0, aspect, Scene::Play, None);
+    let handle = f.bank.cubes(&f.models[2]).next().expect("the handle's voxel");
+    let top = glam::Vec3::from_slice(&handle.pos_size[..3]) + glam::Vec3::new(0.0, 0.0, 0.4);
+    g.look();
+    rest.look();
+    let [x, y] = g.to_hud(top, aspect).expect("in view");
+    let met = |g: &Session<LuaGame>| g.point(x, y, aspect).level.and_then(|m| m.part);
+    assert_eq!(met(&g).as_deref(), Some("handle"), "met where the picture drew it");
+    assert_ne!(met(&rest).as_deref(), Some("handle"), "at rest it is elsewhere");
+}
+
+/// On the GPU, in a dark room: a part posed `glow = 1` shows brighter than
+/// posed `glow = 0`, a big one drawn from its faces (`vs_face`) and a
+/// voxel alone from its cubes (`vs_model`); `glow = 0` on a part whose
+/// colors glow nowhere in the file is the picture unposed, byte for byte.
+#[test]
+fn a_part_posed_to_glow_shows_brighter_on_the_gpu() {
+    let dark = "  c.light.ambient = 0.05\n  c.light.sun_color = \"#0d0d0d\"\n";
+    let dir = pieces_folder("glow-gpu", dark, DOORWAY, "function on_draw(frame)\n  if world.state.pose then frame:pose(level:thing('door'), world.state.pose) end\nend\n");
+    std::fs::write(dir.join("door.vvx"), DOOR).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    let mut canvas = crate::headless::Canvas::new(320, 180, false).expect("a GPU");
+    canvas.mesh_world(g.world_mut(), &[true; 6]);
+    let mut picture = |g: &mut Session<LuaGame>, pose: &str| {
+        said(g, &format!("world.state.pose = {pose}"));
+        let f = g.compose(1.0, 16.0 / 9.0, Scene::Play, None);
+        let pixels = canvas.draw(&f).expect("the picture drawn");
+        (f, pixels)
+    };
+    let brightness = |p: &[u8]| p.chunks(4).map(|c| c[0] as u64 + c[1] as u64 + c[2] as u64).sum::<u64>();
+    let (f, unposed) = picture(&mut g, "nil");
+    assert!(f.bank.drawn_from_faces(&f.models[1].voxels) && !f.bank.drawn_from_faces(&f.models[2].voxels), "the leaf from its faces, the handle from its cubes");
+    let (_, out) = picture(&mut g, "{ leaf = { glow = 0 }, handle = { glow = 0 } }");
+    assert!(out == unposed, "glow 0 on colors that do not glow: the picture unposed");
+    // (The handle is on the leaf's far side: moved out before it, to be seen.)
+    for (part, moved) in [("leaf", ""), ("handle", "offset = { 0, 3, 0 }, ")] {
+        let pose = |glow: i32| format!("{{ {part} = {{ {moved}glow = {glow} }} }}");
+        let ((_, out), (_, lit)) = (picture(&mut g, &pose(0)), picture(&mut g, &pose(1)));
+        assert!(brightness(&lit) > brightness(&out) + 200, "{part} lit: {} against {}", brightness(&lit), brightness(&out));
+    }
+}
+
 /// A part turned at rest in its file shows wherever the figure is drawn,
 /// as the unturned figure posed so: `voxcade sheet`'s pictures
 /// (`Session::still`) and a level's piece.

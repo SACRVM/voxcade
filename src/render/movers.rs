@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(voxels.len(), 4, "the model's voxels but the glowing one");
         let rot = Quat::from_rotation_z(0.4) * Quat::from_rotation_x(0.3);
         for (turn, rot, shift) in [(0, Quat::IDENTITY, Vec3::ZERO), (1, Quat::IDENTITY, Vec3::ZERO), (3, Quat::IDENTITY, Vec3::ZERO), (2, rot, Vec3::new(0.3, -0.2, 0.1))] {
-            let draw = ModelDraw { voxels: range.clone(), origin: Vec3::new(20.0, 30.0, 4.0), turn, rot, shift, tint: None, nearer: 0.0, shadow_only: false };
+            let draw = ModelDraw { voxels: range.clone(), origin: Vec3::new(20.0, 30.0, 4.0), turn, rot, shift, tint: None, nearer: 0.0, glow: None, shadow_only: false };
             let m = Movers::of(&bank, &[(None, vec![draw.clone()])], &[]).unwrap().unwrap();
             assert_eq!(m.solids.len(), 1);
             let s = &m.solids[0];

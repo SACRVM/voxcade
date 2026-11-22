@@ -221,7 +221,7 @@ impl<'a> Drawing<'a> {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn put_posed(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, pose: &[PartPose], tint: Option<[u8; 4]>) {
-        let posed = pose.iter().any(|q| *q != PartPose::REST) || rests_turned(m);
+        let posed = pose.iter().any(PartPose::moves) || rests_turned(m);
         // A piece stops lamps wherever it is, in view or not.
         if self.piece && self.gather && self.fade >= 1.0 {
             draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut self.pieces), m, frame, origin, look, turn, pose, tint);
