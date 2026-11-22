@@ -1331,7 +1331,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   files. The speaker (`audio::Speaker`) keeps its mixer
   behind a lock of its own that SDL's callback holds only while mixing,
   `audio::MIX_BLOCK` samples at a time from buffers made once (the audio
-  thread takes no memory, test `the_audio_thread_takes_no_memory`);
+  thread takes no memory and gives none back, counted by the test's
+  allocator, test `the_audio_thread_takes_no_memory`: a finished
+  crossfade's song, `Mixer::spent`, and a sound that ended are let go of
+  on the main thread as the next is handed; a song is read and made
+  before the lock is taken, `Session::new_music`, then `hand_music`);
   the window and the IDE never lock SDL's audio stream, never pause its
   device, and close it on a thread of their own and leave SDL unquit at
   the end (a Bluetooth headset dropping out and PipeWire started anew

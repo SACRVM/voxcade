@@ -131,7 +131,7 @@ fn a_stolen_voice_fades_out_instead_of_cutting() {
     assert_eq!(mixer.voices.iter().filter(|v| v.fade.is_some()).count(), 1);
     let mut block = vec![0.0; 2 * 1024];
     mixer.mix(&mut block);
-    assert_eq!(mixer.voices.len(), super::MAX_SAME, "gone after its fade");
+    assert_eq!(mixer.voices.iter().filter(|v| !v.ended()).count(), super::MAX_SAME, "gone after its fade");
     // A further steal while one fades takes a live voice, not the fading one.
     mixer.play("gun", &long, 1.0, 0.0);
     mixer.play("gun", &long, 1.0, 0.0);
