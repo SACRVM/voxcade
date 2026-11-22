@@ -17,9 +17,11 @@ function conf(c)
   c.audio.music = { "music/kit.mml" }
 
   -- The arrows move the cursor; TOGGLE sets or clears a step, PATTERN
-  -- switches to the other pattern at the next bar.
-  c.actions = { "toggle", "pattern" }
-  c.keys = { toggle = { "Space", "Z" }, pattern = { "Tab", "X" } }
+  -- switches to the other pattern at the next bar; the mouse's left button
+  -- (click) does both on what it is over.
+  c.actions = { "toggle", "pattern", "click" }
+  c.keys = { toggle = { "Space", "Z" }, pattern = { "Tab", "X" }, click = { "mouse_left" } }
+  c.pointer = "system"
   c.pad = { toggle = { "south" }, pattern = { "north" } }
 
   c.title_screen.logo = { "DRUMS" }

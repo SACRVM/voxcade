@@ -2,7 +2,11 @@
 -- written as a channel of MML and laid over the instruments of
 -- music/kit.mml (music:play's channels). The arrows move the cursor;
 -- TOGGLE sets or clears a step, which sounds when the running light comes
--- to it; PATTERN switches to the other pattern at the next bar.
+-- to it; PATTERN switches to the other pattern at the next bar. The mouse
+-- does the same: a click on a step toggles it, dragging along steps paints
+-- them as the first one became, a click on the pattern's name switches.
+-- Each step is a panel of the HUD named "s<row>_<step>", the name read back
+-- by `cell`.
 
 local ROWS = {
   { name = "KICK", channel = "K", instrument = "kick", color = "#e05a48" },
@@ -54,8 +58,39 @@ function on_beat(beat)
   if beat % 4 == 0 then world.state.playing = world.state.shown end
 end
 
+-- The row and step a panel's name stands for, or nil.
+local function cell(hud)
+  local r, i = (hud or ""):match("^s(%d)_(%d+)$")
+  if r then return tonumber(r), tonumber(i) end
+end
+
+-- Sets a step, laying the pattern anew only when it changed.
+local function set_step(r, i, on)
+  local row = world.state.patterns[world.state.shown][r]
+  if row[i] ~= on then
+    row[i] = on
+    lay_pattern()
+  end
+end
+
 function on_tick()
   local s = world.state
+  local at = input.pointer
+  local r, i = cell(at and at.hud)
+  if input:pressed("click") then
+    if r then
+      s.row, s.step = r, i
+      s.paint = s.patterns[s.shown][r][i] and 2 or 1
+    elseif at and at.hud == "pattern" then
+      s.shown = 3 - s.shown
+      lay_pattern()
+    end
+  end
+  if not input:held("click") then
+    s.paint = nil -- a drag's work while the button is down: 1 sets steps, 2 clears them
+  elseif r and s.paint then
+    set_step(r, i, s.paint == 1)
+  end
   if input:repeated("left") then s.step = (s.step - 2) % 16 + 1 end
   if input:repeated("right") then s.step = s.step % 16 + 1 end
   if input:repeated("up") then s.row = (s.row - 2) % #ROWS + 1 end
@@ -89,7 +124,10 @@ function on_draw(frame)
 
   -- (What is drawn first lies on top: the cursor's frame after its cell.)
   local name = s.shown == 1 and "A" or "B"
-  frame:text("PATTERN " .. name, x0 - 40, y0 - 22, "#f0e8d8")
+  local title = "PATTERN " .. name
+  local over = frame.pointer
+  frame:text(title, x0 - 40, y0 - 22, over and over.hud == "pattern" and "#ffffff" or "#f0e8d8")
+  frame:hud("pattern", x0 - 40, y0 - 23, frame:text_width(title), 9)
   frame:text(live and "PLAYING" or "FROM THE NEXT BAR", x0 + 40, y0 - 22, live and "#80d080" or "#e0c060")
   for r, row in ipairs(ROWS) do
     local y = y0 + (r - 1) * (CELL + 5)
@@ -98,7 +136,10 @@ function on_draw(frame)
       local on = s.patterns[s.shown][r][i]
       local lit = live and i == light
       local color = on and (lit and "#ffffff" or row.color) or (lit and "#606070" or "#2a2a34")
+      local hovered = over and over.hud == "s" .. r .. "_" .. i
+      if hovered then frame:box(x0 + across(i) - 1, y - 1, CELL + 2, CELL + 2, "#7878a0") end
       frame:box(x0 + across(i), y, CELL, CELL, color)
+      frame:hud("s" .. r .. "_" .. i, x0 + across(i), y, CELL, CELL)
       if r == s.row and i == s.step then
         frame:box(x0 + across(i) - 1, y - 1, CELL + 2, CELL + 2, "#f0f0f0")
       end
@@ -109,4 +150,5 @@ function on_draw(frame)
     frame:box(x0 + across(light), y0 + #ROWS * (CELL + 5), CELL, 2, "#ffd040")
   end
   frame:text("ARROWS MOVE  {toggle} STEP  {pattern} PATTERN", x0 - 40, y0 + #ROWS * (CELL + 5) + 12, "#8a8a98")
+  frame:text("MOUSE CLICK OR DRAG STEPS  CLICK PATTERN", x0 - 40, y0 + #ROWS * (CELL + 5) + 22, "#8a8a98")
 end

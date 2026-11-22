@@ -1,0 +1,27 @@
+# Voxcade replay: Drums, 150 ticks, quit, score 0
+version = 1
+game = "Drums"
+fingerprint = "bb55a40b99082559"
+ticks = 150
+outcome = "quit"
+score = 0
+input = "none:20;pointer=102,64+picture=21857+hud=s1_2+uv=0.444,0.444:2;click+pointer=102,64+picture=21857+hud=s1_2+uv=0.444,0.444:1;pointer=102,64+picture=21857+hud=s1_2+uv=0.444,0.444:6;pointer=113,64+picture=21857+hud=s1_3+uv=0.444,0.444:2;click+pointer=113,64+picture=21857+hud=s1_3+uv=0.444,0.444:1;pointer=113,64+picture=21857+hud=s1_3+uv=0.444,0.444:6;pointer=150,78+picture=21857+hud=s2_6+uv=0.444,0.444:2;click+pointer=150,78+picture=21857+hud=s2_6+uv=0.444,0.444:1;pointer=150,78+picture=21857+hud=s2_6+uv=0.444,0.444:6;pointer=102,64+picture=21857+hud=s1_2+uv=0.444,0.444:2;click+pointer=102,64+picture=21857+hud=s1_2+uv=0.444,0.444:1;pointer=102,64+picture=21857+hud=s1_2+uv=0.444,0.444:6;pointer=55,40+picture=21857+hud=pattern+uv=0.151,0.333:2;click+pointer=55,40+picture=21857+hud=pattern+uv=0.151,0.333:1;pointer=55,40+picture=21857+hud=pattern+uv=0.151,0.333:6;pointer=87,64+picture=21857+hud=s1_1+uv=0,0.444:2;click+pointer=87,64+picture=21857+hud=s1_1+uv=0,0.444:1;click+pointer=98,64+picture=21857+hud=s1_2+uv=0,0.444:1;click+pointer=109,64+picture=21857+hud=s1_3+uv=0,0.444:1;click+pointer=120,64+picture=21857+hud=s1_4+uv=0,0.444:1;pointer=120,64+picture=21857+hud=s1_4+uv=0,0.444:3;none:76"
+checks = ["8147f591cfb5a749", "86674a03f84d4f46"]
+final_state = "e70fecead922f8ba"
+
+[fingerprint_parts]
+"conf.lua" = "7486209eac8e7608"
+"main.lua" = "0ee0f0c71073005e"
+music = "750a12ec4c28eaba"
+"music/kit.mml" = "a3a96074551c2121"
+
+[[controls]]
+at = 0
+device = "keyboard"
+language = "en"
+
+[controls.keys]
+click = "MOUSE LEFT"
+pattern = "TAB"
+pause = "ESCAPE"
+toggle = "SPACE"

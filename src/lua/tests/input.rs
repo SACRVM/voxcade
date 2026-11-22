@@ -174,7 +174,7 @@ fn every_games_keys_are_keys() {
             }
             let cfg = crate::session::config::<LuaGame>(&dir).unwrap();
             for name in LuaGame::default_keys(&cfg).names() {
-                assert!(sdl3::keyboard::Scancode::from_name(name).is_some(), "{}: no key named '{name}' (SDL's names: \"Left Shift\", \"Space\", \"Z\")", dir.display());
+                assert!(sdl3::keyboard::Scancode::from_name(name).is_some() || crate::input::MOUSE_KEYS.contains(&name.to_lowercase().as_str()), "{}: no key named '{name}' (SDL's names: \"Left Shift\", \"Space\", \"Z\")", dir.display());
                 seen += 1;
             }
         }
