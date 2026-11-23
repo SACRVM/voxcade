@@ -118,6 +118,23 @@ its noise bands, the levels of its syllables and its steps at the joins;
 the voice peaks near 1 before its volume, a driven one at about 0.4 of
 its peak in RMS.
 
+Drums from layers: lines beginning with `+` right under an instrument
+are more layers of it (four with its own line at most; any instrument
+word but `sidechain`, `sidechain_release`, `duck`, which its own line
+says for the whole note), every note sounding them all, each with its
+own envelope, over when the last has rung out; one line beginning with
+`=` after them is what their sum goes through: `drive`, `filter`,
+`cutoff`, `resonance`, the crusher, `volume` (1 unless set). No
+layers on a voice. `pitch_start` (Hz) begins each note there, falling
+exponentially in Hz to the note's pitch, `pitch_decay` its time
+constant (0.02); not with `sweep`. `curve=exp` makes `decay` and
+`release` fall exponentially, their time the fall to -60 dB (so
+-20 dB at a third of it; a release equal to the decay goes on as the
+decay went). The RG-80's bass drum (`music/kits/rg80.mml`) is the
+example: a sub, a body, a click, `= drive=3`. Check a kick with the
+owner's three meters (KNALL, BALLERN, BRUSTKORB; a port in
+`shots/kits/kick_meters.py`, git-ignored) against their good zone.
+
 ## A song from a recipe
 
 ```bash
@@ -257,8 +274,11 @@ the channel's notes: `music:mix("B", { cutoff = 900, resonance = 0.8 },
 from it). `cutoff`, `resonance`, `duty`, `pwm`, `vibrato`, `sustain` and
 `duck` glide under a sounding note; `attack`, `decay`, `release`,
 `freq` and the other times and rates, `lowpass`, `drive`, the crusher
-and `sidechain` count from the channel's next note; `wave`, `filter`,
-`arp` and `consonants` do not turn (another sound). A word a note's
+and `sidechain`, `pitch_start` and `pitch_decay` count from the
+channel's next note; `wave`, `filter`, `arp`, `curve` and `consonants`
+do not turn (another sound). Of an instrument of layers a strip turns
+the first layer, but `drive`, `cutoff` and `resonance` the sum where
+its `=` line states them. A word a note's
 instrument lacks does nothing on it: give the instrument a filter
 (`filter=lowpass cutoff=8000`) for a cutoff knob to have something to
 turn.

@@ -78,6 +78,33 @@
 //! wide, close fast, lots of resonance). Any of these turns the filter on,
 //! as a low-pass unless `filter` says otherwise.
 //!
+//! A pitch that falls from a start: `pitch_start` (Hz) each note begins
+//! at, falling exponentially in Hz to the note's pitch with the time
+//! constant `pitch_decay` (seconds, 0.02 unless set): f(t) = f + (start -
+//! f) e^(-t / pitch_decay), a drum's thump; not with `sweep`. `curve=exp`
+//! makes `decay` and `release` fall exponentially, their time the fall to
+//! -60 dB (to the sustain level, to silence), the last 2 ms laid down to
+//! the target in a straight line so it ends there without a step;
+//! `linear` (unless set) the straight line of before.
+//!
+//! Layers: lines beginning with `+` right under an instrument's line (a
+//! comment or a blank line may stand between) are further layers of it,
+//! four with its own line at most, each a wave and any instrument word
+//! but `sidechain`, `sidechain_release` and `duck` (the note's as a
+//! whole, on its own line). Every note sounds all of them, each with its
+//! own envelope, added at their volumes; it is over when the last has
+//! rung out. One line beginning with `=` after them is what the sum goes
+//! through: `drive` (the soft clipper, as an instrument's), `filter`,
+//! `cutoff`, `resonance`, the crusher and `volume` (1 unless set), in
+//! that order. A voice takes no layers.
+//!
+//! ```text
+//! @kick sine freq=50 pitch_start=180 pitch_decay=0.022 curve=exp decay=0.35 sustain=0
+//!   + sine freq=140 pitch_start=320 pitch_decay=0.012 curve=exp decay=0.09 drive=8 volume=0.5
+//!   + noise filter=bandpass cutoff=2100 curve=exp decay=0.02 volume=0.6
+//!   = drive=4
+//! ```
+//!
 //! Sidechain: an instrument with `sidechain=0.6` ducks the other channels
 //! by that much whenever one of its notes starts (a kick pumping the bass
 //! and pads), and they come back over `sidechain_release` seconds. `duck`
@@ -101,6 +128,8 @@ mod tests;
 mod tempo_tests;
 #[cfg(test)]
 mod knob_tests;
+#[cfg(test)]
+mod layer_tests;
 mod voice;
 mod clear;
 

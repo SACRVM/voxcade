@@ -4,7 +4,7 @@ use super::SAMPLE_RATE;
 use super::parse::LOOP_SLACK;
 use super::mix::{CUTOFF, GLIDING, Glide, Knob, LETTERS, Mix, NEXT_NOTE, SHORTEST, Strip, letter_index, muffle_cutoff, place};
 use super::clear::{self, Seg};
-use super::song::{FilterMode, Instrument, Note, Song, Voicing};
+use super::song::{Curve, FilterMode, Instrument, LAYERS, Note, Song, Sum, Voicing};
 use super::voice::{Segment, Singer};
 use crate::audio::synth::{OnePole, Oscillator};
 
@@ -39,7 +39,8 @@ impl Swap {
 }
 
 /// One channel's voice: the note it plays (its own copy, so it can ring
-/// on after the song went round) and where the oscillator is.
+/// on after the song went round), and for each layer of its instrument
+/// where its oscillator, filters and envelope are (`Tone`).
 #[derive(Clone, Default)]
 pub(super) struct Voice {
     pub(super) next: usize,
@@ -53,50 +54,77 @@ pub(super) struct Voice {
     /// song's.
     age: u64,
     gate: Option<u64>,
-    pub(super) osc: Oscillator,
-    pub(super) low: OnePole,
-    pub(super) filter: Svf,
-    /// Envelope level while the key is held, where the release starts from.
-    pub(super) released_at: f32,
-    /// What the note it plays keeps the same from start to end: how far
-    /// its instrument's low-pass moves a sample, and its pan's share of
-    /// each side.
-    alpha: f32,
+    /// The instrument's own line (an instrument without layers: the whole
+    /// of it), and its further layers (`Instrument::layers`, `+`): fixed,
+    /// made with the voice, so a layered note takes no memory.
+    pub(super) tone: Tone,
+    more: [Tone; LAYERS - 1],
+    /// What a layered note's sum goes through (`Instrument::sum`, `=`).
+    sum: Summed,
+    /// The note's pan's share of each side, kept from start to end.
     pan: (f32, f32),
-    /// The envelope's level at the last sample, and where a voice's attack
-    /// starts from (the level it was at: a sung line never jumps to
-    /// silence between its syllables).
-    level: f32,
+    /// Where a voice's attack starts from (the level it was at: a sung
+    /// line never jumps to silence between its syllables).
     from: f32,
-    /// The singing voices (`voice`, and the clear one), and the note's
-    /// drive (a gain, 0 off) and bit crusher.
+    /// The singing voices (`voice`, and the clear one).
     pub(super) singer: Singer,
     pub(super) clear: clear::Singer,
-    drive: f32,
-    crush: Crusher,
-    /// The drive's DC blocker: the last sample in and out.
-    dc: (f32, f32),
     /// What a voice's noise is raised by, joining past the clipper.
     noise_gain: f32,
     /// Its channel's strip on the desk (`Player::lanes`, by letter): its
     /// own, so a note ringing out of a channel laid no more keeps it.
     strip: u8,
-    /// The note's shape as it was taken up: its instrument's, with what
-    /// the strip turned from the next note (`Strip::next`) laid over it.
+}
+
+/// One layer of a note as it sounds: its oscillator, its filters, its
+/// envelope's level, its drive (a gain, 0 off) and bit crusher, and its
+/// shape as it was taken up.
+#[derive(Clone, Default)]
+pub(super) struct Tone {
+    osc: Oscillator,
+    low: OnePole,
+    pub(super) filter: Svf,
+    /// Envelope level while the key is held, where the release starts
+    /// from; and the level at the last sample.
+    released_at: f32,
+    level: f32,
+    /// How far its low-pass moves a sample (kept the note's whole length).
+    alpha: f32,
+    drive: f32,
+    crush: Crusher,
+    /// The drive's DC blocker: the last sample in and out.
+    dc: (f32, f32),
+    /// The note's shape as it was taken up: its layer's, with what the
+    /// strip turned from the next note (`Strip::next`) laid over the
+    /// first layer's.
     shape: Shape,
 }
 
-/// A note's shape, kept from start to end: its envelope's times, its
-/// pitch's sweep, its cutoff's sweep (how far, as a ratio, and over how
-/// long), its rates, and how far it ducks the other channels.
+/// What a layered note's layers go through once added (`Sum`): the soft
+/// clipper's gain (0 off) and its DC blocker, the filter, the crusher.
+#[derive(Clone, Default)]
+struct Summed {
+    drive: f32,
+    dc: (f32, f32),
+    filter: Svf,
+    crush: Crusher,
+}
+
+/// A note's shape, kept from start to end: its envelope's times and how
+/// they fall, its pitch's sweep or fall from a start, its cutoff's sweep
+/// (how far, as a ratio, and over how long), its rates, and how far it
+/// ducks the other channels.
 #[derive(Clone, Copy, Default)]
 struct Shape {
     attack: f32,
     decay: f32,
     release: f32,
+    curve: Curve,
     freq: Option<f32>,
     sweep: f32,
     sweep_span: f32,
+    pitch_start: Option<f32>,
+    pitch_decay: f32,
     cutoff_sweep: Option<(f32, f32)>,
     vibrato_speed: f32,
     vibrato_delay: f32,
@@ -122,6 +150,8 @@ mod at {
     pub const FREQ: usize = place(&NEXT_NOTE, "freq");
     pub const SWEEP: usize = place(&NEXT_NOTE, "sweep");
     pub const SWEEP_TIME: usize = place(&NEXT_NOTE, "sweep_time");
+    pub const PITCH_START: usize = place(&NEXT_NOTE, "pitch_start");
+    pub const PITCH_DECAY: usize = place(&NEXT_NOTE, "pitch_decay");
     pub const CUTOFF_END: usize = place(&NEXT_NOTE, "cutoff_end");
     pub const CUTOFF_TIME: usize = place(&NEXT_NOTE, "cutoff_time");
     pub const VIBRATO_SPEED: usize = place(&NEXT_NOTE, "vibrato_speed");
@@ -152,23 +182,35 @@ fn over(own: f32, (value, on): (f32, f32), octaves: bool) -> f32 {
 /// voice reads it (the cutoff in Hz) and how far it holds.
 type Turned = [(f32, f32); GLIDING.len()];
 
-impl Voice {
-    fn new(seed: u32, letter: char) -> Self {
-        let strip = letter_index(letter).unwrap_or(0) as u8;
-        Voice { osc: Oscillator::new(0x1234_5678 ^ seed), singer: Singer::new(0x2545_f491 ^ seed), clear: clear::Singer::new(0x5bd1_e995 ^ seed), strip, ..Voice::default() }
-    }
+/// The natural logarithm of 1000: an exponential fall (`curve=exp`) of
+/// this many e-folds is one of 60 dB.
+const LN_1000: f32 = 6.907_755_3;
 
-    /// Takes up note `n` (played by `ins`) from its start, at sample
-    /// `time` of the song; a voice note sings its part of `segments`
-    /// (`voice`'s) or `clear`. Its strip's words from the next note
-    /// (`next`) are laid over the instrument's, a word only where the
-    /// instrument has its part (a fixed pitch, a low-pass, a cutoff's
-    /// sweep, a crusher); `cutoff` is where its strip has the cutoff now,
-    /// from which a turned `cutoff_end` sweeps.
-    fn take_up(&mut self, n: &Note, ins: &Instrument, (segments, clear): (&[Segment], &[Seg]), time: u64, (next, cutoff): (&[Option<f32>; NEXT_NOTE.len()], f32)) {
-        let sounding = self.note.is_some();
-        (self.note, self.started, self.osc.phase) = (Some(*n), n.start, 0.0);
-        (self.age, self.gate) = (time.wrapping_sub(n.start), None);
+/// The last stretch of an exponential fall, in seconds (at most all of
+/// it), laid down to its target in a straight line, so it is there at its
+/// time without the step from -60 dB to nothing.
+const TAPER: f32 = 0.002;
+
+/// How far an exponential fall (`curve=exp`) of `seconds` has still to go
+/// at `x` of its time (from 1 at 0 to 0 at 1): 10^(-3x), -60 dB at its
+/// time, but for its last `TAPER` seconds, which go straight to 0.
+fn fallen(x: f32, seconds: f32) -> f32 {
+    if x >= 1.0 {
+        return 0.0;
+    }
+    let left = libm::expf(-LN_1000 * x);
+    let taper = (TAPER / seconds).min(1.0);
+    if x > 1.0 - taper { left * (1.0 - x) / taper } else { left }
+}
+
+impl Tone {
+    /// Takes up a note of layer `ins` from its start, the words a strip
+    /// turned from the next note (`next`) laid over it, a word only where
+    /// the layer has its part (a fixed pitch, a pitch's start, a low-pass,
+    /// a cutoff's sweep, a crusher); `cutoff` is where its strip has the
+    /// cutoff now, from which a turned `cutoff_end` sweeps.
+    fn take_up(&mut self, ins: &Instrument, next: &[Option<f32>; NEXT_NOTE.len()], cutoff: f32) {
+        self.osc.phase = 0.0;
         let word = |w: usize, own: f32| next[w].unwrap_or(own);
         let part = |w: usize, own: Option<f32>| own.map(|o| word(w, o));
         let (attack, decay) = (word(at::ATTACK, ins.attack), word(at::DECAY, ins.decay));
@@ -183,9 +225,13 @@ impl Voice {
             attack,
             decay,
             release: word(at::RELEASE, ins.release),
+            curve: ins.curve,
             freq: part(at::FREQ, ins.freq),
-            sweep: word(at::SWEEP, ins.sweep),
+            // A pitch that falls from its start slides no more.
+            sweep: if ins.pitch_start.is_some() { 0.0 } else { word(at::SWEEP, ins.sweep) },
             sweep_span: next[at::SWEEP_TIME].or(ins.sweep_time).unwrap_or(attack + decay).max(1e-3),
+            pitch_start: part(at::PITCH_START, ins.pitch_start),
+            pitch_decay: word(at::PITCH_DECAY, ins.pitch_decay),
             cutoff_sweep,
             vibrato_speed: word(at::VIBRATO_SPEED, ins.vibrato_speed),
             vibrato_delay: word(at::VIBRATO_DELAY, ins.vibrato_delay),
@@ -195,71 +241,63 @@ impl Voice {
             sidechain_release: word(at::SIDECHAIN_RELEASE, ins.sidechain_release),
         };
         self.alpha = part(at::LOWPASS, ins.lowpass).map_or(0.0, OnePole::alpha);
-        let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
-        self.pan = (libm::cosf(angle), libm::sinf(angle));
         let drive = word(at::DRIVE, ins.drive);
         self.drive = if drive > 0.0 { libm::powf(10.0, drive / 20.0) } else { 0.0 };
-        let vowels = if ins.voice == Some(Voicing::Clear) { clear::SUNG } else { SUNG };
-        self.noise_gain = if self.drive > 0.0 { libm::tanhf(self.drive * vowels) / vowels } else { 1.0 };
-        if ins.consonants != 0.0 {
-            self.noise_gain *= libm::powf(10.0, ins.consonants / 20.0);
-        }
         let bits = ins.crush_bits.map(|b| next[at::CRUSH_BITS].map_or(b, |v| v as u32));
         self.crush.set(part(at::CRUSH_RATE, ins.crush_rate), bits);
-        if ins.voice.is_some() {
-            self.from = if sounding { self.level } else { 0.0 };
-        }
-        match ins.voice {
-            Some(Voicing::Formants) => self.singer.start(sung(n, segments), !sounding),
-            Some(Voicing::Clear) => self.clear.start(sung(n, clear), !sounding),
-            None => {}
-        }
     }
 
-    /// The next frame of the note it plays at sample `time` of the song,
-    /// ducked by `ducked` and scaled by the song's `volume`, a jump's
-    /// `fade` and the channel's layer (`loud`), its strip's gliding words
-    /// laid over its instrument's where it turns any (`turned`); None once
-    /// it is silent.
-    fn sound(&mut self, song: &Song, time: u64, ducked: f32, (volume, fade, loud): (f32, f32, f32), turned: Option<&Turned>) -> Option<[f32; 2]> {
-        let sr = SAMPLE_RATE as f32;
-        let n = self.note?;
-        let ins = song.instruments.get(n.instrument)?;
+    /// The envelope's level `t` seconds into the note, its key let go
+    /// `gate` seconds in (None: held), the level held after the decay
+    /// `sustain`, a voice's attack starting from `from`; None once it has
+    /// rung out.
+    fn envelope(&mut self, t: f32, gate: Option<f32>, sustain: f32, from: Option<f32>) -> Option<f32> {
         let shape = self.shape;
-        let knob = |w: usize, own: f32| turned.map_or(own, |k| over(own, k[w], w == CUTOFF));
-        // The key is held for a length of the song; the sound's shape goes
-        // by the samples heard (the same at the song's own tempo).
-        let into = time.wrapping_sub(self.started);
-        let (age, t) = (self.age, self.age as f32 / sr);
-        self.age += 1;
-        let held = n.held as f32 / sr;
-
-        // ADSR (a voice's attack from where it was).
-        let level = if (into as f32 / sr) < held {
-            let l = if t < shape.attack {
-                if ins.voice.is_some() { self.from + (1.0 - self.from) * (t / shape.attack.max(1e-4)) } else { t / shape.attack.max(1e-4) }
-            } else {
-                let sustain = knob(at::SUSTAIN, ins.sustain);
-                let d = (t - shape.attack) / shape.decay.max(1e-4);
-                if d < 1.0 { 1.0 + (sustain - 1.0) * d } else { sustain }
-            };
-            self.released_at = l;
-            l
-        } else {
+        let level = match gate {
+            None => {
+                let l = if t < shape.attack {
+                    match from {
+                        Some(from) => from + (1.0 - from) * (t / shape.attack.max(1e-4)),
+                        None => t / shape.attack.max(1e-4),
+                    }
+                } else {
+                    let d = (t - shape.attack) / shape.decay.max(1e-4);
+                    match shape.curve {
+                        Curve::Linear => {
+                            if d < 1.0 { 1.0 + (sustain - 1.0) * d } else { sustain }
+                        }
+                        Curve::Exp => sustain + (1.0 - sustain) * fallen(d, shape.decay),
+                    }
+                };
+                self.released_at = l;
+                l
+            }
             // Released when the key was let go, however far into the
             // release the song was when it was found let go.
-            let gate = *self.gate.get_or_insert(age - age.min(into.saturating_sub(n.held)));
-            let r = (t - gate as f32 / sr) / shape.release.max(1e-4);
-            if r >= 1.0 {
-                (self.note, self.level) = (None, 0.0);
-                return None;
+            Some(gate) => {
+                let r = (t - gate) / shape.release.max(1e-4);
+                if r >= 1.0 {
+                    self.level = 0.0;
+                    return None;
+                }
+                match shape.curve {
+                    Curve::Linear => self.released_at * (1.0 - r),
+                    Curve::Exp => self.released_at * fallen(r, shape.release),
+                }
             }
-            self.released_at * (1.0 - r)
         };
         self.level = level;
+        Some(level)
+    }
 
-        // Pitch: the note (or a fixed one), a sweep, the arpeggio, vibrato.
+    /// The pitch `t` seconds into note `n`: the note's (or a fixed one), a
+    /// sweep or a fall from a start, the arpeggio, `vibrato` deep.
+    fn pitch(&self, ins: &Instrument, n: &Note, t: f32, vibrato: f32) -> f32 {
+        let shape = &self.shape;
         let mut freq = shape.freq.unwrap_or(n.freq.unwrap_or(0.0));
+        if let Some(start) = shape.pitch_start {
+            freq += (start - freq) * libm::expf(-t / shape.pitch_decay);
+        }
         if shape.sweep != 0.0 {
             freq *= libm::powf(2.0, shape.sweep * (t / shape.sweep_span).min(1.0) / 12.0);
         }
@@ -267,18 +305,24 @@ impl Voice {
             let step = (t * shape.arp_speed) as usize % ins.arp.len();
             freq *= libm::powf(2.0, ins.arp[step] / 12.0);
         }
-        let vibrato = knob(at::VIBRATO, ins.vibrato);
         if vibrato > 0.0 && t > shape.vibrato_delay {
             // The clear voice's vibrato grows in over a third of a second, as a singer's.
             let depth = if ins.voice == Some(Voicing::Clear) { vibrato * ((t - shape.vibrato_delay) / 0.3).min(1.0) } else { vibrato };
             freq *= 1.0 + depth * libm::sinf(std::f32::consts::TAU * shape.vibrato_speed * (t - shape.vibrato_delay));
         }
-        let duty = (knob(at::DUTY, ins.duty) + knob(at::PWM, ins.pwm) * libm::sinf(std::f32::consts::TAU * shape.pwm_speed * t)).clamp(0.05, 0.95);
-        let (mut s, noise) = match ins.voice {
-            Some(Voicing::Formants) => self.singer.next(sung(&n, &song.segments), time.wrapping_sub(self.started), freq),
-            Some(Voicing::Clear) => self.clear.next(sung(&n, &song.clear), time.wrapping_sub(self.started), freq),
-            None => (self.osc.next(ins.wave, freq / sr, duty, false), 0.0),
-        };
+        freq
+    }
+
+    /// A pulse's duty `t` seconds into the note, its width wobbling `pwm` deep.
+    fn duty(&self, t: f32, duty: f32, pwm: f32) -> f32 {
+        (duty + pwm * libm::sinf(std::f32::consts::TAU * self.shape.pwm_speed * t)).clamp(0.05, 0.95)
+    }
+
+    /// Sample `s` of its wave through its drive, the noise of a voice
+    /// joining past it (`noise`), and its filters, the SID's at `cutoff`
+    /// (swept by the note) and `resonance`.
+    fn color(&mut self, ins: &Instrument, s: f32, noise: Option<f32>, t: f32, cutoff: f32, resonance: f32) -> f32 {
+        let mut s = s;
         // Driven into a soft clipper before the filters, as an amp
         // before its speaker; a wave not even above and below zero
         // (a voice's) clips to a middle off zero, taken off again.
@@ -290,8 +334,8 @@ impl Voice {
         // A voice's breath and hiss join past the clipper, raised as
         // much as it raises a voice, so they keep their distance
         // from the vowels however hard it drives.
-        if ins.voice.is_some() {
-            s += noise * self.noise_gain;
+        if let Some(noise) = noise {
+            s += noise;
         }
         if ins.lowpass.is_some() {
             s = self.low.next(s, self.alpha);
@@ -299,20 +343,194 @@ impl Voice {
         if let Some(mode) = ins.filter {
             // The cutoff swept per note, evenly in octaves, from where
             // the strip has it as deep as the note's sweep goes.
-            let mut cutoff = knob(CUTOFF, ins.cutoff);
-            if let Some((depth, span)) = shape.cutoff_sweep {
+            let mut cutoff = cutoff;
+            if let Some((depth, span)) = self.shape.cutoff_sweep {
                 cutoff *= libm::powf(depth, (t / span).min(1.0));
             }
-            s = self.filter.process(s, cutoff, knob(at::RESONANCE, ins.resonance), mode);
+            s = self.filter.process(s, cutoff, resonance, mode);
         }
-        // Ducked under a sidechain note, unless this is one.
-        let duck = if shape.sidechain > 0.0 { 1.0 } else { 1.0 - ducked * knob(at::DUCK, ins.duck) };
-        // Crushed after the envelope, before the volumes: its steps are the instrument's own.
+        s
+    }
+
+    /// `s` at its envelope's `level`, crushed after the envelope, before
+    /// the volumes: its steps are the layer's own.
+    fn crushed(&mut self, s: f32, level: f32) -> f32 {
         let mut s = s * level;
         if self.crush.on() {
             s = self.crush.next(s);
         }
-        let gain = s * ins.volume * n.volume * volume * duck * fade * loud;
+        s
+    }
+
+    /// The next sample of a further layer `ins` of note `n` (`t`, `gate`
+    /// as `envelope`'s), before its volume; None once it has rung out.
+    fn next(&mut self, ins: &Instrument, n: &Note, t: f32, gate: Option<f32>) -> Option<f32> {
+        let level = self.envelope(t, gate, ins.sustain, None)?;
+        let freq = self.pitch(ins, n, t, ins.vibrato);
+        let duty = self.duty(t, ins.duty, ins.pwm);
+        let s = self.osc.next(ins.wave, freq / SAMPLE_RATE as f32, duty, false);
+        let s = self.color(ins, s, None, t, ins.cutoff, ins.resonance);
+        Some(self.crushed(s, level))
+    }
+}
+
+impl Summed {
+    /// Takes up a note whose layers go through `sum`, its drive turned to
+    /// `drive` dB by a strip (None: the sum's own).
+    fn take_up(&mut self, sum: &Sum, drive: Option<f32>) {
+        let drive = drive.unwrap_or(sum.drive);
+        self.drive = if drive > 0.0 { libm::powf(10.0, drive / 20.0) } else { 0.0 };
+        self.crush.set(sum.crush_rate, sum.crush_bits);
+    }
+
+    /// The layers' sum `s` through the soft clipper (as a layer's own
+    /// drive, its DC taken off again), the filter at `cutoff` and
+    /// `resonance`, the crusher and the volume.
+    fn next(&mut self, s: f32, sum: &Sum, cutoff: f32, resonance: f32) -> f32 {
+        let mut s = s;
+        if self.drive > 0.0 {
+            let x = libm::tanhf(s * self.drive);
+            s = x - self.dc.0 + DC_BLOCK * self.dc.1;
+            self.dc = (x, s);
+        }
+        if let Some(mode) = sum.filter {
+            s = self.filter.process(s, cutoff, resonance, mode);
+        }
+        if self.crush.on() {
+            s = self.crush.next(s);
+        }
+        s * sum.volume
+    }
+}
+
+impl Voice {
+    fn new(seed: u32, letter: char) -> Self {
+        let strip = letter_index(letter).unwrap_or(0) as u8;
+        // Each layer's noise of its own.
+        let tone = |layer: u32| Tone { osc: Oscillator::new(0x1234_5678 ^ seed ^ layer.wrapping_mul(0x9e37_79b9)), ..Tone::default() };
+        Voice {
+            tone: tone(0),
+            more: std::array::from_fn(|i| tone(i as u32 + 1)),
+            singer: Singer::new(0x2545_f491 ^ seed),
+            clear: clear::Singer::new(0x5bd1_e995 ^ seed),
+            strip,
+            ..Voice::default()
+        }
+    }
+
+    /// Takes up note `n` (played by `ins`) from its start, at sample
+    /// `time` of the song; a voice note sings its part of `segments`
+    /// (`voice`'s) or `clear`. Its strip's words from the next note
+    /// (`next`) are laid over its first layer's (`Tone::take_up`), the
+    /// drive over the sum's where the sum states one; `cutoff` is where
+    /// its strip has the cutoff now.
+    fn take_up(&mut self, n: &Note, ins: &Instrument, (segments, clear): (&[Segment], &[Seg]), time: u64, (next, cutoff): (&[Option<f32>; NEXT_NOTE.len()], f32)) {
+        let sounding = self.note.is_some();
+        (self.note, self.started) = (Some(*n), n.start);
+        (self.age, self.gate) = (time.wrapping_sub(n.start), None);
+        // A word the sum states the strip turns there, not on the first layer.
+        let sum = ins.sum.as_ref();
+        let mut first = *next;
+        if sum.is_some_and(|s| s.drive_stated) {
+            first[at::DRIVE] = None;
+        }
+        let cutoff = if sum.is_some_and(|s| s.cutoff_stated) { ins.cutoff } else { cutoff };
+        self.tone.take_up(ins, &first, cutoff);
+        for (tone, layer) in self.more.iter_mut().zip(&ins.layers) {
+            tone.take_up(layer, &[None; NEXT_NOTE.len()], layer.cutoff);
+        }
+        if let Some(sum) = sum {
+            self.sum.take_up(sum, next[at::DRIVE].filter(|_| sum.drive_stated));
+        }
+        let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
+        self.pan = (libm::cosf(angle), libm::sinf(angle));
+        let vowels = if ins.voice == Some(Voicing::Clear) { clear::SUNG } else { SUNG };
+        let drive = self.tone.drive;
+        self.noise_gain = if drive > 0.0 { libm::tanhf(drive * vowels) / vowels } else { 1.0 };
+        if ins.consonants != 0.0 {
+            self.noise_gain *= libm::powf(10.0, ins.consonants / 20.0);
+        }
+        if ins.voice.is_some() {
+            self.from = if sounding { self.tone.level } else { 0.0 };
+        }
+        match ins.voice {
+            Some(Voicing::Formants) => self.singer.start(sung(n, segments), !sounding),
+            Some(Voicing::Clear) => self.clear.start(sung(n, clear), !sounding),
+            None => {}
+        }
+    }
+
+    /// The next frame of the note it plays at sample `time` of the song,
+    /// ducked by `ducked` and scaled by the song's `volume`, a jump's
+    /// `fade` and the channel's layer (`loud`), its strip's gliding words
+    /// laid over its first layer's (the sum's cutoff and resonance where
+    /// the sum states them) where it turns any (`turned`); its layers
+    /// added and through their sum (`Summed`), if it has any; None once
+    /// every layer is silent.
+    fn sound(&mut self, song: &Song, time: u64, ducked: f32, (volume, fade, loud): (f32, f32, f32), turned: Option<&Turned>) -> Option<[f32; 2]> {
+        let sr = SAMPLE_RATE as f32;
+        let n = self.note?;
+        let ins = song.instruments.get(n.instrument)?;
+        let knob = |w: usize, own: f32| turned.map_or(own, |k| over(own, k[w], w == CUTOFF));
+        let sum = ins.sum.as_ref();
+        let (sum_cutoff, sum_resonance) = sum.map_or((false, false), |s| (s.cutoff_stated, s.resonance_stated));
+        // The key is held for a length of the song; the sound's shape goes
+        // by the samples heard (the same at the song's own tempo).
+        let into = time.wrapping_sub(self.started);
+        let (age, t) = (self.age, self.age as f32 / sr);
+        self.age += 1;
+        let held = n.held as f32 / sr;
+        let gate = if (into as f32 / sr) < held { None } else { Some(*self.gate.get_or_insert(age - age.min(into.saturating_sub(n.held))) as f32 / sr) };
+
+        // The instrument's own line (a voice's attack from where it was).
+        let from = ins.voice.is_some().then_some(self.from);
+        let first = match self.tone.envelope(t, gate, knob(at::SUSTAIN, ins.sustain), from) {
+            None => None,
+            Some(level) => {
+                let tone = &mut self.tone;
+                let freq = tone.pitch(ins, &n, t, knob(at::VIBRATO, ins.vibrato));
+                let duty = tone.duty(t, knob(at::DUTY, ins.duty), knob(at::PWM, ins.pwm));
+                let (s, noise) = match ins.voice {
+                    Some(Voicing::Formants) => self.singer.next(sung(&n, &song.segments), time.wrapping_sub(self.started), freq),
+                    Some(Voicing::Clear) => self.clear.next(sung(&n, &song.clear), time.wrapping_sub(self.started), freq),
+                    None => (tone.osc.next(ins.wave, freq / sr, duty, false), 0.0),
+                };
+                let noise = ins.voice.is_some().then_some(noise * self.noise_gain);
+                let cutoff = if sum_cutoff { ins.cutoff } else { knob(CUTOFF, ins.cutoff) };
+                let resonance = if sum_resonance { ins.resonance } else { knob(at::RESONANCE, ins.resonance) };
+                let s = tone.color(ins, s, noise, t, cutoff, resonance);
+                Some(tone.crushed(s, level))
+            }
+        };
+        // Ducked under a sidechain note, unless this is one.
+        let duck = if self.tone.shape.sidechain > 0.0 { 1.0 } else { 1.0 - ducked * knob(at::DUCK, ins.duck) };
+        let gain = if sum.is_none() && ins.layers.is_empty() {
+            let Some(s) = first else {
+                self.note = None;
+                return None;
+            };
+            s * ins.volume * n.volume * volume * duck * fade * loud
+        } else {
+            // Every layer at its volume, added, then through the sum.
+            let mut sounding = first.is_some();
+            let mut s = first.map_or(0.0, |s| s * ins.volume);
+            for (tone, layer) in self.more.iter_mut().zip(&ins.layers) {
+                if let Some(l) = tone.next(layer, &n, t, gate) {
+                    s += l * layer.volume;
+                    sounding = true;
+                }
+            }
+            if !sounding {
+                self.note = None;
+                return None;
+            }
+            if let Some(sum) = sum {
+                let cutoff = if sum_cutoff { knob(CUTOFF, sum.cutoff) } else { sum.cutoff };
+                let resonance = if sum_resonance { knob(at::RESONANCE, sum.resonance) } else { sum.resonance };
+                s = self.sum.next(s, sum, cutoff, resonance);
+            }
+            s * n.volume * volume * duck * fade * loud
+        };
         Some([gain * self.pan.0 * std::f32::consts::SQRT_2, gain * self.pan.1 * std::f32::consts::SQRT_2])
     }
 }
@@ -960,8 +1178,8 @@ impl Player {
                     if n.freq.is_some() {
                         let ins = &self.song.instruments[n.instrument];
                         v.take_up(n, ins, (&self.song.segments, &self.song.clear), self.time, lanes[v.strip as usize].take_up(ins.cutoff));
-                        if v.shape.sidechain > 0.0 {
-                            self.duck = Some(Duck { from: self.heard, depth: v.shape.sidechain, release: v.shape.sidechain_release });
+                        if v.tone.shape.sidechain > 0.0 {
+                            self.duck = Some(Duck { from: self.heard, depth: v.tone.shape.sidechain, release: v.tone.shape.sidechain_release });
                         }
                     }
                     v.next += 1;

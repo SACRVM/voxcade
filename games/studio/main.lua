@@ -17,12 +17,13 @@
 -- louder. The voices are the instruments of music/rg80.mml (the library's
 -- kit), each row of steps a channel of MML laid over them.
 
--- The kit's own numbers, read from its file: a knob in its middle plays
--- the instrument as the kit has it.
+-- The kit's own numbers, read from its file (an instrument's own line, its
+-- first layer's): a knob in its middle plays the instrument as the kit
+-- has it.
 local KIT = {}
 for name, words in ("\n" .. world:read("music/rg80.mml")):gmatch("\n@(%S+)([^\n]*)") do
   KIT[name] = {}
-  for key, value in words:gmatch("(%w+)=([%d.]+)") do KIT[name][key] = tonumber(value) end
+  for key, value in words:gmatch("([%w_]+)=([%d.]+)") do KIT[name][key] = tonumber(value) end
 end
 
 -- The selector's positions, left to right as the columns: each voice's
@@ -154,7 +155,11 @@ function apply_knobs(seconds)
   for r = 2, #VOICES do
     for letter in pairs(VOICES[r].plays) do strip(letter, { volume = k[VOICES[r].code .. "_level"] }) end
   end
-  strip("K", decay("kick", 4, k.bd_decay, { drive = 12 * k.bd_tone }))
+  -- The bass drum falls exponentially (curve=exp): its release the same
+  -- fall as its decay, which goes on as it went; its drive the sum's of
+  -- its layers (the kit's = line states one).
+  local bd = around(KIT.kick.decay, 4, k.bd_decay)
+  strip("K", { decay = bd, release = bd, drive = 12 * k.bd_tone })
   strip("S", { cutoff = around(KIT.snare.cutoff, 2, k.sd_tone) })
   strip("N", { volume = k.sd_level * k.sd_snappy })
   for r = 4, 6 do

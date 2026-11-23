@@ -1742,6 +1742,23 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `crush_rate`/`crush_bits` on every wave, MML only. Every
   older song renders byte for byte as before (test
   `the_instruments_play_as_pinned`).
+  Instruments of layers (stage 1 of the owner's yes to
+  `shots/reviews/drum-voices-draft.md`, 2026-11-23): `+` lines right
+  under an `@` line are more layers of it (`song::LAYERS`, four with
+  its own; any word but `sidechain`, `sidechain_release`, `duck`, the
+  whole note's), each its own envelope, oscillator and filters
+  (`player::Tone`, a fixed array in the voice, the audio thread taking
+  no memory), added, then one `=` line's sum (`song::Sum`,
+  `SUM_WORDS`: drive, filter, crush, volume, `player::Summed`); the note
+  over when the last layer rang out; an instrument without either takes
+  the old path to the sample. `pitch_start`/`pitch_decay` a fall in Hz
+  to the note (not with `sweep`), `curve=exp` decay and release to
+  -60 dB in their time, the last 2 ms (`TAPER`) laid down straight; no
+  sound file's words (their envelope is another). `music:mix` turns the
+  first layer, but drive, cutoff, resonance the sum's where `=` states
+  them; `curve` no knob. Tests in `audio/music/layer_tests.rs`. The
+  RG-80's bass drum is HARALD's own from them, by the owner's kick
+  meters (KNALL, BALLERN, BRUSTKORB; `shots/kits/kick_meters.py`).
   The MML pulse wave is centred (no DC offset off duty 0.5, the owner's D6,
   2026-11-13; it changed the sound of End Boss slightly), so no song has
   thumps or lost headroom. MML refuses out-of-range values and names its

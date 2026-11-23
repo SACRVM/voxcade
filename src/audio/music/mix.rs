@@ -56,7 +56,9 @@ impl Glide {
 
 /// The words of an instrument a strip turns while a note sounds: levels and
 /// depths the voice reads every sample (`player::Voice::sound`), so they
-/// glide under it. In this order in `Strip::knobs`.
+/// glide under it. In this order in `Strip::knobs`. Of a layered
+/// instrument a strip turns the first layer's, but cutoff and resonance
+/// the sum's where its `=` line states them.
 pub const GLIDING: [&str; 7] = ["duty", "pwm", "vibrato", "sustain", "cutoff", "resonance", "duck"];
 /// `GLIDING`'s cutoff, which glides in octaves (its glide holds log2 Hz).
 pub const CUTOFF: usize = place(&GLIDING, "cutoff");
@@ -85,18 +87,21 @@ pub(super) const fn place(words: &[&str], word: &str) -> usize {
 /// time or a rate a note's shape is measured by (moved under it, the shape
 /// would jump), or what the voice takes up as a note begins
 /// (`player::Voice::take_up`). The note that sounds keeps its own. In this
-/// order in `Strip::next`.
-pub const NEXT_NOTE: [&str; 18] = [
-    "attack", "decay", "release", "freq", "sweep", "sweep_time", "cutoff_end", "cutoff_time", "vibrato_speed", "vibrato_delay", "pwm_speed",
-    "arp_speed", "lowpass", "drive", "crush_rate", "crush_bits", "sidechain", "sidechain_release",
+/// order in `Strip::next`. Of a layered instrument (`+` lines) a strip
+/// turns the first layer's, but drive the sum's where its `=` line states
+/// a drive, as `GLIDING`'s cutoff and resonance.
+pub const NEXT_NOTE: [&str; 20] = [
+    "attack", "decay", "release", "freq", "sweep", "sweep_time", "pitch_start", "pitch_decay", "cutoff_end", "cutoff_time", "vibrato_speed",
+    "vibrato_delay", "pwm_speed", "arp_speed", "lowpass", "drive", "crush_rate", "crush_bits", "sidechain", "sidechain_release",
 ];
 
 /// An instrument's words that are no knob, and why.
-pub const NO_KNOB: [(&str, &str); 4] = [
+pub const NO_KNOB: [(&str, &str); 5] = [
     ("wave", "the wave is another sound, not a knob: set it in the instrument"),
     ("filter", "the filter's kind is a choice of the instrument, not a knob: its cutoff and resonance turn"),
     ("arp", "an arpeggio is a list of steps, not a knob: arp_speed turns"),
     ("consonants", "a voice's consonants are part of its singing, not a knob"),
+    ("curve", "how the envelope falls is a choice of the instrument, not a knob: its decay and release turn"),
 ];
 
 /// One of a strip's `GLIDING` words: the value asked (None: the

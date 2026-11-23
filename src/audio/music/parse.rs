@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 
 use super::clear;
-use super::song::{self, FilterMode, Instrument, Note, Song, Voicing};
+use super::song::{self, Curve, FilterMode, Instrument, LAYERS, Note, SUM_WORDS, Song, Sum, Voicing};
 use super::voice::{self, Sing, Syllable};
 use super::{SAMPLE_RATE, Wave, words};
 
@@ -35,6 +35,7 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
     // A word of the pulse wave's, which a voice has none of, and a word of
     // a voice's, which a wave has none of.
     let (mut pulse, mut sung) = (None, None);
+    let mut swept = false;
     for word in spec.split_whitespace() {
         let (key, value) = match word.split_once('=') {
             Some((k, v)) => (k, Some(v)),
@@ -79,8 +80,17 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
                     .collect::<Result<_>>()?
             }
             "arp_speed" => ins.arp_speed = num()?,
-            "sweep" => ins.sweep = num()?,
+            "sweep" => (ins.sweep, swept) = (num()?, true),
             "sweep_time" => ins.sweep_time = Some(num()?),
+            "pitch_start" => ins.pitch_start = Some(num()?),
+            "pitch_decay" => ins.pitch_decay = num()?,
+            "curve" => {
+                ins.curve = match value.context("curve needs linear or exp")? {
+                    "linear" => Curve::Linear,
+                    "exp" => Curve::Exp,
+                    other => bail!("curve={other}: linear or exp"),
+                }
+            }
             "freq" => ins.freq = Some(num()?),
             "lowpass" => ins.lowpass = Some(num()?),
             "filter" => {
@@ -134,7 +144,52 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
     if let Some(word) = sung.filter(|_| ins.voice.is_none()) {
         bail!("{word} means nothing on a {}: only a voice (voice or {}) sings consonants", ins.wave.name(), clear::WAVE);
     }
+    if swept && ins.pitch_start.is_some() {
+        bail!("pitch_start and sweep both bend the pitch: take one (pitch_start falls in Hz to the note's pitch, sweep slides in semitones)");
+    }
     Ok(ins)
+}
+
+/// The words a line of an instrument's options writes, in its order.
+fn keys(spec: &str) -> impl Iterator<Item = &str> {
+    spec.split_whitespace().map(|w| w.split_once('=').map_or(w, |(k, _)| k))
+}
+
+/// A further layer of an instrument (`+`): a wave and an instrument's
+/// words, but those of the note as a whole, which the instrument's own
+/// line says (how it ducks and is ducked).
+fn parse_layer(spec: &str) -> Result<Instrument> {
+    if let Some(key) = keys(spec).find(|k| ["sidechain", "sidechain_release", "duck"].contains(k)) {
+        bail!("{key} is the whole note's, not a layer's: write it on the instrument's own line");
+    }
+    let ins = parse_instrument(spec)?;
+    if ins.voice.is_some() {
+        bail!("a layer is a wave (square, saw, triangle, sine or noise), not a voice");
+    }
+    Ok(ins)
+}
+
+/// What a layered instrument's layers go through once added (`=`): only
+/// the words of `SUM_WORDS`, a volume of 1 and no drive unless stated.
+fn parse_sum(spec: &str) -> Result<Sum> {
+    if let Some(key) = keys(spec).find(|k| !SUM_WORDS.contains(k)) {
+        let near = words::near(key, SUM_WORDS.iter().copied()).map_or(String::new(), |w| format!(" (did you mean {w}?)"));
+        bail!("the sum takes {}, not {key}{near}", SUM_WORDS.join(", "));
+    }
+    let ins = parse_instrument(spec)?;
+    let stated = |word: &str| keys(spec).any(|k| k == word);
+    Ok(Sum {
+        drive: ins.drive,
+        volume: if stated("volume") { ins.volume } else { 1.0 },
+        filter: ins.filter,
+        cutoff: ins.cutoff,
+        resonance: ins.resonance,
+        crush_rate: ins.crush_rate,
+        crush_bits: ins.crush_bits,
+        drive_stated: stated("drive"),
+        cutoff_stated: stated("cutoff"),
+        resonance_stated: stated("resonance"),
+    })
 }
 
 /// Expands `$name` macros (up to a depth, so a macro cannot loop forever).
@@ -601,12 +656,41 @@ fn read_head(text: &str, may_be_empty: bool) -> Result<Head> {
         lines: Vec::new(),
         plain: false,
     };
+    // The instrument whose layers (`+`) and sum (`=`) may come next: its
+    // place, its name, and its sum's line once given.
+    let mut open: Option<(usize, String, Option<usize>)> = None;
     for (n, raw) in text.lines().enumerate() {
         let line = raw.split(';').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
         }
         let at = || format!("line {}", n + 1);
+        if let Some(rest) = line.strip_prefix(['+', '=']) {
+            let sum = line.starts_with('=');
+            let what = if sum { "a sum (=)" } else { "a layer (+)" };
+            let Some((index, name, sum_line)) = &mut open else {
+                bail!("{}: {what} goes right under an instrument's line (@name ...){}", at(), if sum { " and its layers" } else { " or its other layers" });
+            };
+            let ins = &mut head.instruments[*index];
+            if ins.voice.is_some() {
+                bail!("{}: @{name} sings, and a voice takes no layers and no sum: one instrument a voice", at());
+            }
+            if let Some(line) = sum_line {
+                bail!("{}: @{name} has its sum (=) on line {line} already{}", at(), if sum { ": an instrument takes one" } else { ", and its layers come before it" });
+            }
+            if sum {
+                ins.sum = Some(parse_sum(rest).with_context(|| format!("{}: @{name}'s sum (=)", at()))?);
+                *sum_line = Some(n + 1);
+            } else {
+                if ins.layers.len() + 1 >= LAYERS {
+                    bail!("{}: @{name} has {LAYERS} layers already (its own line and {} more), the most an instrument takes", at(), LAYERS - 1);
+                }
+                let layer = parse_layer(rest).with_context(|| format!("{}: @{name}'s layer {}", at(), ins.layers.len() + 2))?;
+                ins.layers.push(layer);
+            }
+            continue;
+        }
+        open = None;
         if let Some(rest) = line.strip_prefix('#') {
             let (key, value) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
             match key {
@@ -663,6 +747,7 @@ fn read_head(text: &str, may_be_empty: bool) -> Result<Head> {
             let (name, spec) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
             let ins = parse_instrument(spec).with_context(|| format!("{}: @{name}", at()))?;
             head.names.insert(name.to_string(), head.instruments.len());
+            open = Some((head.instruments.len(), name.to_string(), None));
             head.instruments.push(ins);
         } else if let Some(rest) = line.strip_prefix('$') {
             let (name, body) = rest.split_once('=').with_context(|| format!("{}: a macro is $name = notes", at()))?;

@@ -184,6 +184,9 @@ pub const WORDS: &[Word] = &[
     Word { name: "drive", sound: None, mml: mml(Decibels, Some((0.0, 36.0)), "0", "how hard the sound is pushed into a soft clipper before the filters: 0 leaves it clean, 12 rough, 20 a megaphone's shout") },
     Word { name: "crush_rate", sound: None, mml: mml(Hz, Some((100.0, 44_100.0)), "none", "a bit crusher: the sound held at this rate, as an early sampler played it; 6000 the speech of old games") },
     Word { name: "crush_bits", sound: None, mml: mml(Bits, Some((1.0, 16.0)), "none", "a bit crusher: the sound rounded to this many bits, after the envelope; 4 a grainy 8-bit voice") },
+    Word { name: "pitch_start", sound: None, mml: mml(Hz, Some(PITCHES), "none", "the pitch each note begins at, falling fast to the note's own, evenly in Hz: a drum's thump; not with sweep") },
+    Word { name: "pitch_decay", sound: None, mml: mml(Seconds, Some((0.001, 2.0)), "0.02", "how fast the pitch falls from pitch_start: in this time it has gone about two thirds of the way") },
+    Word { name: "curve", sound: None, mml: mml(Choice, None, "linear", "how decay and release fall: linear, a straight line, or exp, as a drum dies away, their time then the fall to -60 dB") },
 ];
 
 /// Names a sound once had (in `c.sounds`), and what says it now.
@@ -277,6 +280,7 @@ mod tests {
             let value = match w.name {
                 "arp" => "0,4,7".to_string(),
                 "filter" => "lowpass".to_string(),
+                "curve" => "exp".to_string(),
                 // A value inside the word's range (MML refuses the rest).
                 _ => match w.mml.as_ref().and_then(|u| u.range) {
                     Some((lo, hi)) if lo > 1.0 || hi < 1.0 => ((lo + hi) / 2.0).to_string(),

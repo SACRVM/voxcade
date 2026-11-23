@@ -49,7 +49,60 @@ pub struct Instrument {
     /// is rounded to, each off when None.
     pub crush_rate: Option<f32>,
     pub crush_bits: Option<u32>,
+    /// The pitch a note begins at (Hz), falling exponentially in Hz to the
+    /// note's own over `pitch_decay` seconds (its time constant); none
+    /// when None.
+    pub pitch_start: Option<f32>,
+    pub pitch_decay: f32,
+    /// How `decay` and `release` fall: a straight line, or exponentially
+    /// to -60 dB in their time.
+    pub curve: Curve,
+    /// Its further layers (`+` lines under its own, `LAYERS` with it at
+    /// most), each an instrument of its own sounding with every note, and
+    /// what their sum goes through (`=`). An instrument without either
+    /// plays as one ever did.
+    pub layers: Vec<Instrument>,
+    pub sum: Option<Sum>,
 }
+
+/// The most layers an instrument has, its own line one of them: the voice
+/// holds the rest in a fixed array (`player::Voice`), so the audio thread
+/// makes none.
+pub const LAYERS: usize = 4;
+
+/// How an envelope's falls go (`curve`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Curve {
+    /// A straight line in level, to where it falls in its time.
+    #[default]
+    Linear,
+    /// Exponential: its time is the fall to -60 dB of where it started
+    /// (towards the sustain level for the decay, silence for the
+    /// release), its last few milliseconds laid down to the target in a
+    /// straight line, so it is there at its time without a step.
+    Exp,
+}
+
+/// What a layered instrument's layers go through once added (`=`): a soft
+/// clipper (`drive`, its gain 0 off), the filter, the crusher, a volume.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sum {
+    pub drive: f32,
+    pub volume: f32,
+    pub filter: Option<FilterMode>,
+    pub cutoff: f32,
+    pub resonance: f32,
+    pub crush_rate: Option<f32>,
+    pub crush_bits: Option<u32>,
+    /// Which of the words a strip turns (`music:mix`) the line states:
+    /// drive, cutoff, resonance turn the sum's then, not the first layer's.
+    pub drive_stated: bool,
+    pub cutoff_stated: bool,
+    pub resonance_stated: bool,
+}
+
+/// The words a sum line (`=`) takes.
+pub const SUM_WORDS: [&str; 7] = ["drive", "volume", "filter", "cutoff", "resonance", "crush_rate", "crush_bits"];
 
 /// Which voice sings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +154,11 @@ impl Default for Instrument {
             drive: 0.0,
             crush_rate: None,
             crush_bits: None,
+            pitch_start: None,
+            pitch_decay: 0.02,
+            curve: Curve::Linear,
+            layers: Vec::new(),
+            sum: None,
         }
     }
 }
