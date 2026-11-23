@@ -195,7 +195,7 @@ mod tests {
 
     /// A build leaves out `shots/` (a `.gitignore` or none) and what the
     /// game's `.gitignore` ignores, as the list does, and says which of the
-    /// ignored files the game names in quotes.
+    /// ignored files the game names in quotes; a sample (`samples/`) goes in.
     #[test]
     fn a_build_leaves_out_what_is_ignored_and_says_what_the_game_needs() {
         let dir = crate::scratch::Scratch::new("export-ignored");
@@ -207,6 +207,7 @@ mod tests {
             ("models/spare.vvx", "x"),
             ("sounds/coin.toml", "x"),
             ("kept.txt", "x"),
+            ("samples/thump.wav", "RIFF"),
         ] {
             let p = dir.join(path);
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -215,12 +216,12 @@ mod tests {
         let (mut files, mut ignored) = (Vec::new(), Vec::new());
         walk(&dir, &mut files, &mut ignored);
         files.sort();
-        assert_eq!(files, ["kept.txt", "main.lua", "models/hero.vvx", "models/spare.vvx", "notes/ideas.txt", "sounds/coin.toml"], "shots/ out without a .gitignore");
+        assert_eq!(files, ["kept.txt", "main.lua", "models/hero.vvx", "models/spare.vvx", "notes/ideas.txt", "samples/thump.wav", "sounds/coin.toml"], "shots/ out without a .gitignore, a sample in");
         std::fs::write(dir.join(".gitignore"), "notes/\nmodels/\nsounds/*.toml\n").unwrap();
         (files, ignored) = (Vec::new(), Vec::new());
         walk(&dir, &mut files, &mut ignored);
         files.sort();
-        assert_eq!(files, ["kept.txt", "main.lua"]);
+        assert_eq!(files, ["kept.txt", "main.lua", "samples/thump.wav"]);
         ignored.sort();
         assert_eq!(needed(&dir, &files, &ignored), ["models/hero.vvx", "sounds/coin.toml"], "named by the game; the spare model and the notes are not");
     }

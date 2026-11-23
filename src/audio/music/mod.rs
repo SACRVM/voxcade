@@ -105,6 +105,22 @@
 //!   = drive=4
 //! ```
 //!
+//! Samples: the wave `sample` plays a recording of the game's `samples/`
+//! (`sample.rs`: WAV only, read by our own reader, converted once to the
+//! engine's rate and one channel): `name` its file's without `.wav`,
+//! `root` the note it plays at its own speed at (`c4`; other notes resample
+//! it with a cubic, higher faster and shorter), `start` and `end` the
+//! seconds of it that play, `loop=yes` that stretch round while the note
+//! sounds (its last 5 ms faded into its first as it comes round),
+//! `reverse=yes` backwards. An unlooped note ends when its envelope does
+//! or its stretch has played out (its last 3 ms faded). The whole chain
+//! of every wave follows (envelope, filters, drive, crusher, volume), and
+//! `sweep`, `pitch_start`, `vibrato`, `arp` and `freq` move its speed;
+//! the pulse's words are refused. A sample may be a layer. A song names
+//! its samples as it is read; `Song::bind` finds them (a name not there a
+//! mistake naming the line and the nearest), and until then it plays
+//! nothing. `@break sample name=amen root=c4 start=0 end=1.92 loop=yes`.
+//!
 //! Sidechain: an instrument with `sidechain=0.6` ducks the other channels
 //! by that much whenever one of its notes starts (a kick pumping the bass
 //! and pads), and they come back over `sidechain_release` seconds. `duck`
@@ -132,11 +148,15 @@ mod knob_tests;
 mod layer_tests;
 mod voice;
 mod clear;
+pub mod sample;
+#[cfg(test)]
+mod sample_tests;
 
-pub use mix::{GLIDING, Glide, LETTERS, Mix, NEXT_NOTE, NO_KNOB, SHORTEST, Strip, letter_index, muffle_cutoff};
-pub use parse::{Laid, has_channels, lay, parse, read};
+pub use mix::{GLIDING, Glide, LETTERS, Mix, NEXT_NOTE, NO_KNOB, SAMPLE_KNOBS, SHORTEST, Strip, letter_index, muffle_cutoff};
+pub use parse::{Laid, has_channels, lay, note_hz, note_name, parse, read};
 pub use player::{Digests, Player, Swap};
-pub use song::{FilterMode, Instrument, Song, Timing};
+pub use sample::Samples;
+pub use song::{FilterMode, Instrument, Sampled, Song, Timing};
 pub use voice::phonemes;
 
 use super::synth::{SAMPLE_RATE, Wave};

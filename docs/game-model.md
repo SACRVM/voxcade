@@ -359,8 +359,11 @@ settings. Several players: `player` is seat 1, the others are in
   note begins). A word a note's instrument lacks does nothing on that
   note (a cutoff without a filter, `freq` on a pitched instrument, a
   low-pass, `cutoff_end` or a crusher it has not), never a mistake: the
-  strip holds by letter across songs. `wave`, `filter`, `arp` and
-  `consonants` are refused, saying why (`mix::NO_KNOB`: another sound,
+  strip holds by letter across songs. A sample's `root` (a note, `"g3"`,
+  held as Hz, read back as a note), `start` and `["end"]` (`end` is a
+  word of Lua's own) count from the next note too (`mix::SAMPLE_KNOBS`).
+  `wave`, `filter`, `arp`, `curve`, `consonants` and a sample's `name`,
+  `loop` and `reverse` are refused, saying why (`mix::NO_KNOB`: another sound,
   not a knob); a sound file's word or a slip is a mistake naming the
   word meant (`words::near`). Only heard, as the rest of a strip.
   `music.tempo` (stage 2c) is the beats a minute of the game's song, 1

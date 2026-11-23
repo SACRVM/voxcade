@@ -267,6 +267,7 @@ mod tests {
             ("sounds/coin.toml", "wave = \"sine\""),
             ("sounds/boom.wav", ""),
             ("sounds/raw/deep.wav", ""),
+            ("samples/thump.wav", ""),
             ("music/song.mml", ""),
             ("replays/tests/run.toml", ""),
             (".luarc.json", "{}"),
@@ -289,7 +290,7 @@ mod tests {
                 ("Images", vec!["back.png"]),
                 ("Sounds", vec!["sounds/coin.toml"]),
                 ("Music", vec!["music/song.mml"]),
-                ("Other", vec!["sounds/boom.wav", "sounds/raw/deep.wav", "tiled/level.json", "levels/README.txt"]),
+                ("Other", vec!["sounds/boom.wav", "sounds/raw/deep.wav", "tiled/level.json", "levels/README.txt", "samples/thump.wav"]),
             ]
         );
         assert!(files.has("blocks/stone.vvx") && !files.has("replays/tests/run.toml"));

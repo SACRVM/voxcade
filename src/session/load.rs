@@ -74,7 +74,8 @@ impl<G: Game> Session<G> {
     pub fn load_from(files: Files, mut slots: Slots) -> Result<Self> {
         let dir = files.dir().to_path_buf();
         let cfg = config_in::<G>(&files)?;
-        let songs = song_timings(&files, &cfg)?;
+        let samples = audio::music::Samples::read_folder(&files)?;
+        let songs = song_timings(&files, &cfg, &samples)?;
         check_title_bar(&files, &cfg, &songs)?;
         slots.set_count(cfg.saves.slots);
         let levels = std::sync::Arc::new(crate::levels::load::<G>(&files, &cfg)?);
@@ -97,6 +98,7 @@ impl<G: Game> Session<G> {
             level_files,
             piece_models,
             sounds,
+            samples,
             song_titles,
             songs,
             cue,
@@ -343,9 +345,10 @@ impl<G: Game> Session<G> {
         if self.files.is_sealed() {
             return Ok(Reloaded::Nothing);
         }
-        // A file gone counts in the sounds' folder only (a sound taken
-        // away); elsewhere the game keeps what it read.
-        if !changed.exists() && !audio::sound::in_folder(&self.dir, changed) {
+        // A file gone counts in the sounds' and the samples' folders only
+        // (a sound or a sample taken away); elsewhere the game keeps what
+        // it read.
+        if !changed.exists() && !audio::sound::in_folder(&self.dir, changed) && !audio::music::sample::in_folder(&self.dir, changed) {
             return Ok(Reloaded::Nothing);
         }
         self.take_in(changed)
@@ -372,7 +375,7 @@ impl<G: Game> Session<G> {
             let before = self.cfg.audio.music.clone();
             let mut cfg = config_in::<G>(&self.files)?;
             crate::levels::check_start::<G>(&self.files, &cfg)?;
-            check_title_bar(&self.files, &cfg, &song_timings(&self.files, &cfg)?)?;
+            check_title_bar(&self.files, &cfg, &song_timings(&self.files, &cfg, &self.samples)?)?;
             let waiting = self.cfg.restart_only(&cfg);
             if !waiting.is_empty() {
                 self.cfg.keep_for_restart(&mut cfg);
@@ -424,6 +427,9 @@ impl<G: Game> Session<G> {
         }
         if audio::sound::in_folder(&self.dir, changed) {
             return self.reload_sounds();
+        }
+        if audio::music::sample::in_folder(&self.dir, changed) {
+            return self.reload_samples();
         }
         let block = self.cfg.world.blocks.is_some() && is_block_file(&self.dir, changed);
         // A level file new in `levels/` (not for a world the script builds).
@@ -486,6 +492,22 @@ impl<G: Game> Session<G> {
         }
         self.cfg.sounds = own;
         Ok(Reloaded::Sounds)
+    }
+
+    /// A file in `samples/` came, changed or went: the samples are read
+    /// again (a mistake keeps them as they were) and, where they differ,
+    /// the song that plays is made anew from them as a song saved is (the
+    /// game's own where it is in it, on its beat), the studios checked
+    /// against them. The run goes on: only the sound changes.
+    pub(super) fn reload_samples(&mut self) -> Result<Reloaded> {
+        let samples = audio::music::Samples::read_folder(&self.files)?;
+        if samples.same(&self.samples) {
+            return Ok(Reloaded::Nothing);
+        }
+        song_timings(&self.files, &self.cfg, &samples)?;
+        self.samples = samples;
+        self.music_changed = true;
+        Ok(Reloaded::Music)
     }
 }
 

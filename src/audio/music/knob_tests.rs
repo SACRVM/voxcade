@@ -78,7 +78,8 @@ fn a_word_from_the_next_note_leaves_the_sounding_note_alone() {
     let swept = "#tempo 120\n@k square pwm=0.1 freq=110 sweep=-12 sweep_time=0.2 filter=lowpass cutoff=800 cutoff_end=200 cutoff_time=0.2 vibrato=0.01 vibrato_speed=5 vibrato_delay=0.05 pwm_speed=2 arp=0,12 arp_speed=20 lowpass=5000 drive=6 crush_rate=20000 crush_bits=12 sidechain=0.3 sidechain_release=0.1 attack=0.01 decay=0.2 sustain=0.5 release=0.05\n@s sine volume=0.5\nA: @k c4 c4 c4 c4\nB: @s o4 a1\n";
     let falling = swept.replace("sweep=-12 sweep_time=0.2", "pitch_start=900 pitch_decay=0.05 curve=exp");
     let next = SR / 2;
-    for word in NEXT_NOTE {
+    // (A sample's own words: `sample_tests`.)
+    for word in NEXT_NOTE.into_iter().filter(|w| !SAMPLE_KNOBS.contains(w)) {
         let song = if word.starts_with("pitch_") { falling.as_str() } else { swept };
         let plain = played(song, 1.0, &Mix::default(), None);
         let usage = crate::audio::words::word(word).and_then(|w| w.mml.as_ref()).unwrap();
@@ -135,12 +136,12 @@ fn a_cutoff_keeps_a_notes_sweep_as_deep() {
 
 /// A word the note's instrument lacks does nothing on it: a fixed pitch on
 /// a pitched instrument, a cutoff without a filter, a low-pass and a
-/// crusher it does not have.
+/// crusher it does not have, a sample's words on a wave.
 #[test]
 fn a_word_the_instrument_lacks_does_nothing() {
     let song = "#tempo 120\n@s square attack=0.01 decay=0.1 sustain=0.6\nA: @s c4 e4 g4 c4\n";
     let plain = played(song, 1.5, &Mix::default(), None);
-    for (word, value) in [("freq", 300.0), ("cutoff", 300.0), ("resonance", 0.9), ("cutoff_end", 3000.0), ("lowpass", 400.0), ("crush_rate", 2000.0), ("crush_bits", 3.0), ("pitch_start", 300.0), ("pitch_decay", 0.1)] {
+    for (word, value) in [("freq", 300.0), ("cutoff", 300.0), ("resonance", 0.9), ("cutoff_end", 3000.0), ("lowpass", 400.0), ("crush_rate", 2000.0), ("crush_bits", 3.0), ("pitch_start", 300.0), ("pitch_decay", 0.1), ("root", 300.0), ("start", 0.1), ("end", 0.2)] {
         let mix = turned(Mix::default(), 'A', word, value, 0.0);
         assert!(played(song, 1.5, &mix, None) == plain, "{word} changed an instrument without its part");
     }

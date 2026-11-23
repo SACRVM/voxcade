@@ -38,6 +38,7 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         flyby_from: 0.0,
         ticked: false,
         sounds: SoundBank::default(),
+        samples: Default::default(),
         song_titles: Vec::new(),
         songs: Vec::new(),
         cue: (None, false),

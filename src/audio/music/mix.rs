@@ -89,19 +89,28 @@ pub(super) const fn place(words: &[&str], word: &str) -> usize {
 /// (`player::Voice::take_up`). The note that sounds keeps its own. In this
 /// order in `Strip::next`. Of a layered instrument (`+` lines) a strip
 /// turns the first layer's, but drive the sum's where its `=` line states
-/// a drive, as `GLIDING`'s cutoff and resonance.
-pub const NEXT_NOTE: [&str; 20] = [
+/// a drive, as `GLIDING`'s cutoff and resonance. A sample's `root` (held
+/// as Hz), `start` and `end` (`SAMPLE_KNOBS`) are among them: a break cut
+/// up by the game, note by note.
+pub const NEXT_NOTE: [&str; 23] = [
     "attack", "decay", "release", "freq", "sweep", "sweep_time", "pitch_start", "pitch_decay", "cutoff_end", "cutoff_time", "vibrato_speed",
-    "vibrato_delay", "pwm_speed", "arp_speed", "lowpass", "drive", "crush_rate", "crush_bits", "sidechain", "sidechain_release",
+    "vibrato_delay", "pwm_speed", "arp_speed", "lowpass", "drive", "crush_rate", "crush_bits", "sidechain", "sidechain_release", "root", "start",
+    "end",
 ];
 
+/// `NEXT_NOTE`'s words of the wave `sample` alone.
+pub const SAMPLE_KNOBS: [&str; 3] = ["root", "start", "end"];
+
 /// An instrument's words that are no knob, and why.
-pub const NO_KNOB: [(&str, &str); 5] = [
+pub const NO_KNOB: [(&str, &str); 8] = [
     ("wave", "the wave is another sound, not a knob: set it in the instrument"),
     ("filter", "the filter's kind is a choice of the instrument, not a knob: its cutoff and resonance turn"),
     ("arp", "an arpeggio is a list of steps, not a knob: arp_speed turns"),
     ("consonants", "a voice's consonants are part of its singing, not a knob"),
     ("curve", "how the envelope falls is a choice of the instrument, not a knob: its decay and release turn"),
+    ("name", "which recording a sample plays is a choice of the instrument, not a knob: its start, end and root turn"),
+    ("loop", "whether a sample goes round is a choice of the instrument, not a knob: its start and end turn"),
+    ("reverse", "which way a sample plays is a choice of the instrument, not a knob: its start, end and root turn"),
 ];
 
 /// One of a strip's `GLIDING` words: the value asked (None: the

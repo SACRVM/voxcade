@@ -66,7 +66,7 @@ the earlier idea of separate editors that feel like a game (`engine.md`,
 
 A sound is a file of the game, `sounds/NAME.toml` (a few numbers a line,
 in words shared with MML's instruments: `src/audio/words.rs`; no
-recordings, everything in a game is code or text); over its text the sound maker (`src/ide/maker.rs`):
+recordings: a sound is code or text, and a song's samples lie in `samples/`); over its text the sound maker (`src/ide/maker.rs`):
 a kind of sound to pick, a dice that only gives good ones, a few named
 faders, all writing the text. Songs open as text (MML) with a play key. A library of background songs ships with
 the editor for games that need only something simple (`music/`, made by

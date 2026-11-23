@@ -392,7 +392,7 @@ pub(super) const COMMANDS: &[Command] = &[
         args: &["<game-dir> | <song.mml>"],
         line: "write a game's music as a WAV file",
         making: false,
-        text: "writes the game's music (c.audio.music), or one song file, as a WAV file, once through.",
+        text: "writes the game's music (c.audio.music), or one song file, as a WAV file, once through; a song file alone plays the samples/ beside the music folder it lies in, else beside it.",
         opts: &[
             opt("--out", "FILE", "where it goes (default shots/music.wav)"),
             opt("--seconds", "N", "N seconds of it instead"),

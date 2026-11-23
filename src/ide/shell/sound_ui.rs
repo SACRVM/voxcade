@@ -43,7 +43,10 @@ impl Shell {
             (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text().to_string(),
             _ => std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?,
         };
-        let song = crate::audio::music::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;
+        let mut song = crate::audio::music::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;
+        // Its samples as the game's folder holds them now.
+        let samples = crate::audio::music::Samples::read_folder(&crate::files::Files::folder(&self.dir))?;
+        song.bind(&samples).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;
         let gain = crate::settings::Settings::load(&crate::settings::path_for(&self.dir)).music_gain();
         Ok(crate::audio::music::Player::new(song, self.cfg.audio.music_volume * gain))
     }

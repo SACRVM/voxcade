@@ -214,7 +214,10 @@ impl UserData for MusicView {
                 t.raw_set("mute", strip.mute)?;
                 t.raw_set("pan", strip.pan.to)?;
                 for (word, v) in strip.turned() {
-                    t.raw_set(word, v)?;
+                    match word {
+                        "root" => t.raw_set(word, crate::audio::music::note_name(v))?,
+                        _ => t.raw_set(word, v)?,
+                    }
                 }
                 return Ok(Value::Table(t));
             }
@@ -318,6 +321,17 @@ fn knob_words(t: &mlua::Table) -> mlua::Result<Vec<(&'static str, Option<f32>)>>
     let mut turned = Vec::new();
     for word in GLIDING.iter().chain(&NEXT_NOTE) {
         let usage = words::word(word).and_then(|w| w.mml.as_ref()).expect("a knob is an instrument's word");
+        // A sample's root is a note, as MML writes it ("c4"), held as Hz.
+        if usage.unit == words::Unit::Note {
+            let value = match t.raw_get::<Value>(*word)? {
+                Value::Nil => continue,
+                Value::Boolean(false) => None,
+                Value::String(s) if crate::audio::music::note_hz(&s.to_str()?).is_some() => crate::audio::music::note_hz(&s.to_str()?),
+                other => return Err(mlua::Error::runtime(format!("music:mix: {word} is a note, a letter and an octave like \"c4\", \"f#3\" or \"b-2\", or false for the instrument's own, not {}", shown(&other)))),
+            };
+            turned.push((*word, value));
+            continue;
+        }
         let (lo, hi) = usage.range.expect("a knob has a range");
         let whole = usage.unit == words::Unit::Bits;
         let value = match t.raw_get::<Value>(*word)? {

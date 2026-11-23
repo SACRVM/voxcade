@@ -26,6 +26,10 @@ pub enum Unit {
     Decibels,
     /// A whole number of bits.
     Bits,
+    /// A note, a letter and an octave: c4, f#3, b-2.
+    Note,
+    /// A name: a file's without its ending.
+    Name,
 }
 
 impl Unit {
@@ -86,7 +90,7 @@ pub const WORDS: &[Word] = &[
     Word {
         name: "wave",
         sound: sound(Choice, None, "square", "the oscillator's wave: square, saw, triangle, sine or noise; pulse is square"),
-        mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ...; or voice or singer, which sing the text in quotes before each note (singer the clearer)"),
+        mml: mml(Choice, None, "square", "the same waves, written as a bare word: @lead square ...; or voice or singer, which sing the text in quotes before each note (singer the clearer); or sample, which plays a recording of the game's samples/ (name=...)"),
     },
     Word {
         name: "freq",
@@ -186,6 +190,12 @@ pub const WORDS: &[Word] = &[
     Word { name: "crush_bits", sound: None, mml: mml(Bits, Some((1.0, 16.0)), "none", "a bit crusher: the sound rounded to this many bits, after the envelope; 4 a grainy 8-bit voice") },
     Word { name: "pitch_start", sound: None, mml: mml(Hz, Some(PITCHES), "none", "the pitch each note begins at, falling fast to the note's own, evenly in Hz: a drum's thump; not with sweep") },
     Word { name: "pitch_decay", sound: None, mml: mml(Seconds, Some((0.001, 2.0)), "0.02", "how fast the pitch falls from pitch_start: in this time it has gone about two thirds of the way") },
+    Word { name: "name", sound: None, mml: mml(Name, None, "none", "the recording the wave sample plays: its file in samples/ without the ending, name=thump for samples/thump.wav; the wave sample needs one") },
+    Word { name: "root", sound: None, mml: mml(Note, None, "c4", "the note at which a sample plays at its own speed: a higher note plays it faster and shorter, a lower one slower and longer") },
+    Word { name: "start", sound: None, mml: mml(Seconds, SONG_TIMES, "0", "where in its recording a sample begins, seconds from the recording's start") },
+    Word { name: "end", sound: None, mml: mml(Seconds, SONG_TIMES, "the recording's end", "where in its recording a sample stops, seconds from the recording's start, after start") },
+    Word { name: "loop", sound: None, mml: mml(YesNo, None, "no", "yes: a sample's stretch, start to end, goes round while the note sounds, a few milliseconds faded across the seam") },
+    Word { name: "reverse", sound: None, mml: mml(YesNo, None, "no", "yes: a sample plays backwards, from its end to its start") },
     Word { name: "curve", sound: None, mml: mml(Choice, None, "linear", "how decay and release fall: linear, a straight line, or exp, as a drum dies away, their time then the fall to -60 dB") },
 ];
 
@@ -210,6 +220,12 @@ pub fn sound_words() -> impl Iterator<Item = (&'static str, &'static Use)> {
 /// `among`.
 pub fn near<'a>(name: &str, among: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     among.map(|w| (distance(name, w), w)).filter(|(d, _)| *d <= 2).min_by_key(|(d, _)| *d).map(|(_, w)| w)
+}
+
+/// The word of `among` nearest to `name`, however far (the first of
+/// those as near); None when `among` is empty.
+pub fn nearest<'a>(name: &str, among: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    among.map(|w| (distance(name, w), w)).min_by_key(|(d, _)| *d).map(|(_, w)| w)
 }
 
 /// Letters to change, add or take away to make one word the other.
@@ -264,7 +280,7 @@ mod tests {
         for line in body.lines().filter(|l| l.starts_with("            \"")) {
             for word in line.split("=>").next().unwrap().split('|') {
                 let word = word.trim().trim_matches('"');
-                taken.push(if crate::audio::Wave::ALL.iter().any(|(n, _)| *n == word) || word == "pulse" || word == "voice" { "wave" } else { word });
+                taken.push(if crate::audio::Wave::ALL.iter().any(|(n, _)| *n == word) || ["pulse", "voice", "sample"].contains(&word) { "wave" } else { word });
             }
         }
         taken.sort();
@@ -281,14 +297,22 @@ mod tests {
                 "arp" => "0,4,7".to_string(),
                 "filter" => "lowpass".to_string(),
                 "curve" => "exp".to_string(),
+                "name" => "thump".to_string(),
+                "root" => "f#3".to_string(),
+                "loop" | "reverse" => "yes".to_string(),
                 // A value inside the word's range (MML refuses the rest).
                 _ => match w.mml.as_ref().and_then(|u| u.range) {
                     Some((lo, hi)) if lo > 1.0 || hi < 1.0 => ((lo + hi) / 2.0).to_string(),
                     _ => "1".to_string(),
                 },
             };
-            // A voice's own word on a voice, singing.
-            let (wave, note) = if w.name == "consonants" { ("voice ", "\"l a\" c") } else { ("", "c") };
+            // A voice's own word on a voice, singing; a sample's on a sample.
+            let (wave, note) = match w.name {
+                "consonants" => ("voice ", "\"l a\" c"),
+                "name" => ("sample ", "c"),
+                "root" | "start" | "end" | "loop" | "reverse" => ("sample name=thump ", "c"),
+                _ => ("", "c"),
+            };
             crate::audio::music::parse(&format!("@x {wave}{}={value}\nA: {note}", w.name)).unwrap_or_else(|e| panic!("{}: {e:#}", w.name));
         }
         // Renamed words are no words of a sound any more.

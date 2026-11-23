@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 
 use super::clear;
-use super::song::{self, Curve, FilterMode, Instrument, LAYERS, Note, SUM_WORDS, Song, Sum, Voicing};
+use super::song::{self, Curve, FilterMode, Instrument, LAYERS, Note, SUM_WORDS, Sampled, Song, Sum, Voicing};
 use super::voice::{self, Sing, Syllable};
 use super::{SAMPLE_RATE, Wave, words};
 
@@ -30,12 +30,58 @@ pub(super) fn note_freq(octave: i32, semitone: i32) -> f32 {
     440.0 * libm::powf(2.0, (midi - 69) as f32 / 12.0)
 }
 
+/// The pitch of a note written as MML writes one: a letter, up to two
+/// sharps (`+`, `#`) or flats (`-`), an octave of `OCTAVES` (`c4`, `f#3`,
+/// `b-2`); None for anything else.
+pub fn note_hz(text: &str) -> Option<f32> {
+    let mut chars = text.chars();
+    let semitone = match chars.next()?.to_ascii_lowercase() {
+        'c' => 0,
+        'd' => 2,
+        'e' => 4,
+        'f' => 5,
+        'g' => 7,
+        'a' => 9,
+        'b' => 11,
+        _ => return None,
+    };
+    let rest = chars.as_str();
+    let octave_at = rest.find(|c: char| c.is_ascii_digit())?;
+    let (signs, octave) = rest.split_at(octave_at);
+    if signs.len() > 2 || (!signs.chars().all(|c| matches!(c, '+' | '#')) && !signs.chars().all(|c| c == '-')) {
+        return None;
+    }
+    let shift = signs.chars().map(|c| if c == '-' { -1 } else { 1 }).sum::<i32>();
+    let octave: i32 = octave.parse().ok().filter(|o| (OCTAVES.0..=OCTAVES.1).contains(o))?;
+    Some(note_freq(octave, semitone + shift))
+}
+
+/// The note nearest a pitch, as MML writes it (`c4`, `f#3`): what
+/// `note_hz` reads back.
+pub fn note_name(hz: f32) -> String {
+    const LETTERS: [&str; 12] = ["c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"];
+    let midi = (69.0 + 12.0 * libm::log2f(hz.max(1.0) / 440.0)).round() as i32;
+    format!("{}{}", LETTERS[midi.rem_euclid(12) as usize], midi.div_euclid(12) - 1)
+}
+
 fn parse_instrument(spec: &str) -> Result<Instrument> {
     let mut ins = Instrument::default();
     // A word of the pulse wave's, which a voice has none of, and a word of
     // a voice's, which a wave has none of.
     let (mut pulse, mut sung) = (None, None);
     let mut swept = false;
+    // The wave `sample`, and the words of a sample read (the first one
+    // written, for a mistake on another wave).
+    let mut sampled = false;
+    let mut sample = Sampled { name: String::new(), root: note_freq(4, 0), start: 0.0, end: None, looping: false, reverse: false, line: 0, recording: None };
+    let mut sample_word = None;
+    let yes = |key: &str, value: Option<&str>| -> Result<bool> {
+        match value {
+            Some("yes" | "true") => Ok(true),
+            Some("no" | "false") => Ok(false),
+            _ => bail!("{key}={}: yes or no", value.unwrap_or("")),
+        }
+    };
     for word in spec.split_whitespace() {
         let (key, value) = match word.split_once('=') {
             Some((k, v)) => (k, Some(v)),
@@ -55,13 +101,33 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             Ok(v)
         };
         match key {
-            "square" | "pulse" => (ins.wave, ins.voice) = (Wave::Square, None),
-            "saw" => (ins.wave, ins.voice) = (Wave::Saw, None),
-            "triangle" => (ins.wave, ins.voice) = (Wave::Triangle, None),
-            "sine" => (ins.wave, ins.voice) = (Wave::Sine, None),
-            "noise" => (ins.wave, ins.voice) = (Wave::Noise, None),
-            "voice" => ins.voice = Some(Voicing::Formants),
-            clear if clear == clear::WAVE => ins.voice = Some(Voicing::Clear),
+            "square" | "pulse" => (ins.wave, ins.voice, sampled) = (Wave::Square, None, false),
+            "saw" => (ins.wave, ins.voice, sampled) = (Wave::Saw, None, false),
+            "triangle" => (ins.wave, ins.voice, sampled) = (Wave::Triangle, None, false),
+            "sine" => (ins.wave, ins.voice, sampled) = (Wave::Sine, None, false),
+            "noise" => (ins.wave, ins.voice, sampled) = (Wave::Noise, None, false),
+            "sample" => (ins.voice, sampled) = (None, true),
+            "voice" => (ins.voice, sampled) = (Some(Voicing::Formants), false),
+            clear if clear == clear::WAVE => (ins.voice, sampled) = (Some(Voicing::Clear), false),
+            "name" => {
+                let name = value.filter(|v| !v.is_empty()).context("name needs the sample's name: its file in samples/ without the ending, like name=thump")?;
+                if let Some(stem) = name.strip_suffix(".wav").or_else(|| name.strip_suffix(".WAV")) {
+                    bail!("name={name}: the name without its ending, name={stem}");
+                }
+                if name.contains(['/', '\\']) {
+                    bail!("name={name}: a sample's name is its file's in samples/, without a folder");
+                }
+                (sample.name, sample_word) = (name.to_string(), sample_word.or(Some(key)));
+            }
+            "root" => {
+                let v = value.unwrap_or("");
+                sample.root = note_hz(v).with_context(|| format!("root={v}: a note, a letter and an octave, like c4, f#3 or b-2"))?;
+                sample_word = sample_word.or(Some(key));
+            }
+            "start" => (sample.start, sample_word) = (num()?, sample_word.or(Some(key))),
+            "end" => (sample.end, sample_word) = (Some(num()?), sample_word.or(Some(key))),
+            "loop" => (sample.looping, sample_word) = (yes(key, value)?, sample_word.or(Some(key))),
+            "reverse" => (sample.reverse, sample_word) = (yes(key, value)?, sample_word.or(Some(key))),
             "duty" => (ins.duty, pulse) = (num()?, Some(key)),
             "pwm" => (ins.pwm, pulse) = (num()?, Some(key)),
             "pwm_speed" => (ins.pwm_speed, pulse) = (num()?, Some(key)),
@@ -128,9 +194,9 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
                 }
                 ins.crush_bits = Some(bits as u32);
             }
-            "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine, noise, voice or {} (like @lead square duty=0.25)", clear::WAVE),
+            "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine, noise, sample, voice or {} (like @lead square duty=0.25)", clear::WAVE),
             other => {
-                let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse", "voice", clear::WAVE]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
+                let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse", "sample", "voice", clear::WAVE]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
                 match words::near(other, known) {
                     Some(near) => bail!("unknown instrument option '{other}': did you mean '{near}'?"),
                     None => bail!("unknown instrument option '{other}'"),
@@ -141,11 +207,27 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
     if let Some(word) = pulse.filter(|_| ins.voice.is_some()) {
         bail!("{word} means nothing on a voice: it shapes the pulse of a square wave, and a voice sings");
     }
+    let wave = if sampled { "sample" } else { ins.wave.name() };
     if let Some(word) = sung.filter(|_| ins.voice.is_none()) {
-        bail!("{word} means nothing on a {}: only a voice (voice or {}) sings consonants", ins.wave.name(), clear::WAVE);
+        bail!("{word} means nothing on a {wave}: only a voice (voice or {}) sings consonants", clear::WAVE);
     }
     if swept && ins.pitch_start.is_some() {
         bail!("pitch_start and sweep both bend the pitch: take one (pitch_start falls in Hz to the note's pitch, sweep slides in semitones)");
+    }
+    if sampled {
+        if let Some(word) = pulse {
+            bail!("{word} means nothing on a sample: it shapes the pulse of a square wave, and a sample plays a recording");
+        }
+        if sample.name.is_empty() {
+            bail!("the wave sample needs the recording's name: name=thump plays samples/thump.wav");
+        }
+        if let Some(end) = sample.end.filter(|&end| end <= sample.start) {
+            bail!("start={} and end={end}: a sample's stretch ends after it begins", sample.start);
+        }
+        ins.sample = Some(sample);
+    } else if let Some(word) = sample_word {
+        let what = if ins.voice.is_some() { "voice" } else { wave };
+        bail!("{word} means nothing on a {what}: only the wave sample plays a recording (@break sample name=...)");
     }
     Ok(ins)
 }
@@ -164,7 +246,7 @@ fn parse_layer(spec: &str) -> Result<Instrument> {
     }
     let ins = parse_instrument(spec)?;
     if ins.voice.is_some() {
-        bail!("a layer is a wave (square, saw, triangle, sine or noise), not a voice");
+        bail!("a layer is a wave (square, saw, triangle, sine, noise or sample), not a voice");
     }
     Ok(ins)
 }
@@ -685,7 +767,8 @@ fn read_head(text: &str, may_be_empty: bool) -> Result<Head> {
                 if ins.layers.len() + 1 >= LAYERS {
                     bail!("{}: @{name} has {LAYERS} layers already (its own line and {} more), the most an instrument takes", at(), LAYERS - 1);
                 }
-                let layer = parse_layer(rest).with_context(|| format!("{}: @{name}'s layer {}", at(), ins.layers.len() + 2))?;
+                let mut layer = parse_layer(rest).with_context(|| format!("{}: @{name}'s layer {}", at(), ins.layers.len() + 2))?;
+                layer.sample.iter_mut().for_each(|s| s.line = n + 1);
                 ins.layers.push(layer);
             }
             continue;
@@ -745,7 +828,8 @@ fn read_head(text: &str, may_be_empty: bool) -> Result<Head> {
             }
         } else if let Some(rest) = line.strip_prefix('@') {
             let (name, spec) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-            let ins = parse_instrument(spec).with_context(|| format!("{}: @{name}", at()))?;
+            let mut ins = parse_instrument(spec).with_context(|| format!("{}: @{name}", at()))?;
+            ins.sample.iter_mut().for_each(|s| s.line = n + 1);
             head.names.insert(name.to_string(), head.instruments.len());
             open = Some((head.instruments.len(), name.to_string(), None));
             head.instruments.push(ins);

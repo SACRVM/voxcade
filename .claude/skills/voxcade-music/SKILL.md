@@ -135,6 +135,43 @@ example: a sub, a body, a click, `= drive=3`. Check a kick with the
 owner's three meters (KNALL, BALLERN, BRUSTKORB; a port in
 `shots/kits/kick_meters.py`, git-ignored) against their good zone.
 
+## Samples
+
+Since 2026-11-23 (the owner: "wir werden samples erlauben") a song's
+instrument may play a recording: the wave `sample`, a WAV in the game's
+`samples/` (only WAV: PCM 16 or 24 bit, mono or stereo, 22050 to 48000
+Hz; 10 s a sample at most, 64 MB all of a game's; mixed to one channel
+and converted to 44100 Hz once as the game loads; anything else a plain
+mistake naming the file). Their rights are their maker's, the engine
+asks nothing ("lizenzierung - nicht unser thema"). Sound effects stay
+synthetic: a `.wav` in `sounds/` is still a mistake.
+
+```
+@break sample name=amen root=c4 start=0 end=1.92 loop=yes
+@stab  sample name=vox_yeah attack=0.002 release=0.05 crush_rate=12000 crush_bits=12
+@kick  sine freq=50 pitch_start=100 decay=0.6 sustain=0 curve=exp
+  + sample name=thump volume=0.5
+```
+
+`name` its file's name without `.wav` (a name not there: a mistake with
+its line and the nearest name, as the game loads for a studio, when the
+song plays otherwise); `root` the note it plays at its own speed (`c4`;
+higher is faster and shorter, no time stretch, cubic between frames);
+`start`, `end` the seconds of it that play; `loop=yes` that stretch round
+while the note is held (its last 5 ms faded into its first at the seam);
+`reverse=yes`. The envelope, filters, `drive`, the crusher and the volume
+follow as on any wave; `sweep`, `pitch_start`, `vibrato`, `arp` and
+`freq` move its speed; `duty`, `pwm`, `pwm_speed` are refused. An
+unlooped note ends with its envelope or when its stretch has played out
+(its last 3 ms faded). `music:mix` turns `root` (a note, `"g3"`),
+`start` and `["end"]` from the next note (cutting a break up in play);
+`name`, `loop`, `reverse` do not turn. A sample saved anew is heard at
+once (the playing song made anew from it); samples count for neither
+replays nor the state hash. `voxcade music FILE.mml` alone finds the
+`samples/` beside the `music/` folder it lies in, else beside the file.
+`games/drums/samples/thump.wav` is the engine's own render of the
+RG-80's bass drum, the studio's `@thump`.
+
 ## A song from a recipe
 
 ```bash
@@ -275,8 +312,9 @@ from it). `cutoff`, `resonance`, `duty`, `pwm`, `vibrato`, `sustain` and
 `duck` glide under a sounding note; `attack`, `decay`, `release`,
 `freq` and the other times and rates, `lowpass`, `drive`, the crusher
 and `sidechain`, `pitch_start` and `pitch_decay` count from the
-channel's next note; `wave`, `filter`, `arp`, `curve` and `consonants`
-do not turn (another sound). Of an instrument of layers a strip turns
+channel's next note, a sample's `root`, `start` and `["end"]` too;
+`wave`, `filter`, `arp`, `curve`, `consonants` and a sample's `name`,
+`loop` and `reverse` do not turn (another sound). Of an instrument of layers a strip turns
 the first layer, but `drive`, `cutoff` and `resonance` the sum where
 its `=` line states them. A word a note's
 instrument lacks does nothing on it: give the instrument a filter

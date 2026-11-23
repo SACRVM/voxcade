@@ -44,7 +44,9 @@ long, read the part about what you change.
   named `voxcade-*` is left in the temp folder.
 - **Everything in a game is code or text.** Models, figures and blocks
   are `.vvx`, levels and maps `.toml`, sounds `sounds/NAME.toml`, music
-  MML; no WAV, no JSON (but other programs' own files). MagicaVoxel's
+  MML; no JSON (but other programs' own files), and no WAV but the
+  samples a song's instruments play (`samples/NAME.wav`, the one
+  exception with a map's height and material pictures). MagicaVoxel's
   `.vox` and Tiled's maps only come in through `voxcade import`. A file
   of Voxcade's own says its format and version on its first line; a
   format that changes brings a step in `src/upgrade/`.

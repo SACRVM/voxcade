@@ -76,10 +76,14 @@ fn an_older_game_is_brought_up_to_date() {
     std::fs::write(dir.join("main.lua"), "function on_draw(frame)\n  frame:model('robot' .. \".vox\", player)\nend\n").unwrap();
     std::fs::create_dir_all(dir.join("sounds")).unwrap();
     std::fs::write(dir.join("sounds/scream.wav"), b"RIFF").unwrap();
+    // A song's sample is no recorded sound.
+    std::fs::create_dir_all(dir.join("samples")).unwrap();
+    std::fs::write(dir.join("samples/beat.wav"), b"RIFF").unwrap();
     let Standing::Older { made: None, steps } = standing(&dir).unwrap() else { panic!("not older") };
     assert_eq!(steps.len(), STEPS.len());
     let sounds = steps.iter().find(|s| s.name == "no recorded sounds").unwrap();
     assert!(sounds.would.iter().any(|l| l.starts_with("sounds/scream.wav is a recording") && l.contains("sounds/scream.toml")), "{:?}", sounds.would);
+    assert!(!sounds.would.iter().any(|l| l.contains("beat.wav")), "a sample is listed: {:?}", sounds.would);
     let dry = upgrade(&dir, true).unwrap().join("\n");
     assert!(dry.contains("robot.vox becomes robot.vvx (a figure of 2 parts)") && dry.contains("world.vox is a world or a map's prefab") && dry.contains("world.vox becomes world.vvx (a world, 8 by 8 by 4 voxels") && dry.contains("would say c.voxcade"), "{dry}");
     assert!(dir.join("robot.vox").is_file() && std::fs::read_to_string(dir.join("conf.lua")).unwrap() == conf, "a dry run changes nothing");

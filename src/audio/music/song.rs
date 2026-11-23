@@ -63,6 +63,28 @@ pub struct Instrument {
     /// plays as one ever did.
     pub layers: Vec<Instrument>,
     pub sum: Option<Sum>,
+    /// Plays a recording of the game's `samples/` instead of `wave` (the
+    /// wave `sample`).
+    pub sample: Option<Sampled>,
+}
+
+/// What an instrument of the wave `sample` plays: the recording by name
+/// (`name`, its file in `samples/` without the ending), the note it plays
+/// at its own speed at (`root`, in Hz), the stretch of it (`start`, `end`,
+/// in seconds; None: to its end), whether that goes round while a note
+/// sounds (`loop`) and whether backwards (`reverse`); the line of the song
+/// that named it, and the recording once found (`Song::bind`; until then,
+/// and where none was found, it plays nothing).
+#[derive(Clone, Debug)]
+pub struct Sampled {
+    pub name: String,
+    pub root: f32,
+    pub start: f32,
+    pub end: Option<f32>,
+    pub looping: bool,
+    pub reverse: bool,
+    pub line: usize,
+    pub recording: Option<std::sync::Arc<super::sample::Recording>>,
 }
 
 /// The most layers an instrument has, its own line one of them: the voice
@@ -159,6 +181,7 @@ impl Default for Instrument {
             curve: Curve::Linear,
             layers: Vec::new(),
             sum: None,
+            sample: None,
         }
     }
 }
@@ -291,6 +314,33 @@ impl Song {
                 (to + (to - from).min(4.0 * bar_line(self.tempo, self.meter, 2))) as u64
             }
         }
+    }
+
+    /// Finds the recording each instrument of the wave `sample` names
+    /// (its layers' too) among `samples`: a name not there is a mistake
+    /// naming its line and the nearest name, and so is a stretch (`start`,
+    /// `end`) past the recording's end.
+    pub fn bind(&mut self, samples: &super::sample::Samples) -> anyhow::Result<()> {
+        for ins in &mut self.instruments {
+            for s in std::iter::once(&mut ins.sample).chain(ins.layers.iter_mut().map(|l| &mut l.sample)) {
+                let Some(s) = s else { continue };
+                let Some(rec) = samples.get(&s.name) else {
+                    let names: Vec<&str> = samples.names().collect();
+                    let hint = match super::words::nearest(&s.name, names.iter().copied()) {
+                        Some(near) => format!(" (the nearest: \"{near}\")"),
+                        None => " (the game has no samples: a WAV in samples/ is one, its name its file's)".to_string(),
+                    };
+                    anyhow::bail!("line {}: sample name={}: there is no {}/{}.wav{hint}", s.line, s.name, super::sample::FOLDER, s.name);
+                };
+                let length = rec.seconds();
+                let past = [("start", (s.start >= length).then_some(s.start)), ("end", s.end.filter(|&end| end > length + 0.5 / SAMPLE_RATE as f32))];
+                if let Some((word, at)) = past.into_iter().find_map(|(w, at)| Some((w, at?))) {
+                    anyhow::bail!("line {}: sample {word}={at} lies past the end of {}, which lasts {length:.3} seconds", s.line, rec.file);
+                }
+                s.recording = Some(rec.clone());
+            }
+        }
+        Ok(())
     }
 
     /// How long each channel is, in seconds (they should match, or the

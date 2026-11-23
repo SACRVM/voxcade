@@ -32,8 +32,8 @@ pub(super) fn fade_steps(length: f32) -> u32 {
 /// text with them (`Song::studio`): a song that does not read keeps its
 /// place, at 120 beats a minute (its mistake shows when it is played); a
 /// studio that does not read is a mistake now, as the game's clock and its
-/// laid channels go by it.
-pub(super) fn song_timings(files: &Files, cfg: &GameConfig) -> Result<Vec<audio::music::Timing>> {
+/// laid channels go by it, and so is one naming a sample `samples` lacks.
+pub(super) fn song_timings(files: &Files, cfg: &GameConfig, samples: &audio::music::Samples) -> Result<Vec<audio::music::Timing>> {
     cfg.audio
         .music
         .files()
@@ -41,7 +41,11 @@ pub(super) fn song_timings(files: &Files, cfg: &GameConfig) -> Result<Vec<audio:
         .map(|f| {
             let Ok(text) = files.read_to_string(f) else { return Ok(audio::music::Song::empty().timing(f)) };
             match audio::music::read(&text) {
-                Ok(song) => Ok(audio::music::Timing { studio: song.studio().then(|| Arc::from(text.as_str())), ..song.timing(f) }),
+                Ok(mut song) if song.studio() => {
+                    song.bind(samples).map_err(|e| e.context(format!("{f} (a file of instruments, no channel)")))?;
+                    Ok(audio::music::Timing { studio: Some(Arc::from(text.as_str())), ..song.timing(f) })
+                }
+                Ok(song) => Ok(song.timing(f)),
                 Err(e) if !audio::music::has_channels(&text) => Err(e.context(format!("{f} (a file of instruments, no channel)"))),
                 Err(_) => Ok(audio::music::Song::empty().timing(f)),
             }
@@ -121,7 +125,7 @@ impl<G: Game> Session<G> {
     /// the game, and the titles of those a player hears. A studio changed
     /// touches the run: its whole text is in the fingerprint.
     pub(super) fn retime_songs(&mut self) -> Result<()> {
-        let songs = song_timings(&self.files, &self.cfg)?;
+        let songs = song_timings(&self.files, &self.cfg, &self.samples)?;
         if songs != self.songs {
             self.touched |= songs.iter().zip(&self.songs).any(|(a, b)| a.studio != b.studio);
             self.game.set_songs(&songs);
@@ -166,7 +170,9 @@ impl<G: Game> Session<G> {
     /// (None, said, where they do not read: the game halted for it).
     fn laid_song(&self, index: usize, laid: &audio::music::Laid) -> Option<audio::music::Song> {
         let t = self.songs.get(index)?;
-        audio::music::lay(t.studio.as_deref()?, laid).map_err(|e| eprintln!("music: {}: {e:#}", t.name)).ok()
+        let mut song = audio::music::lay(t.studio.as_deref()?, laid).map_err(|e| eprintln!("music: {}: {e:#}", t.name)).ok()?;
+        song.bind(&self.samples).map_err(|e| eprintln!("music: {}: {e:#}", t.name)).ok()?;
+        Some(song)
     }
 
     /// The song to hand the mixer when the music changed, and the laid
@@ -267,7 +273,7 @@ impl<G: Game> Session<G> {
     pub(super) fn song(&self, file: &str) -> Option<audio::music::Player> {
         let path = self.files.path(file);
         let text = self.files.read_to_string(&path).map_err(|e| eprintln!("music: {}: {e}", path.display())).ok()?;
-        match audio::music::parse(&text) {
+        match audio::music::parse(&text).and_then(|mut song| song.bind(&self.samples).map(|()| song)) {
             Ok(song) => Some(audio::music::Player::new(song, self.cfg.audio.music_volume)),
             Err(e) => {
                 eprintln!("music: {}: {e:#}", path.display());

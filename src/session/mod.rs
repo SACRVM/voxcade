@@ -248,6 +248,8 @@ pub struct Session<G: Game> {
     /// recordings count.
     pub ticked: bool,
     pub sounds: SoundBank,
+    /// The recordings its songs play (`samples/`, `audio::music::sample`).
+    pub samples: audio::music::Samples,
     /// The music changed (its file or which file): start it over.
     pub music_changed: bool,
     /// Which of the songs a player hears plays (`player_songs`).

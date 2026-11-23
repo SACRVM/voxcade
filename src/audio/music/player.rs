@@ -98,6 +98,10 @@ pub(super) struct Tone {
     /// strip turned from the next note (`Strip::next`) laid over the
     /// first layer's.
     shape: Shape,
+    /// A sample's read head: frames of its recording into the stretch it
+    /// plays (`Shape::stretch`), counted the way it plays (from its end
+    /// when reversed).
+    head: f64,
 }
 
 /// What a layered note's layers go through once added (`Sum`): the soft
@@ -132,6 +136,10 @@ struct Shape {
     arp_speed: f32,
     sidechain: f32,
     sidechain_release: f32,
+    /// A sample's: the pitch it plays at its own speed at (Hz), and the
+    /// stretch of its recording it plays, its first frame and how many.
+    root: f32,
+    stretch: (usize, usize),
 }
 
 /// Where each word lies in a strip's tables (`GLIDING`, `NEXT_NOTE`),
@@ -164,6 +172,26 @@ mod at {
     pub const CRUSH_BITS: usize = place(&NEXT_NOTE, "crush_bits");
     pub const SIDECHAIN: usize = place(&NEXT_NOTE, "sidechain");
     pub const SIDECHAIN_RELEASE: usize = place(&NEXT_NOTE, "sidechain_release");
+    pub const ROOT: usize = place(&NEXT_NOTE, "root");
+    pub const START: usize = place(&NEXT_NOTE, "start");
+    pub const END: usize = place(&NEXT_NOTE, "end");
+}
+
+/// How long a looped sample's seam is faded across (`loop=yes`), and an
+/// unlooped one's last stretch faded to silence as it plays out, in
+/// seconds: neither clicks.
+const LOOP_FADE: f64 = 0.005;
+const END_FADE: f32 = 0.003;
+
+/// The recording `x` at `p` frames, between frames by a cubic through the
+/// four around (Catmull-Rom), the frames past its ends its end ones.
+fn cubic(x: &[f32], p: f64) -> f32 {
+    let last = x.len() as i64 - 1;
+    let i = p.floor() as i64;
+    let t = (p - i as f64) as f32;
+    let at = |k: i64| x[(i + k).clamp(0, last) as usize];
+    let (a, b, c, d) = (at(-1), at(0), at(1), at(2));
+    b + 0.5 * t * (c - a + t * (2.0 * a - 5.0 * b + 4.0 * c - d + t * (3.0 * (b - c) + d - a)))
 }
 
 /// A gliding knob's value for this sample: what the strip turned (its
@@ -239,7 +267,18 @@ impl Tone {
             arp_speed: word(at::ARP_SPEED, ins.arp_speed),
             sidechain: word(at::SIDECHAIN, ins.sidechain),
             sidechain_release: word(at::SIDECHAIN_RELEASE, ins.sidechain_release),
+            root: 0.0,
+            stretch: (0, 0),
         };
+        // A sample's stretch, by the frames its recording has (a stretch
+        // a strip turned past them cut at its end, an empty one silent).
+        if let Some(s) = &ins.sample {
+            let frames = s.recording.as_ref().map_or(0, |r| r.frames.len());
+            let frame_of = |seconds: f32| ((f64::from(seconds) * SAMPLE_RATE as f64).round().max(0.0) as usize).min(frames);
+            let first = frame_of(word(at::START, s.start));
+            let end = next[at::END].or(s.end).map_or(frames, frame_of).max(first);
+            (self.shape.root, self.shape.stretch, self.head) = (word(at::ROOT, s.root).max(1.0), (first, end - first), 0.0);
+        }
         self.alpha = part(at::LOWPASS, ins.lowpass).map_or(0.0, OnePole::alpha);
         let drive = word(at::DRIVE, ins.drive);
         self.drive = if drive > 0.0 { libm::powf(10.0, drive / 20.0) } else { 0.0 };
@@ -368,9 +407,74 @@ impl Tone {
         let level = self.envelope(t, gate, ins.sustain, None)?;
         let freq = self.pitch(ins, n, t, ins.vibrato);
         let duty = self.duty(t, ins.duty, ins.pwm);
-        let s = self.osc.next(ins.wave, freq / SAMPLE_RATE as f32, duty, false);
+        let s = self.source(ins, freq, duty)?;
         let s = self.color(ins, s, None, t, ins.cutoff, ins.resonance);
         Some(self.crushed(s, level))
+    }
+
+    /// The next sample of its source at `freq`: its wave's, or its
+    /// recording's (None once a stretch that does not go round has played
+    /// out, or where there is no recording to play).
+    fn source(&mut self, ins: &Instrument, freq: f32, duty: f32) -> Option<f32> {
+        match &ins.sample {
+            None => Some(self.osc.next(ins.wave, freq / SAMPLE_RATE as f32, duty, false)),
+            Some(s) => self.play(s, freq),
+        }
+    }
+
+    /// The next frame of sample `s` at `freq`: its recording read at `freq`
+    /// over its root's speed (higher faster, no time stretched), between
+    /// frames by a cubic. A stretch that goes round fades its last
+    /// `LOOP_FADE` into its first as it comes round (after the first time
+    /// it begins that far in), so the seam does not click; one that does
+    /// not fades out over its last `END_FADE` of playing and is silent.
+    fn play(&mut self, s: &super::song::Sampled, freq: f32) -> Option<f32> {
+        let frames = &s.recording.as_deref()?.frames;
+        let (first, length) = self.shape.stretch;
+        if length < 2 {
+            return None;
+        }
+        let speed = f64::from((freq / self.shape.root).max(0.0));
+        let len = length as f64;
+        let at = |q: f64| if s.reverse { (first + length - 1) as f64 - q } else { first as f64 + q };
+        let q = self.head;
+        let out = if s.looping {
+            let fade = (LOOP_FADE * SAMPLE_RATE as f64).min(len / 2.0);
+            let mut v = cubic(frames, at(q));
+            if q >= len - fade {
+                let w = ((q - (len - fade)) / fade) as f32;
+                v += (cubic(frames, at(q - (len - fade))) - v) * w;
+            }
+            self.head += speed;
+            if self.head >= len {
+                self.head = fade + (self.head - fade) % (len - fade);
+            }
+            v
+        } else {
+            let left = len - 1.0 - q;
+            if left <= 0.0 {
+                return None;
+            }
+            self.head += speed;
+            let fading = END_FADE * SAMPLE_RATE as f32 * speed as f32;
+            cubic(frames, at(q)) * (left as f32 / fading).min(1.0)
+        };
+        Some(out)
+    }
+
+    /// Its sample's read head `samples` heard into a note of `n` (a note
+    /// taken up after its start, by a jump), as at the note's own pitch.
+    fn skip(&mut self, ins: &Instrument, n: &Note, samples: u64) {
+        if let Some(s) = &ins.sample {
+            let len = self.shape.stretch.1 as f64;
+            let speed = f64::from(self.shape.freq.unwrap_or(n.freq.unwrap_or(0.0)) / self.shape.root);
+            let mut head = samples as f64 * speed;
+            if s.looping && head >= len && len >= 2.0 {
+                let fade = (LOOP_FADE * SAMPLE_RATE as f64).min(len / 2.0);
+                head = fade + (head - fade) % (len - fade);
+            }
+            self.head = head;
+        }
     }
 }
 
@@ -439,6 +543,14 @@ impl Voice {
         for (tone, layer) in self.more.iter_mut().zip(&ins.layers) {
             tone.take_up(layer, &[None; NEXT_NOTE.len()], layer.cutoff);
         }
+        // A note taken up after its start (a jump into the song): its
+        // samples read from as far in.
+        if (1..u64::from(u32::MAX)).contains(&self.age) {
+            self.tone.skip(ins, n, self.age);
+            for (tone, layer) in self.more.iter_mut().zip(&ins.layers) {
+                tone.skip(layer, n, self.age);
+            }
+        }
         if let Some(sum) = sum {
             self.sum.take_up(sum, next[at::DRIVE].filter(|_| sum.drive_stated));
         }
@@ -490,16 +602,19 @@ impl Voice {
                 let tone = &mut self.tone;
                 let freq = tone.pitch(ins, &n, t, knob(at::VIBRATO, ins.vibrato));
                 let duty = tone.duty(t, knob(at::DUTY, ins.duty), knob(at::PWM, ins.pwm));
-                let (s, noise) = match ins.voice {
-                    Some(Voicing::Formants) => self.singer.next(sung(&n, &song.segments), time.wrapping_sub(self.started), freq),
-                    Some(Voicing::Clear) => self.clear.next(sung(&n, &song.clear), time.wrapping_sub(self.started), freq),
-                    None => (tone.osc.next(ins.wave, freq / sr, duty, false), 0.0),
+                let sourced = match ins.voice {
+                    Some(Voicing::Formants) => Some(self.singer.next(sung(&n, &song.segments), time.wrapping_sub(self.started), freq)),
+                    Some(Voicing::Clear) => Some(self.clear.next(sung(&n, &song.clear), time.wrapping_sub(self.started), freq)),
+                    // (A sample played out is silent from here.)
+                    None => tone.source(ins, freq, duty).map(|s| (s, 0.0)),
                 };
-                let noise = ins.voice.is_some().then_some(noise * self.noise_gain);
-                let cutoff = if sum_cutoff { ins.cutoff } else { knob(CUTOFF, ins.cutoff) };
-                let resonance = if sum_resonance { ins.resonance } else { knob(at::RESONANCE, ins.resonance) };
-                let s = tone.color(ins, s, noise, t, cutoff, resonance);
-                Some(tone.crushed(s, level))
+                sourced.map(|(s, noise)| {
+                    let noise = ins.voice.is_some().then_some(noise * self.noise_gain);
+                    let cutoff = if sum_cutoff { ins.cutoff } else { knob(CUTOFF, ins.cutoff) };
+                    let resonance = if sum_resonance { ins.resonance } else { knob(at::RESONANCE, ins.resonance) };
+                    let s = tone.color(ins, s, noise, t, cutoff, resonance);
+                    tone.crushed(s, level)
+                })
             }
         };
         // Ducked under a sidechain note, unless this is one.
@@ -916,8 +1031,9 @@ pub struct Player {
     pub(super) bus: Bus,
     /// Each channel's strip by letter (`Mix::strips`), made with the
     /// player, kept through a swap; whether any is not neutral, and each
-    /// one's gains for the sample being made.
-    pub(super) lanes: [Lane; LETTERS],
+    /// one's gains for the sample being made (the strips boxed: a mixer
+    /// holds seven players, and they are most of one).
+    pub(super) lanes: Box<[Lane; LETTERS]>,
     lanes_live: bool,
     gains: [[f32; 2]; LETTERS],
     /// Whether any strip turns a gliding knob (`Lane::turning`), and each
@@ -954,7 +1070,7 @@ impl Player {
             intensity: 1.0,
             loud,
             bus: Bus::default(),
-            lanes: [lane; LETTERS],
+            lanes: Box::new([lane; LETTERS]),
             lanes_live: false,
             gains: [[1.0; 2]; LETTERS],
             knobs_live: false,
@@ -1152,7 +1268,7 @@ impl Player {
             // Each channel's strip, where the game set one (`Mix::strips`).
             let live = self.lanes_live;
             if live {
-                for (gain, lane) in self.gains.iter_mut().zip(&mut self.lanes) {
+                for (gain, lane) in self.gains.iter_mut().zip(self.lanes.iter_mut()) {
                     *gain = lane.next();
                 }
             }
@@ -1161,7 +1277,7 @@ impl Player {
             // Each strip's knobs, where the game turns any.
             let turning = self.knobs_live;
             if turning {
-                for (t, lane) in self.turned.iter_mut().zip(&mut self.lanes) {
+                for (t, lane) in self.turned.iter_mut().zip(self.lanes.iter_mut()) {
                     if lane.turning {
                         *t = lane.turn();
                     }

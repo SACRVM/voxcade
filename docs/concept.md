@@ -103,10 +103,14 @@ tick, low-latency presentation, instant startup and reload. Juice is built in:
 screen shake, hit stop, debris, flashes.
 
 **Sound like the old machines, made from text.** Effects are synthesized
-from a few numbers each (sfxr-style); recordings are not taken (the owner,
-2026-11-12: everything in a game is code or text). Music is MML, played by SID-like voices. All
-of it is text in the game folder, so an agent can write and change it, and
-the game plays the change on save.
+from a few numbers each (sfxr-style); recordings are not taken for them (the
+owner, 2026-11-12: everything in a game is code or text). Music is MML, played by SID-like voices,
+and its instruments may play samples (the owner, 2026-11-23: "wir werden
+samples erlauben"): WAV recordings in a game's `samples/`, 10 seconds each
+at most, the one kind of recording a game holds; their rights are their
+maker's ("lizenzierung - nicht unser thema"). All of the rest is text in the
+game folder, so an agent can write and change it, and the game plays the
+change on save.
 
 **Built for agents.** The goal is that an agent helps someone write a good
 game with the engine. So: a scripting API whose definition file doubles as

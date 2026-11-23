@@ -161,7 +161,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
         Call::Music { first, out, seconds } => {
             // A song file by itself, or a game's first song.
             if first.is_file() && first.extension().is_some_and(|e| e == "mml") {
-                headless::song(&first, None, &out, seconds)
+                headless::song(&first, None, &headless::samples_beside(&first)?, &out, seconds)
             } else {
                 headless::music::<G>(&game_dir(&first)?, &out, seconds)
             }

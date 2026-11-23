@@ -1,7 +1,8 @@
 //! Sound: what the simulation's events sound like, and the mixer that plays
 //! them. A sound is a file of the game (`sound`: `sounds/NAME.toml`, a few
-//! numbers for the synthesizer; Voxcade plays no recordings, everything in
-//! a game is code or text), its words in one register with MML's
+//! numbers for the synthesizer; a sound is no recording, it is code or
+//! text, and only a song's instrument plays one, `music::sample`'s
+//! `samples/`), its words in one register with MML's
 //! (`words`). The engine and the kits bring sounds of their own, files of
 //! the same kind built in; a game's file of the same name replaces one.
 //! Sounds are placed in stereo by where they happen on screen.
@@ -625,7 +626,8 @@ mod tests {
         assert!(bank.get("rotor").is_none(), "silent");
         assert!(bank.get("beep").is_some() && bank.get("splat").is_some(), "the game's own and the kit's");
         std::fs::write(dir.join("sounds/scream.wav"), b"RIFF").unwrap();
-        assert!(format!("{:#}", sound::read_folder(&files).unwrap_err()).contains("Voxcade plays none"));
+        assert!(format!("{:#}", sound::read_folder(&files).unwrap_err()).contains("a sound plays none"));
+        assert!(sound::NO_RECORDINGS.contains("samples/ as a WAV"), "it points to samples/");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -840,6 +842,29 @@ mod tests {
             mix.step();
             assert_eq!(taken_by(|| mixer.mix(&mut buf)), 0, "memory taken with a knob turned every tick");
         }
+        // Samples playing (`samples/`): one round and round, one backwards
+        // as a layer, one played out, its stretch turned from the next
+        // note, a jump into it; their recordings read once, behind an Arc.
+        let dir = crate::scratch::Scratch::new("audio-samples");
+        std::fs::create_dir_all(dir.join("samples")).unwrap();
+        let tone: Vec<f32> = (0..30_000).map(|i| 0.5 * (std::f32::consts::TAU * 220.0 * i as f32 / 48_000.0).sin()).collect();
+        std::fs::write(dir.join("samples/tone.wav"), music::sample::wav_file(48_000, 1, 24, false, &tone)).unwrap();
+        let samples = music::Samples::read_folder(&crate::files::Files::folder(&dir)).unwrap();
+        let text = "#tempo 120\n@l sample name=tone loop=yes release=0.2\n@h sine freq=80 decay=0.2 sustain=0\n+ sample name=tone reverse=yes root=g3 volume=0.5\n@o sample name=tone end=0.3\nA: @l o3 c1 e1\nB: @h l8 c e g e\nC: @o l4 c e g >c<\n";
+        let mut song = music::parse(text).unwrap();
+        song.bind(&samples).unwrap();
+        let mut mixer = Mixer::default();
+        mixer.set_music(Some(music::Player::new(song, 1.0)));
+        let mut mix = music::Mix::default();
+        let strip = Arc::make_mut(&mut mix.strips).entry('C').or_default();
+        strip.turn("start", Some(0.1), 0.0);
+        strip.turn("root", Some(330.0), 0.0);
+        mixer.music_mix(&mix);
+        let mut long = vec![0.0f32; 2 * 3 * SAMPLE_RATE as usize];
+        assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken with samples playing");
+        assert!(long.iter().any(|v| v.abs() > 0.1), "the samples sound");
+        assert_eq!(taken_by(|| mixer.follow_music(7.0, 1.0)), 0, "memory taken jumping into a sample");
+        assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken with samples playing after a jump");
     }
 
     /// A song asked while another still fades out lets it finish its fade

@@ -855,7 +855,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   Keep the guard in a binding that lives as long as the test; code outside
   tests that writes to the temp folder removes what it made, on error too;
   `tools/check_tmp.sh` runs the tests and fails if `voxcade-*` entries grew.
-- Everything in a game is code or text (the owner, 2026-11-12): models,
+- Everything in a game is code or text (the owner, 2026-11-12), but
+  samples (the owner, 2026-11-23: "wir werden samples erlauben", way A of
+  `shots/reviews/samples-draft.md`; WAV only, 10 s a sample, 64 MB all of
+  a game's, no licence file: "lizenzierung - nicht unser thema"; below,
+  the music) and a map's height and material pictures: models,
   figures and blocks are `.vvx` (`src/vvx.rs`; the models skill has the
   format: the format line first, signs a colour with its material,
   layers bottom first and the far row first, repeats `*N`, `at` and
@@ -1431,8 +1435,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   are a mistake). No recordings (the owner, 2026-11-12: "nein zu wav",
   everything is code or text): a `.wav` (or `.ogg`, `.mp3` ...) in
   `sounds/`, or a sound's `file = ...`, is a plain mistake at load
-  saying so (`sound::NO_RECORDINGS`), and the upgrade step "no recorded
-  sounds" lists an older game's without touching them; WAV files written
+  saying so and pointing to `samples/` (`sound::NO_RECORDINGS`: a
+  recording is a song's sample, never a sound; the owner, 2026-11-23,
+  sound effects stay synthetic), and the upgrade step "no recorded
+  sounds" lists an older game's in `sounds/` (never `samples/`) without
+  touching them; WAV files written
   for listening (`voxcade sounds`, `music`, films) are output, not a
   game's. Its words are one register with
   MML's instruments (`src/audio/words.rs`, test
@@ -1651,9 +1658,47 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,
-  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `tests.rs`,
-  `loop_tests.rs`), text so the user and agents can
-  write it. `#loop 33 80` (the owner's, 2026-11-20: songs with 32 bars
+  sidechain, bus; `mix.rs` `Glide`, `Mix`, `muffle_cutoff`; `sample.rs`
+  `Samples`, `Recording`, the WAV reader and the converter; `tests.rs`,
+  `loop_tests.rs`, `sample_tests.rs`), text so the user and agents can
+  write it. Samples (stages 1 and 2 of `shots/reviews/samples-draft.md`;
+  the IDE's SAMPLES heading and listening, stage 3, are to come): a game's
+  `samples/NAME.wav`, read by our own reader (`sample::decode`: RIFF, PCM
+  16 or 24 bit, WAVE_FORMAT_EXTENSIBLE with the PCM subformat too, mono
+  or stereo, 22050 to 48000 Hz; float, 8 or 32 bit, compressed, more
+  channels, another rate, a hostile header a plain mistake naming the
+  file, every size checked against the bytes first, test
+  `hostile_wavs_are_mistakes_never_a_crash`), at most `sample::LONGEST`
+  (10 s) each and `sample::MOST_BYTES` (64 MB) together, checked before a
+  file is read; mixed to one channel (a song's voices are one channel
+  each, placed by their pan) and converted once as the game loads to
+  44100 Hz by a windowed sinc (Blackman, its kernel a table; `libm`),
+  behind an `Arc` (`Samples::read_folder`, through the session's `Files`:
+  sealed files and network play carry them; `Session::samples`). The
+  wave `sample` (`Instrument::sample`, `song::Sampled`): `name` (its
+  file's stem), `root` (`c4`), `start`, `end`, `loop`, `reverse`, words
+  of the register; `Song::bind` finds the recordings after a song is read
+  (a name not there a mistake with the line and the nearest, a stretch
+  past the recording's end too; a studio's at load, `song_timings`; a
+  song's when it plays, as its other mistakes); unbound it plays
+  nothing. Played in `player::Tone::play`: the recording at the note over
+  the root's speed, a Catmull-Rom cubic between frames, a loop's last
+  5 ms faded into its first as it comes round (`LOOP_FADE`), an unlooped
+  stretch's last 3 ms faded as it plays out (`END_FADE`), the note over
+  then; a jump into a note reads from as far in (`Tone::skip`); the whole
+  chain after it as any wave's. `music:mix`'s `root` (a note text), `start`
+  and `["end"]` from the next note (`mix::SAMPLE_KNOBS`); `name`, `loop`,
+  `reverse` are `NO_KNOB`. In neither the fingerprint nor the state hash;
+  a file in `samples/` new, changed or gone reads them anew and, where
+  they differ, makes the playing song anew as a song saved does
+  (`Session::reload_samples`). `voxcade music FILE.mml` alone finds the
+  `samples/` beside the `music/` folder it lies in, else beside the file
+  (`headless::samples_beside`); the IDE's PLAY SONG reads the game
+  folder's. Tests `src/audio/music/sample_tests.rs`,
+  `src/lua/tests/samples.rs`; `games/drums/samples/thump.wav` (the
+  engine's own render of the RG-80's `@kick`) is the studio's `@thump`.
+  The player's strips are boxed (`Player::lanes`: a mixer holds seven
+  players, and `the_audio_thread_takes_no_memory`'s stack overflowed). `#loop 33 80` (the owner's, 2026-11-20: songs with 32 bars
   of intro and outro for mixing) plays a song from its start once, then
   bars 33 to 80 round and round (counted from 1, both in; `#loop 33` to
   the end; `#loop no` once), the rest never reached; a note that sounds

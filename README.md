@@ -263,11 +263,12 @@ claude mcp add voxcade -- /path/to/voxcade mcp
   palette numbers its colours, markers named in it), or a world made in
   code (Sokovox).
 - **Sound:** every sound a file of the game, `sounds/NAME.toml`, a few
-  numbers for the synthesizer (like sfxr; no recordings: everything in a
-  game is code or text); `voxcade sounds <game>` writes them to a WAV to
-  listen to.
+  numbers for the synthesizer (like sfxr; no recordings: a sound is code
+  or text); `voxcade sounds <game>` writes them to a WAV to listen to.
 - **Music:** MML text on SID-like voices (pulse, saw, triangle, noise,
-  the SID's filter, arpeggios, ducking), played anew on every save. Songs
+  the SID's filter, arpeggios, ducking) and samples (WAV recordings in a
+  game's `samples/`, an instrument's `sample name=...`, pitched by the
+  note, cut, looped, reversed), played anew on every save. Songs
   from chord progressions with `tools/compose.py` (the library in
   `music/`), MIDI and Suno stems through `tools/midi2mml.py` and
   `tools/audio2midi.py`; a game picks its song and goes with its beats

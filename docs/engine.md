@@ -28,7 +28,8 @@ Doom homage (the user loved Doom).
 - **Text and plain files.** A game is a folder: `conf.lua`, `main.lua`,
   `.vvx` models, worlds and prefabs (text; MagicaVoxel's `.vox` only
   brought in), levels and maps as TOML (`levels/NAME.toml`, `map.toml`;
-  JSON is gone from a game), MML music, sounds as numbers (no recordings). People,
+  JSON is gone from a game), MML music (its instruments may play samples,
+  WAV recordings in `samples/`), sounds as numbers (no recordings). People,
   agents and editors all work on the same files.
 - **Deterministic simulation.** Fixed ticks, randomness only from the
   simulation's generator. That is what makes `shot`, replays and regression
@@ -382,7 +383,8 @@ game's settings are code (the user's choice: "nur im Code, fertig").
   `sounds/NAME.toml` (a few numbers a line: `wave`, `freq`, `sweep` and
   `jump` in semitones, `attack`, `hold`, `decay` in seconds, `volume`;
   only what differs from the defaults; no recordings: a `.wav` in
-  `sounds/` is a plain mistake), called by its file's name (`level:sound("coin", at)`, a kind's `sound =
+  `sounds/` is a plain mistake pointing to `samples/`, where the
+  recordings a song's instruments play lie), called by its file's name (`level:sound("coin", at)`, a kind's `sound =
   "coin"`). Its words are one register with MML's instruments
   (`src/audio/words.rs`), a word both know meaning the same in both. A
   mistake names the file, the line and the word. The engine's and the

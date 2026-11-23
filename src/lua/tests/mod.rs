@@ -25,6 +25,7 @@ mod remember;
 mod runs;
 mod sandbox;
 mod solid;
+mod samples;
 mod saves;
 mod scenarios;
 mod seats;

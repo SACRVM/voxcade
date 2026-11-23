@@ -163,8 +163,9 @@ The words (`src/audio/words.rs`, one register with MML's instruments):
 at most together); `punch` (a loud start); `jump` and `jump_at` (one jump
 in pitch, semitones: coins, jingles); `vibrato`, `vibrato_speed`;
 `lowpass` to `lowpass_end` (rumble, muffling); `volume` (0 to 1);
-`silent = true` for none. No recordings: everything in a game is code or
-text (a `.wav` in `sounds/` is a mistake at load). A pulse off
+`silent = true` for none. No recordings: a sound is code or text (a
+`.wav` in `sounds/` is a mistake at load; recordings belong to songs, the
+samples of `samples/`, the voxcade-music skill). A pulse off
 `duty` 0.5 sounds thinner; the engine plays it round zero (no DC offset).
 `voxcade sounds games/NAME --only NAME` writes one to `shots/sounds.wav`;
 you cannot hear it, so look at it (length, peak, a spectrogram) and let

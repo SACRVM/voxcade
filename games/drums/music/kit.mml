@@ -7,3 +7,7 @@
 @kick   triangle freq=130 sweep=-34 sweep_time=0.08 attack=0.001 decay=0.11 sustain=0 release=0.01 volume=0.85 sidechain=0.25
 @snare  noise freq=6000 attack=0.001 decay=0.12 sustain=0 release=0.02 lowpass=5000 volume=0.34 duck=0
 @hat    noise freq=14000 attack=0.001 decay=0.025 sustain=0 release=0.01 lowpass=6500 volume=0.14 duck=0
+; A sample: samples/thump.wav is the engine's own render of one hit of the
+; library kit's bass drum (music/kits/rg80.mml, @kick, by voxcade music),
+; trimmed to 0.9 s, 16-bit mono. No row plays it yet.
+@thump  sample name=thump root=c4 attack=0.001 decay=0 sustain=1 release=0.05 volume=0.8

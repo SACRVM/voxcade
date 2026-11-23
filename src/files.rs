@@ -186,6 +186,17 @@ impl Files {
         }
     }
 
+    /// A file's size in bytes, without reading it (a path in the folder,
+    /// or relative to it).
+    pub fn size(&self, file: impl AsRef<Path>) -> io::Result<u64> {
+        let path = self.path(file);
+        match self.laid(&path) {
+            Some(Some(f)) => Ok(f.bytes.len() as u64),
+            Some(None) => Err(io::Error::new(io::ErrorKind::NotFound, format!("{}: no such file in the game's files", path.display()))),
+            None => std::fs::metadata(&path).map(|m| m.len()),
+        }
+    }
+
     /// A text file.
     pub fn read_to_string(&self, file: impl AsRef<Path>) -> io::Result<String> {
         String::from_utf8(self.read(file)?).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))

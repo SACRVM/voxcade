@@ -361,7 +361,8 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   gives the game a high score table (with a kit or without). `c.high_scores` is the table to beat:
   ten lines `{ "ABC", 1000 }`.
 - Sounds are files, `sounds/NAME.toml` (no recordings: a `.wav` there is
-  a mistake),
+  a mistake; a song's instruments play WAVs of `samples/`, the
+  voxcade-music skill),
   played by the file's name with `level:sound(NAME, at)` or a kind's
   `sound = "NAME"`; a file of a kit's sound's name replaces it, `silent =
   true` silences it. A line a number, only what differs from the

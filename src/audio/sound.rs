@@ -42,7 +42,7 @@ pub enum SoundDef {
 }
 
 /// Why a recording is no sound of a game, after its name.
-pub const NO_RECORDINGS: &str = "a recording: Voxcade plays none (everything in a game is code or text). A sound is a few numbers in sounds/NAME.toml (the IDE's sound maker rolls one to start from); this file can go";
+pub const NO_RECORDINGS: &str = "a recording: a sound plays none (a sound is code or text), a few numbers in sounds/NAME.toml (the IDE's sound maker rolls one to start from); a recording a song plays goes in samples/ as a WAV (sample name=...)";
 
 /// One of the game's own sounds: the file it is read from (its name in
 /// the game, `sounds/coin.toml`) and what it says.
@@ -404,7 +404,7 @@ mod tests {
         assert!(err("wave = square\n").starts_with("sounds/coin.toml line 1: "), "{}", err("wave = square\n"));
         assert_eq!(err("silent = true\nvolume = 0.5\n"), "sounds/coin.toml line 2: volume: a silent sound says nothing else");
         assert!(err("bits = 8\n").starts_with("sounds/coin.toml line 1: bits: no such field"), "{}", err("bits = 8\n"));
-        assert!(err("wave = \"saw\"\nfile = \"a.wav\"\n").starts_with("sounds/coin.toml line 2: file = \"a.wav\": a recording: Voxcade plays none"));
+        assert!(err("wave = \"saw\"\nfile = \"a.wav\"\n").starts_with("sounds/coin.toml line 2: file = \"a.wav\": a recording: a sound plays none"));
     }
 
     /// Silent is nothing at all; a recording is no sound.
@@ -414,9 +414,9 @@ mod tests {
         assert_eq!(read("sounds/rotor.toml", "silent = false\nfreq = 300\n").unwrap(), SoundDef::Synth(Synth { freq: 300.0, ..Synth::default() }));
         assert_eq!(read("x.toml", &write(&SoundDef::Silent, &[])).unwrap(), SoundDef::Silent, "written as read");
         let e = format!("{:#}", read("sounds/scream.toml", "file = \"recordings/scream.wav\"\nrate = 7000\n").unwrap_err());
-        assert!(e.starts_with("sounds/scream.toml line 1: file = \"recordings/scream.wav\": a recording: Voxcade plays none") && e.contains("sounds/NAME.toml"), "{e}");
+        assert!(e.starts_with("sounds/scream.toml line 1: file = \"recordings/scream.wav\": a recording: a sound plays none") && e.contains("sounds/NAME.toml"), "{e}");
         let table: toml::Value = toml::from_str("x = \"boom.wav\"").unwrap();
-        assert!(from_conf("boom", &table["x"]).unwrap_err().to_string().contains("Voxcade plays none"));
+        assert!(from_conf("boom", &table["x"]).unwrap_err().to_string().contains("a sound plays none"));
     }
 
     /// Semitones and the synth's Hz and ratios: an end frequency and a
@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(sounds["coin"].file, "sounds/coin.toml");
         std::fs::write(dir.join("sounds/boom.wav"), b"RIFF").unwrap();
         let e = format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err());
-        assert!(e.starts_with("sounds/boom.wav: a recording: Voxcade plays none") && e.contains("sounds/NAME.toml"), "{e}");
+        assert!(e.starts_with("sounds/boom.wav: a recording: a sound plays none") && e.contains("sounds/NAME.toml"), "{e}");
         std::fs::remove_file(dir.join("sounds/boom.wav")).unwrap();
         std::fs::write(dir.join("sounds/boom.mp3"), b"ID3").unwrap();
         assert!(format!("{:#}", read_folder(&crate::files::Files::folder(&dir)).unwrap_err()).starts_with("sounds/boom.mp3: a recording"));

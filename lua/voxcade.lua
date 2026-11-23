@@ -106,7 +106,7 @@
 ---@field from? string When: now (unless said), at the next beat or bar of the song that plays.
 ---@field fade? number Seconds it fades out over, 0 to 60 (0, unless said: at once, still without a click).
 
----@class MusicMix A channel's strip on the mixing desk (music:mix): its fader, mute and pan, and its instrument's words in their MML ranges over the instrument's own (false: the instrument's again). Of an instrument of layers, its first layer's, but drive, cutoff and resonance its sum's where its = line states them. wave, filter, arp, curve and consonants do not turn: another sound, not a knob.
+---@class MusicMix A channel's strip on the mixing desk (music:mix): its fader, mute and pan, and its instrument's words in their MML ranges over the instrument's own (false: the instrument's again). Of an instrument of layers, its first layer's, but drive, cutoff and resonance its sum's where its = line states them. wave, filter, arp, curve, consonants and a sample's name, loop and reverse do not turn: another sound, not a knob.
 ---@field volume? number|false Its fader, 0 (silent) to 1 (as written); false: 1.
 ---@field mute? boolean true silences it, the fader kept.
 ---@field pan? number|false -1 (left) to 1 (right), 0 the middle; false: the middle.
@@ -137,6 +137,9 @@
 ---@field crush_bits? integer|false From the next note: the crusher's bits, 1 to 16.
 ---@field sidechain? number|false From the next note: how far its notes duck the others.
 ---@field sidechain_release? number|false From the next note: seconds the others take to come back.
+---@field root? string|false From the next note: a sample's note at its own speed, as MML writes it ("c4").
+---@field start? number|false From the next note: seconds into its recording a sample begins.
+---@field ["end"]? number|false From the next note: seconds into its recording a sample stops, cut at the recording's end (written ["end"] = 0.5: end is a word of Lua's own).
 
 ---@class LevelChange How the level is left (world:go_to, world:restart, world:load, world:win, world:lose).
 ---@field fade? number Seconds the picture fades out through c.transition.color, and as many in, 0 to 10 (0: a cut); unless said, c.transition's.
@@ -851,7 +854,7 @@ function Music:stop(from) end
 ---- volume: its fader, from 0 (silent) to 1 (as written, the start).
 ---- mute: true silences it, the fader kept; false lets it sound again.
 ---- pan: from -1 (left) to 1 (right), 0 the middle: the other side turned down, never a side louder than written.
----- an instrument's word, over the instrument's own for every note of the channel, whatever instrument it plays: cutoff, resonance, duty, pwm, vibrato, sustain and duck glide under a sounding note (a note's cutoff sweep goes as deep from the cutoff turned); attack, decay, release, freq, sweep, pitch_start, the other times and rates, lowpass, drive, the crusher and sidechain count from the channel's next note. false gives one back to the instrument. A word a note's instrument lacks does nothing on it (a cutoff without a filter, freq on a pitched one, pitch_start, lowpass, cutoff_end or the crusher it has not). Of an instrument of layers (+ lines) a word turns its first layer, but drive, cutoff and resonance its sum where its = line states them. wave, filter, arp, curve and consonants do not turn.
+---- an instrument's word, over the instrument's own for every note of the channel, whatever instrument it plays: cutoff, resonance, duty, pwm, vibrato, sustain and duck glide under a sounding note (a note's cutoff sweep goes as deep from the cutoff turned); attack, decay, release, freq, sweep, pitch_start, the other times and rates, lowpass, drive, the crusher and sidechain count from the channel's next note, and a sample's root (a note, "c4"), start and ["end"] (seconds into its recording) too. false gives one back to the instrument. A word a note's instrument lacks does nothing on it (a cutoff without a filter, freq on a pitched one, pitch_start, lowpass, cutoff_end or the crusher it has not). Of an instrument of layers (+ lines) a word turns its first layer, but drive, cutoff and resonance its sum where its = line states them. wave, filter, arp, curve, consonants and a sample's name, loop and reverse do not turn.
 ---It gets there smoothly over seconds (0.3 unless you say; 0 at once, still without a click), a mute too: music:mix("K", { mute = true }, 0). A key you leave out stays as it was; false for volume or pan gives it back (1, the middle), and music:mix("K", false) the whole strip. Without settings it gives what you asked for last. It holds by letter, whichever song plays, through a stop and from level to level: give it back (music:mix("D", false)) when you change to a song whose letters mean something else. A letter your song file does not have is a mistake; over a file of instruments, or before any song of yours plays, any letter is taken and waits for its channel. Only heard: replays and the game itself do not change with it.
 ---@param channel string
 ---@param settings? MusicMix|false

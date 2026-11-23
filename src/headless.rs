@@ -1699,7 +1699,26 @@ pub(crate) fn sound_statements(lines: &[&str]) -> Vec<Statement> {
 pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()> {
     let game = Session::<G>::load(dir)?;
     let file = game.song_file().context("conf.lua names no song a player hears (c.audio.music; a file of instruments plays only the channels a game lays over it)")?.to_string();
-    song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive, game.cfg.audio.ceiling)), out, seconds)
+    song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive, game.cfg.audio.ceiling)), &game.samples, out, seconds)
+}
+
+/// The samples a song file played alone finds: the `samples/` folder
+/// beside the `music/` folder it lies in (a game's), else the one beside
+/// the file itself; none where neither is there.
+pub fn samples_beside(file: &Path) -> Result<crate::audio::music::Samples> {
+    let folder = file.parent().unwrap_or(Path::new(""));
+    let game = folder.parent().filter(|_| folder.file_name().is_some_and(|n| n == "music"));
+    let found = game.into_iter().chain([folder]).find(|d| d.join(crate::audio::music::sample::FOLDER).is_dir());
+    match found {
+        Some(dir) => {
+            let samples = crate::audio::music::Samples::read_folder(&crate::files::Files::folder(dir))?;
+            if samples.names().next().is_some() {
+                println!("its samples from {}", dir.join(crate::audio::music::sample::FOLDER).display());
+            }
+            Ok(samples)
+        }
+        None => Ok(Default::default()),
+    }
 }
 
 /// Seconds as a clock shows them: 2:40.0.
@@ -1714,15 +1733,17 @@ fn song_name(title: &str, file: &Path) -> String {
 }
 
 /// Writes one song file as a stereo WAV, at a game's music volume, drive
-/// and ceiling (the engine's defaults without a game, said so).
-pub fn song(file: &Path, game: Option<(f32, f32, f32)>, out: &Path, seconds: Option<f32>) -> Result<()> {
+/// and ceiling (the engine's defaults without a game, said so), its
+/// instruments of the wave `sample` playing `samples`.
+pub fn song(file: &Path, game: Option<(f32, f32, f32)>, samples: &crate::audio::music::Samples, out: &Path, seconds: Option<f32>) -> Result<()> {
     use crate::audio::SAMPLE_RATE;
 
     let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
     if !crate::audio::music::has_channels(&text) {
         anyhow::bail!("{} is a file of instruments, no song: it plays only the channels a game lays over it (music:play's channels), so there is nothing to write without the game", file.display());
     }
-    let song = crate::audio::music::parse(&text).with_context(|| format!("in {}", file.display()))?;
+    let mut song = crate::audio::music::parse(&text).with_context(|| format!("in {}", file.display()))?;
+    song.bind(samples).with_context(|| format!("in {}", file.display()))?;
     let length = song.length as f32 / SAMPLE_RATE as f32;
     let title = song_name(&song.title, file);
     let lengths = song.channel_lengths();
