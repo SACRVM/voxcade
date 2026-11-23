@@ -1277,7 +1277,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   fade })` silence, the player's own not coming back, `host::Music::silent`,
   `Game::music_silent`, the session noticing (song, silent) after every
   step, a stop fading 5 ms at least and however young the song,
-  `Mixer::crossfade_music`; a play over a pending stop replaces it;
+  `Mixer::crossfade_music`, a song asked while one still fades letting
+  it finish its fade under the new one (`Mixer::leaving`, three slots,
+  `start_music`, test `a_song_fading_out_rings_out_under_the_next`); a
+  play over a pending stop replaces it;
   `music.tempo` the game's tempo, held across songs until nil, kept in
   thousandths, `host::Music::tempo`; the clock today's formula while no
   tempo is held in a song, else `Music::units` (beats in `UNITS` a beat,

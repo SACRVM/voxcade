@@ -232,7 +232,7 @@ impl<G: Game> Session<G> {
                 // so it never clicks.
                 (None, seconds) => mixer.crossfade_music(None, seconds.unwrap_or(0.0).max(audio::music::SHORTEST.0)),
                 (player, Some(seconds)) if seconds > 0.0 => mixer.crossfade_music(player, seconds),
-                (player, _) => mixer.set_music(player),
+                (player, _) => mixer.start_music(player),
             }
         } else if let Some(cue) = self.game.music() {
             mixer.follow_music(cue.start + cue.beats, cue.ratio);
