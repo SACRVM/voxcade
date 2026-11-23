@@ -1263,7 +1263,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   behind an `Arc`, kept by letter through every song, stop and level;
   the player's `lanes`, a fixed array made with it, started as they are
   by `start_mix`; a voice's own `strip`; letters checked against a song
-  file's only); a level's fade holds no song, its
+  file's only; its instrument's words over the instrument's own,
+  `mix::GLIDING` gliding under a sounding note, the cutoff in octaves
+  with a note's sweep as deep from it, `mix::NEXT_NOTE` latched in the
+  voice's `Shape` as a note is taken up, `mix::NO_KNOB` refused saying
+  why, a word the note's instrument lacks doing nothing; tests in
+  `audio/music/knob_tests.rs`); a level's fade holds no song, its
   frames step the clock (`Game::music_step`; a replay recorded so says
   `fades = true` and takes the steps without a picture,
   `Session::fade_clock`), a song changed crossfades when asked
@@ -1272,7 +1277,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   fade })` silence, the player's own not coming back, `host::Music::silent`,
   `Game::music_silent`, the session noticing (song, silent) after every
   step, a stop fading 5 ms at least and however young the song,
-  `Mixer::crossfade_music`; a play over a pending stop replaces it;
+  `Mixer::crossfade_music`, a song asked while one still fades letting
+  it finish its fade under the new one (`Mixer::leaving`, three slots,
+  `start_music`, test `a_song_fading_out_rings_out_under_the_next`); a
+  play over a pending stop replaces it;
   `music.tempo` the game's tempo, held across songs until nil, kept in
   thousandths, `host::Music::tempo`; the clock today's formula while no
   tempo is held in a song, else `Music::units` (beats in `UNITS` a beat,

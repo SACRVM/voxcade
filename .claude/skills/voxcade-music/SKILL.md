@@ -250,7 +250,18 @@ has a strip of its own: `music:mix("K", { volume = 0.6, mute = false,
 pan = -0.5 }, 0.05)` (the fader 0..1, the mute, the pan a balance; a
 key left out stays, `false` gives it back, `music:mix("K", false)` the
 whole strip, `music:mix("K")` reads it back), held by letter through
-every song and stop until given back: a level knob, a mute button.
+every song and stop until given back: a level knob, a mute button. A
+strip turns its instrument's words too, over the instrument's own for
+the channel's notes: `music:mix("B", { cutoff = 900, resonance = 0.8 },
+0.05)` (an acid bass's filter knob: the note's cutoff sweep goes as deep
+from it). `cutoff`, `resonance`, `duty`, `pwm`, `vibrato`, `sustain` and
+`duck` glide under a sounding note; `attack`, `decay`, `release`,
+`freq` and the other times and rates, `lowpass`, `drive`, the crusher
+and `sidechain` count from the channel's next note; `wave`, `filter`,
+`arp` and `consonants` do not turn (another sound). A word a note's
+instrument lacks does nothing on it: give the instrument a filter
+(`filter=lowpass cutoff=8000`) for a cutoff knob to have something to
+turn.
 
 A tempo of the game's: `music.tempo = 140` plays its song at 140 beats a
 minute from the next tick (1 to 999, kept to a thousandth; read back,

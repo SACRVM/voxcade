@@ -172,7 +172,7 @@ end
 #[test]
 fn strips_are_heard_only_and_their_letters_are_checked() {
     let quiet = "function on_level_start(how) music:play('a', 'now') end\nfunction on_tick() world.state.t = world.tick end\n";
-    let busy = "function on_level_start(how) music:play('a', 'now') end\nfunction on_tick()\n  world.state.t = world.tick\n  music:mix('A', { volume = (world.tick % 7) / 7, pan = 0.5 })\nend\n";
+    let busy = "function on_level_start(how) music:play('a', 'now') end\nfunction on_tick()\n  world.state.t = world.tick\n  music:mix('A', { volume = (world.tick % 7) / 7, pan = 0.5, cutoff = 200 + world.tick * 10, decay = 0.1 })\nend\n";
     let (q, b) = (desk_folder("music-mix-quiet", quiet), desk_folder("music-mix-busy", busy));
     let (mut q, mut b) = (game_in(&q), game_in(&b));
     for _ in 0..40 {
@@ -189,7 +189,11 @@ fn strips_are_heard_only_and_their_letters_are_checked() {
 
     for (line, says) in [
         ("music:mix('C', { volume = 0.5 })", "music:mix: no channel C in your song (a has A, B)"),
-        ("music:mix('A', { cutoff = 900 })", "cutoff"),
+        ("music:mix('A', { wave = 'saw' })", "music:mix: wave does not turn: the wave is another sound"),
+        ("music:mix('A', { cutof = 900 })", "music:mix: no word cutof (did you mean cutoff?)"),
+        ("music:mix('A', { hold = 1 })", "music:mix: hold is a word of sound files"),
+        ("music:mix('A', { cutoff = 10 })", "music:mix: cutoff is a number from 20 to 20000 Hz, or false"),
+        ("music:mix('A', { crush_bits = 4.5 })", "music:mix: crush_bits is a whole number from 1 to 16 bits"),
         ("music:mix('AB', { volume = 1 })", "music:mix: a channel is a letter"),
         ("music:mix('A', { volume = 2 })", "music:mix: volume is a number from 0 (silent) to 1"),
         ("music:mix('A', { pan = -3 })", "music:mix: pan is a number from -1 (left) to 1"),
@@ -208,4 +212,43 @@ fn strips_are_heard_only_and_their_letters_are_checked() {
     steps(&mut g, 3);
     assert_eq!(halted(&g), "");
     assert!(g.game.music_mix().strip('Q').mute && g.game.music_mix().strip('B').mute);
+}
+
+/// An instrument's words on a strip read back as asked, false gives one
+/// back and false the whole strip every one; a word the channel's
+/// instrument lacks (a cutoff on a sine without a filter) is taken and
+/// changes nothing it plays.
+#[test]
+fn a_strips_knobs_read_back_and_a_word_the_instrument_lacks_does_nothing() {
+    let main = r#"
+function on_level_start(how) music:play('a', 'now') end
+function on_tick()
+  if world.tick == 10 then music:mix('A', { cutoff = 900, resonance = 0.8, decay = 0.05 }, 0.1) end
+  if world.tick == 11 then
+    local m = music:mix('A')
+    world.state.read = m.cutoff .. ' ' .. m.resonance .. ' ' .. m.decay .. ' ' .. tostring(m.duty)
+  end
+  if world.tick == 20 then music:mix('A', { resonance = false }) end
+  if world.tick == 21 then world.state.less = tostring(music:mix('A').resonance) .. ' ' .. music:mix('A').cutoff end
+  if world.tick == 30 then music:mix('A', false) end
+  if world.tick == 31 then
+    local n = 0
+    for _ in pairs(music:mix('A')) do n = n + 1 end
+    world.state.back = n
+  end
+end
+"#;
+    let dir = desk_folder("music-mix-knobs", main);
+    let mut g = game_in(&dir);
+    let mut mixer = crate::audio::Mixer::default();
+    let turned = played(&mut g, &mut mixer, 40);
+    assert_eq!(halted(&g), "");
+    let s = |v: &str| format!("{:?}", crate::lua::Value::Str(v.as_bytes().to_vec()));
+    assert_eq!(state(&mut g, "read"), s("900.0 0.80000001192093 0.050000000745058 nil"));
+    assert_eq!(state(&mut g, "less"), s("nil 900.0"));
+    assert_eq!(state(&mut g, "back"), format!("{:?}", crate::lua::Value::Int(3)));
+    // The sines have no filter and hold their notes: nothing they play changed.
+    let dir = desk_folder("music-mix-knobs-not", "function on_level_start(how) music:play('a', 'now') end\n");
+    let plain = played(&mut game_in(&dir), &mut crate::audio::Mixer::default(), 40);
+    assert!(turned == plain, "a word the instrument lacks changed the sound at sample {:?}", turned.iter().zip(&plain).position(|(a, b)| a != b));
 }

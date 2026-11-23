@@ -121,13 +121,16 @@ pub struct Mixer {
     music: Option<music::Player>,
     /// Samples the song has played since it was set.
     music_age: u64,
-    /// The song crossfading out as `music` comes in, and where the
-    /// crossfade is: samples gone, samples in all (`crossfade_music`).
-    leaving: Option<(Option<music::Player>, u64, u64)>,
-    /// The song a finished crossfade let go of, for the main thread to
-    /// drop when it hands the next song (the audio thread gives no memory
-    /// back either).
-    spent: Option<music::Player>,
+    /// How `music` fades in under a crossfade: samples gone, samples in
+    /// all (None: as loud as it is).
+    coming: Option<(u64, u64)>,
+    /// The songs fading out under it, each finishing its own fade (a song
+    /// asked while one still fades lets it ring out).
+    leaving: [Option<Leaving>; LEAVING],
+    /// The songs a finished fade let go of, for the main thread to drop
+    /// when it hands the next song (the audio thread gives no memory back
+    /// either).
+    spent: [Option<music::Player>; LEAVING],
     /// Each song's own samples while two crossfade.
     apart: (Vec<f32>, Vec<f32>),
     /// The music held where it is (a game that reads its beats, paused).
@@ -135,6 +138,27 @@ pub struct Mixer {
     /// The last stage: holds the mix under its ceiling (`limiter`; -1
     /// dBTP, or the game's `c.audio.ceiling`).
     limiter: limiter::Limiter,
+}
+
+/// A song fading out (`Mixer::leaving`): from the loudness it had as it
+/// began to (the cosine of a quarter turn from there), samples gone,
+/// samples in all.
+struct Leaving {
+    player: music::Player,
+    from: f32,
+    gone: u64,
+    length: u64,
+}
+
+/// The most songs fading out at once: one more asked meanwhile cuts the
+/// quietest.
+const LEAVING: usize = 3;
+
+/// The loudness of a fade `gone` samples into its `length`: in by the
+/// sine, out by the cosine of a quarter turn, together as loud as either.
+fn faded((gone, length): (u64, u64)) -> (f32, f32) {
+    let x = (gone as f32 / length as f32).min(1.0) * std::f32::consts::FRAC_PI_2;
+    (x.sin(), x.cos())
 }
 
 /// The most samples (both sides, interleaved) the mixer makes in one step:
@@ -151,8 +175,9 @@ impl Default for Mixer {
             voices: Vec::with_capacity(2 * MAX_VOICES),
             music: None,
             music_age: 0,
-            leaving: None,
-            spent: None,
+            coming: None,
+            leaving: Default::default(),
+            spent: Default::default(),
             apart: (vec![0.0; MIX_BLOCK], vec![0.0; MIX_BLOCK]),
             music_held: false,
             limiter: limiter::Limiter::new(SAMPLE_RATE),
@@ -167,35 +192,59 @@ impl Mixer {
         self.limiter.latency_samples()
     }
 
-    /// Starts a song from the top (None: silence).
+    /// Starts a song from the top (None: silence), whatever played or
+    /// faded cut.
     pub fn set_music(&mut self, player: Option<music::Player>) {
-        (self.music, self.music_age, self.leaving, self.spent) = (player, 0, None, None);
+        (self.music, self.music_age, self.coming, self.leaving, self.spent) = (player, 0, None, Default::default(), Default::default());
+    }
+
+    /// Starts a song from the top at once in place of the one playing (a
+    /// game's song begun without a crossfade), the songs still fading out
+    /// ringing out under it.
+    pub fn start_music(&mut self, player: Option<music::Player>) {
+        (self.music, self.music_age, self.coming, self.spent) = (player, 0, None, Default::default());
     }
 
     /// Starts a song as the one playing fades out over `seconds`, equal in
     /// power (the old by the cosine, the new by the sine of a quarter
-    /// turn: together as loud as either), both going on as they were. A
-    /// song begun only a moment ago (a quarter of a second) is not faded
-    /// out but replaced, as `set_music` does, unless silence comes (a
-    /// stop fades, however young the song).
+    /// turn: together as loud as either), both going on as they were; a
+    /// song still fading from before finishes its fade under them, and
+    /// one still coming in fades out from as loud as it had come. A song
+    /// begun only a moment ago (a quarter of a second) is not faded out
+    /// but replaced, the new one coming in as it came, unless silence
+    /// comes (a stop fades, however young the song); after silence the
+    /// song begins at once.
     pub fn crossfade_music(&mut self, player: Option<music::Player>, seconds: f32) {
         let length = (seconds * SAMPLE_RATE as f32) as u64;
-        if self.music.is_none() || (player.is_some() && self.music_age < u64::from(SAMPLE_RATE / 4)) || length == 0 {
-            return self.set_music(player);
+        let Some(old) = self.music.take().filter(|_| length > 0) else {
+            return self.start_music(player);
+        };
+        if player.is_some() && self.music_age < u64::from(SAMPLE_RATE / 4) {
+            (self.music, self.music_age, self.spent) = (player, 0, Default::default());
+            return;
         }
-        let old = std::mem::replace(&mut self.music, player);
-        (self.leaving, self.music_age, self.spent) = (Some((old, 0, length)), 0, None);
+        let from = self.coming.map_or(1.0, |c| faded(c).0);
+        // Full: the quietest cut (dropped here, on the main thread).
+        let free = self.leaving.iter().position(Option::is_none).unwrap_or_else(|| (0..LEAVING).min_by(|&i, &j| self.loudness(i).total_cmp(&self.loudness(j))).unwrap_or(0));
+        self.leaving[free] = Some(Leaving { player: old, from, gone: 0, length });
+        self.coming = player.is_some().then_some((0, length));
+        (self.music, self.music_age, self.spent) = (player, 0, Default::default());
+    }
+
+    /// How loud the song fading out in slot `i` is now.
+    fn loudness(&self, i: usize) -> f32 {
+        self.leaving[i].as_ref().map_or(0.0, |l| l.from * faded((l.gone, l.length)).1)
     }
 
     /// Whether no music plays (none set, or a song that plays once
     /// ended).
     pub fn music_over(&self) -> bool {
-        self.music.as_ref().is_none_or(music::Player::over) && self.leaving.is_none()
+        self.music.as_ref().is_none_or(music::Player::over) && self.leaving.iter().all(Option::is_none)
     }
 
     /// Whether nothing sounds: no voice plays and no music is set.
     pub fn idle(&self) -> bool {
-        self.voices.iter().all(Voice::ended) && self.music.is_none() && self.leaving.is_none()
+        self.voices.iter().all(Voice::ended) && self.music.is_none() && self.leaving.iter().all(Option::is_none)
     }
 
     /// Keeps the music with a game's clock, `beats` since the song began,
@@ -239,8 +288,8 @@ impl Mixer {
         if let Some(m) = &mut self.music {
             m.follow_mix(mix);
         }
-        if let Some((Some(m), _, _)) = &mut self.leaving {
-            m.follow_mix(mix);
+        for l in self.leaving.iter_mut().flatten() {
+            l.player.follow_mix(mix);
         }
     }
 
@@ -268,8 +317,8 @@ impl Mixer {
         if let Some(m) = &mut self.music {
             m.volume = volume;
         }
-        if let Some((Some(m), _, _)) = &mut self.leaving {
-            m.volume = volume;
+        for l in self.leaving.iter_mut().flatten() {
+            l.player.volume = volume;
         }
     }
 
@@ -298,40 +347,53 @@ impl Mixer {
         self.voices.push(Voice { samples: samples.clone(), at: 0, left: gain * angle.cos(), right: gain * angle.sin(), name, fade: None });
     }
 
-    /// The music into `out` (zeros): the song alone, or two crossfading.
+    /// The music into `out` (zeros): the song alone, or with those
+    /// fading out under it, each by its own fade.
     fn mix_music(&mut self, out: &mut [f32]) {
         let frames = out.len() as u64 / 2;
-        let Some((old, gone, length)) = &mut self.leaving else {
+        self.music_age += frames;
+        if self.coming.is_none() && self.leaving.iter().all(Option::is_none) {
             if let Some(m) = &mut self.music {
                 m.mix(out);
             }
-            self.music_age += frames;
             return;
-        };
+        }
         // `out` is a block at most (`mix`): the buffers made for it hold it.
         debug_assert!(out.len() <= MIX_BLOCK && self.apart.0.len() == MIX_BLOCK && self.apart.1.len() == MIX_BLOCK, "a crossfade's buffers grow on the audio thread");
         let (a, b) = &mut self.apart;
         let (a, b) = (&mut a[..out.len()], &mut b[..out.len()]);
-        a.fill(0.0);
-        b.fill(0.0);
-        if let Some(m) = old {
-            m.mix(a);
+        for slot in &mut self.leaving {
+            let Some(l) = slot else { continue };
+            a.fill(0.0);
+            l.player.mix(a);
+            for (i, frame) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+                let fade_out = l.from * faded((l.gone + i as u64, l.length)).1;
+                frame[0] += a[i * 2] * fade_out;
+                frame[1] += a[i * 2 + 1] * fade_out;
+            }
+            l.gone += frames;
+            // The song faded out kept for the main thread to drop (the
+            // slots are emptied whenever a song is handed, so one is free).
+            if l.gone >= l.length
+                && let Some(free) = self.spent.iter_mut().find(|s| s.is_none())
+            {
+                *free = slot.take().map(|l| l.player);
+            }
         }
+        b.fill(0.0);
         if let Some(m) = &mut self.music {
             m.mix(b);
         }
         for (i, frame) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
-            let x = ((*gone + i as u64) as f32 / *length as f32).min(1.0) * std::f32::consts::FRAC_PI_2;
-            let (fade_out, fade_in) = (x.cos(), x.sin());
-            frame[0] = a[i * 2] * fade_out + b[i * 2] * fade_in;
-            frame[1] = a[i * 2 + 1] * fade_out + b[i * 2 + 1] * fade_in;
+            let fade_in = self.coming.map_or(1.0, |c| faded((c.0 + i as u64, c.1)).0);
+            frame[0] += b[i * 2] * fade_in;
+            frame[1] += b[i * 2 + 1] * fade_in;
         }
-        *gone += frames;
-        self.music_age += frames;
-        // The song faded out is kept for the main thread to drop (its slot
-        // is emptied whenever a song is handed, so it is free here).
-        if *gone >= *length && self.spent.is_none() {
-            self.spent = self.leaving.take().and_then(|(old, _, _)| old);
+        if let Some((gone, length)) = &mut self.coming {
+            *gone += frames;
+            if *gone >= *length {
+                self.coming = None;
+            }
         }
     }
 
@@ -676,7 +738,7 @@ mod tests {
         let buffers = (whole.apart.0.as_ptr(), whole.apart.1.as_ptr(), whole.voices.capacity());
         let mut once = vec![0.0f32; 3 * MIX_BLOCK + 10];
         assert_eq!(taken_by(|| whole.mix(&mut once)), 0, "memory taken or given back while mixing");
-        assert!(whole.leaving.is_some(), "still crossfading");
+        assert!(whole.leaving.iter().any(Option::is_some), "still crossfading");
         assert_eq!((whole.apart.0.as_ptr(), whole.apart.1.as_ptr(), whole.voices.capacity()), buffers, "the buffers stayed");
         assert_eq!((whole.apart.0.len(), whole.apart.1.len()), (MIX_BLOCK, MIX_BLOCK));
         let mut pieces = Vec::new();
@@ -704,12 +766,12 @@ mod tests {
         // nothing taken or given back, the old song and the sound kept.
         let mut long = vec![0.0f32; 5 * SAMPLE_RATE as usize];
         assert_eq!(taken_by(|| whole.mix(&mut long)), 0, "memory taken or given back as the crossfade and a sound ended");
-        assert!(whole.leaving.is_none() && whole.spent.is_some(), "the song faded out kept for the main thread");
+        assert!(whole.leaving.iter().all(Option::is_none) && whole.spent[0].is_some(), "the song faded out kept for the main thread");
         assert!(whole.voices.len() == 1 && whole.voices[0].ended(), "the sound that ended kept for the main thread");
         // Let go of on the main thread, as the next song and sound are handed.
         whole.set_music(None);
         whole.play("blip", &Arc::from(vec![0.5f32; 10]), 1.0, 0.0);
-        assert!(whole.spent.is_none() && whole.voices.len() == 1 && !whole.voices[0].ended());
+        assert!(whole.spent.iter().all(Option::is_none) && whole.voices.len() == 1 && !whole.voices[0].ended());
         // Channels a game laid swapped in on the audio thread: one the same,
         // one changed under a ringing note, one laid no more (its note rings
         // out in a tail), one new, the song of other bars, a layer and the
@@ -760,5 +822,81 @@ mod tests {
         };
         let (slow, fast, turned) = (knob(&|_| 0.5), knob(&|_| 2.0), knob(&|n| 0.5 + (n % 90) as f64 / 60.0));
         assert!(turned <= slow.max(fast) * 1.05, "a tempo turned stepped {turned}, held at half and twice {slow} {fast}");
+        // A strip's cutoff swept every tick for 10 s over sounding notes
+        // (`music:mix`'s knobs), its resonance and a next note's decay
+        // turned with it: nothing taken on the audio thread.
+        let acid = "#tempo 130\n@b saw filter=lowpass cutoff=400 cutoff_end=1200 cutoff_time=0.1 resonance=0.6 attack=0.002 decay=0.15 sustain=0.3\nB: @b o2 l16 c c > c < c d# c c > c < c f c c > c < c g\n";
+        let mut mixer = Mixer::default();
+        mixer.set_music(Some(music::Player::new(music::parse(acid).unwrap(), 1.0)));
+        let tick = SAMPLE_RATE as usize / 60;
+        let mut buf = vec![0.0f32; tick * 2];
+        let mut mix = music::Mix::default();
+        for n in 0..600 {
+            let strip = Arc::make_mut(&mut mix.strips).entry('B').or_default();
+            strip.turn("cutoff", Some(300.0 + 2000.0 * (n % 120) as f32 / 120.0), 1.0 / 60.0);
+            strip.turn("resonance", Some((n % 50) as f32 / 50.0), 0.0);
+            strip.turn("decay", Some(0.05 + (n % 30) as f32 / 100.0), 0.0);
+            mixer.music_mix(&mix);
+            mix.step();
+            assert_eq!(taken_by(|| mixer.mix(&mut buf)), 0, "memory taken with a knob turned every tick");
+        }
+    }
+
+    /// A song asked while another still fades out lets it finish its fade
+    /// under the new one: after a stop's fade (the new song begun at once),
+    /// and in a crossfade during a crossfade (the one coming in fading out
+    /// from as loud as it had come), without a step and without memory
+    /// taken on the audio thread.
+    #[test]
+    fn a_song_fading_out_rings_out_under_the_next() {
+        let sr = SAMPLE_RATE as usize;
+        let song = |hz: u32| Some(music::Player::new(music::parse(&format!("#tempo 120\n@x sine freq={hz} attack=0.002 decay=0 sustain=1 release=0.01 volume=0.3\nA: @x c1 c1 c1 c1\n")).unwrap(), 1.0));
+        // How strongly `hz` sounds in the left side of `s` over 1/60 s from `at` seconds.
+        let tone = |s: &[f32], at: f32, hz: f64| {
+            let from = (at * sr as f32) as usize;
+            let x: Vec<f32> = s[from * 2..(from + sr / 60) * 2].iter().step_by(2).copied().collect();
+            let w = std::f64::consts::TAU * hz / sr as f64;
+            let (re, im) = x.iter().enumerate().fold((0.0, 0.0), |(re, im), (k, &v)| (re + f64::from(v) * (w * k as f64).cos(), im - f64::from(v) * (w * k as f64).sin()));
+            2.0 * (re * re + im * im).sqrt() / x.len() as f64
+        };
+        let steepest = |s: &[f32], from: f32, to: f32| s[(from * sr as f32) as usize * 2..(to * sr as f32) as usize * 2].iter().step_by(2).collect::<Vec<_>>().windows(2).fold(0.0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        let run = |steps: &mut dyn FnMut(&mut Mixer, usize)| {
+            let mut mixer = Mixer::default();
+            let (mut out, mut tick) = (Vec::new(), vec![0.0f32; sr / 60 * 2]);
+            for n in 0..180 {
+                steps(&mut mixer, n);
+                assert_eq!(taken_by(|| mixer.mix(&mut tick)), 0, "memory taken at tick {n}");
+                out.extend_from_slice(&tick);
+            }
+            out
+        };
+        // A stop fading over 2 s from 0.5 s; at 1 s a song begins at once.
+        let stopped = run(&mut |m, n| match n {
+            0 => m.set_music(song(420)),
+            30 => m.crossfade_music(None, 2.0),
+            60 => m.start_music(song(660)),
+            _ => {}
+        });
+        let full = tone(&stopped, 0.3, 420.0);
+        assert!(full > 0.1);
+        let half = std::f64::consts::FRAC_PI_4.cos();
+        assert!((tone(&stopped, 1.5, 420.0) / full - half).abs() < 0.02, "the stop's fade cut: {}", tone(&stopped, 1.5, 420.0) / full);
+        assert!((tone(&stopped, 1.1, 660.0) / full - 1.0).abs() < 0.02, "the new song at once");
+        assert!(tone(&stopped, 2.6, 420.0) < 0.001 * full, "the old song gone once faded");
+        // A crossfade of 2 s from 0.5 s, and at 1 s another of 2 s.
+        let twice = run(&mut |m, n| match n {
+            0 => m.set_music(song(420)),
+            30 => m.crossfade_music(song(660), 2.0),
+            60 => m.crossfade_music(song(300), 2.0),
+            _ => {}
+        });
+        let (a, b, c) = (tone(&twice, 1.5, 420.0) / full, tone(&twice, 1.0, 660.0) / full, tone(&twice, 1.5, 300.0) / full);
+        assert!((a - half).abs() < 0.03, "the first fade finished under the second: {a}");
+        assert!((b - (std::f64::consts::PI / 8.0).sin()).abs() < 0.03, "the song coming in fades out from as loud as it came: {b}");
+        assert!((c - (std::f64::consts::PI / 8.0).sin()).abs() < 0.03, "the third coming in: {c}");
+        for s in [&stopped, &twice] {
+            let (own, around) = (steepest(s, 1.05, 1.3), steepest(s, 0.95, 1.05));
+            assert!(around <= own * 1.1, "stepped {around} where a song was asked, {own} as they sound on");
+        }
     }
 }
