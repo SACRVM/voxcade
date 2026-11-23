@@ -729,12 +729,14 @@ fn the_instrument_maker_rolls_its_instrument_and_goes_back() {
     assert_eq!(shell.sound.keys.octave, 4);
 }
 
-/// The instrument maker's page has one PLAY, no PLAY SOUND, its five
-/// faders and its twelve keys within the window at 1024 wide and wide;
-/// in a song's first lines, before any instrument, it is quiet.
+/// The instrument maker's page has one PLAY of the instrument (the
+/// channel's is PLAY CHANNEL), no PLAY SOUND, its five faders, its twelve
+/// keys and the channel's row within the window at 1024 wide and wide,
+/// 16 points clear of its edge; in a song's first lines, before any
+/// instrument, it is quiet, and so is the channel's row off a channel.
 #[test]
 fn the_instrument_page_has_one_play_and_fits() {
-    let (_dir, mut shell, ctx) = song_open("instrument-fits", 3);
+    let (_dir, mut shell, ctx) = song_open("instrument-fits", 7);
     for (width, height) in [(1024.0, 600.0), (1920.0, 1080.0)] {
         let size = egui::vec2(width, height);
         drawn_rects(&ctx, &mut shell, size);
@@ -742,22 +744,73 @@ fn the_instrument_page_has_one_play_and_fits() {
         let main: Vec<_> = texts.iter().filter(|(_, r)| r.min.x > 250.0 && r.min.y > 52.0).collect();
         assert!(!main.iter().any(|(t, _)| t == "PLAY SOUND"), "{width}");
         assert_eq!(main.iter().filter(|(t, _)| t == "PLAY").count(), 1, "{width}: one PLAY");
-        assert!(main.iter().any(|(t, _)| t == "@lead"), "{width}: the instrument's name");
+        assert_eq!(main.iter().filter(|(t, _)| t == "PLAY CHANNEL").count(), 1, "{width}: one PLAY CHANNEL");
+        assert!(main.iter().any(|(t, _)| t.starts_with('@')), "{width}: the instrument's name");
+        assert!(main.iter().any(|(t, _)| t == "CHANNEL A"), "{width}: the channel's letter");
         for word in ["LENGTH", "PUNCH", "BRIGHT", "DRIVE", "LEVEL"] {
             let r = main.iter().find(|(t, _)| t == word).unwrap_or_else(|| panic!("{width}: no {word}")).1;
             assert!(r.min.x + 150.0 <= width, "{width}: {word} cut at {r:?}");
         }
-        for word in ["KICK", "PAD", "OCTAVE"].iter().chain(instrument::KEYS.iter()) {
+        for word in ["KICK", "PAD", "OCTAVE", "LOOP CHANNEL", "TRANSPOSE"].iter().chain(instrument::KEYS.iter()) {
             let r = main.iter().find(|(t, _)| t == word).unwrap_or_else(|| panic!("{width}: no {word}")).1;
             assert!(r.max.x <= width, "{width}: {word} cut at {r:?}");
         }
+        // TRANSPOSE's + clear of the edge.
+        let transpose = main.iter().find(|(t, _)| t == "TRANSPOSE").unwrap().1;
+        let last = main.iter().filter(|(t, r)| t == "+" && (r.center().y - transpose.center().y).abs() < 4.0).map(|(_, r)| r.max.x).fold(0.0, f32::max);
+        assert!(last > transpose.max.x && last + 16.0 <= width, "{width}: TRANSPOSE's + at {last}");
     }
     shell.show_at("music/song.mml", 1);
     frame(&ctx, &mut shell);
     frame(&ctx, &mut shell);
     let texts = drawn_rects(&ctx, &mut shell, egui::vec2(1280.0, 720.0));
     assert!(texts.iter().any(|(t, _)| t == "NO INSTRUMENT"));
+    assert!(texts.iter().any(|(t, _)| t == "NO CHANNEL"));
     assert_eq!(shell.sound.keys.of, None);
+}
+
+/// OCTAVE and TRANSPOSE over a channel's line: its notes moved, every
+/// other line byte for byte, each press one step back for UNDO; PLAY
+/// CHANNEL plays it alone through the song's speaker, STOP SONG ends it.
+#[test]
+fn a_channels_notes_move_one_step_at_a_time_and_it_plays_alone() {
+    use crate::audio::music::shift::Move;
+    let (_dir, mut shell, ctx) = song_open("channel", 7);
+    let text = |shell: &Shell| buffer(shell).code.text().to_string();
+    let first = text(&shell);
+    let (_, id) = shell.code_id().unwrap();
+    shell.move_channel(&ctx, id, Move::Semitones(1));
+    let up = text(&shell);
+    let (old, new): (Vec<&str>, Vec<&str>) = (first.split('\n').collect(), up.split('\n').collect());
+    assert_eq!(new[6], "A: @lead o5 l8 c+ d+ f f+");
+    assert_eq!((&new[..6], &new[7..]), (&old[..6], &old[7..]), "every other line byte for byte");
+    frame(&ctx, &mut shell);
+    shell.move_channel(&ctx, id, Move::Octaves(-1));
+    assert_eq!(text(&shell).split('\n').nth(6), Some("A: @lead o4 l8 c+ d+ f f+"));
+    assert!(buffer(&shell).code.error.is_none());
+    frame(&ctx, &mut shell);
+    shell.go_back(&ctx);
+    assert_eq!(text(&shell), up, "UNDO: the octave back");
+    shell.go_back(&ctx);
+    assert_eq!(text(&shell), first, "UNDO: the semitone back");
+    // PLAY CHANNEL: the channel alone, the other one left out.
+    frame(&ctx, &mut shell);
+    let _ = shell.take_asks();
+    shell.play_channel(&ctx, id);
+    assert_eq!(shell.take_asks(), [Ask::Listen("music/song.mml".into())]);
+    let alone = shell.sound.alone.clone().unwrap();
+    assert!(alone.contains("A: @lead o5 l8 c d e f") && !alone.contains("B:"), "{alone}");
+    assert!(shell.song("music/song.mml").is_ok());
+    shell.listen();
+    assert_eq!(shell.take_asks(), [Ask::Hush], "STOP SONG ends it");
+    assert!(shell.sound.alone.is_none());
+    // A line that is no channel's: nothing to move.
+    shell.show_at("music/song.mml", 3);
+    frame(&ctx, &mut shell);
+    frame(&ctx, &mut shell);
+    let before = text(&shell);
+    shell.move_channel(&ctx, id, Move::Semitones(1));
+    assert_eq!(text(&shell), before);
 }
 
 /// A song's text is changed and saved; a mistake in it shows its line

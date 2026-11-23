@@ -149,6 +149,7 @@ mod knob_tests;
 #[cfg(test)]
 mod layer_tests;
 mod voice;
+pub mod shift;
 mod clear;
 pub mod sample;
 #[cfg(test)]

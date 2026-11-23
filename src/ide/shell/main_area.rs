@@ -227,6 +227,9 @@ impl Shell {
             if self.instrument_ui(ui, id) {
                 self.play_key();
             }
+            // Then the channel the cursor is in: it alone, its notes moved.
+            ui.add_space(4.0);
+            self.channel_ui(ui, id);
             ui.add_space(10.0);
         }
         if play_sound {

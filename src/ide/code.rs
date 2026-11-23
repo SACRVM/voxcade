@@ -405,6 +405,25 @@ impl Code {
         egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0.min(self.text.chars().count()))
     }
 
+    /// What is selected in the text edit `id` (characters, first to last;
+    /// the cursor's place twice where nothing is), if it has stood anywhere.
+    pub fn selection(&self, ctx: &egui::Context, id: egui::Id) -> Option<(usize, usize)> {
+        let n = self.text.chars().count();
+        egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| {
+            let (a, b) = (r.primary.index.0.min(n), r.secondary.index.0.min(n));
+            (a.min(b), a.max(b))
+        })
+    }
+
+    /// The characters `from` to `to` selected in the text edit `id` (a
+    /// change from outside, the channel's moves, keeping what was chosen).
+    pub fn put_selection(&self, ctx: &egui::Context, id: egui::Id, from: usize, to: usize) {
+        let n = self.text.chars().count();
+        let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(from.min(n)), CCursor::new(to.min(n)))));
+        state.store(ctx, id);
+    }
+
     /// The cursor of the text edit `id` put at the character `at` (a
     /// change from outside, the instrument maker's, keeping its place).
     pub fn put_cursor(&self, ctx: &egui::Context, id: egui::Id, at: usize) {

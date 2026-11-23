@@ -507,7 +507,26 @@ nearest; its replay `tests/two_ships`);
   (`Fader::moved`, quiet with the why where they mean nothing); OCTAVE
   and the keys C to B play a quarter at the song's tempo through the
   music's own player (`instrument::note`), PLAY the last key, LOOP it
-  again; `ide --shot --line N [--roll SORT]`. Every text one can change says SAVED or NOT SAVED YET above
+  again; `ide --shot --line N [--roll SORT]`. Under it the channel's row
+  (the owner's, 2026-11-23: octaves and transposing as synthesizers do;
+  `shell/channel_ui.rs` over `music::shift`): the channel the cursor is
+  in (`shift::pick`: that line; a selection within a line its notes; one
+  over lines every channel line it touches; none: quiet, NO CHANNEL),
+  PLAY CHANNEL and LOOP CHANNEL (`shift::alone`: the channel alone, or the
+  stretch selected with its octave, instrument and lengths set before
+  it, through PLAY SONG's speaker, STOP SONG ends it), OCTAVE and
+  TRANSPOSE - and +, each a press one step of the text's undo: an octave
+  changes the `o` numbers (one put at a line's start without), a
+  semitone writes each note anew in the line's way (flats where it
+  writes more flats than sharps, else sharps, `#` or `+` as it does), a
+  `>` or `<` where one crosses b and c (or one taken out where the line
+  had the opposite), back at the end where the notes after hear it;
+  repeats begin and end alike; a macro's notes are refused, so are
+  notes past octave 0 or 9 (the why on hover). `shift::shift` reads both
+  songs and refuses a move that plays anything but the notes moved (test
+  `every_channel_line_of_the_repos_songs_moves_and_comes_back`, every
+  channel line of the repo's songs up and back); `ide --shot --line N
+  --transpose N`. Every text one can change says SAVED or NOT SAVED YET above
   it, left of the buttons (the path and the line of facts take the room left
   of them and are cut with "…", full text on hover: `main_area::header_row`),
   and Ctrl+S saves at once. RENAME and DELETE

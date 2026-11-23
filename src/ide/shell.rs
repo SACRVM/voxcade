@@ -39,6 +39,7 @@ mod main_area;
 mod manage;
 mod new_files;
 mod instrument_ui;
+mod channel_ui;
 mod sound_ui;
 mod view_state;
 use manage::{Act, Gone, Question, Renaming};
@@ -47,6 +48,7 @@ use errors::*;
 use new_files::*;
 use sound_ui::*;
 use instrument_ui::Keys;
+use channel_ui::Strip;
 pub use main_area::is_model_file;
 pub(super) use main_area::{level_line, model_line};
 use crate::audio::sound::{self, SoundDef};
@@ -276,8 +278,12 @@ pub struct SoundPage {
     fading: Option<maker::Fader>,
     /// The instrument maker over a song open: the instrument, its keys.
     keys: Keys,
-    /// The song playing (its file), started with PLAY SONG over it.
+    /// The channel's controls over a song open.
+    strip: Strip,
+    /// The song playing (its file), started with PLAY SONG over it, or
+    /// PLAY CHANNEL (then the song of the channel alone that plays).
     pub listening: Option<String>,
+    alone: Option<String>,
 }
 
 /// Where the agent's program is looked for, and whether it was not found

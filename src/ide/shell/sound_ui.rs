@@ -14,6 +14,7 @@ impl Shell {
         // (A song with a mistake plays nothing: the mistake stands above it.)
         let mistaken = matches!(&self.shown, Some(Shown::Code(b)) if b.code.error.is_some());
         if let Some(path) = self.memory.open.clone().filter(|p| p.ends_with(".mml") && !mistaken) {
+            self.sound.alone = None;
             self.sound.listening = Some(path.clone());
             self.asks.push(Ask::Listen(path));
         }
@@ -23,6 +24,7 @@ impl Shell {
     /// played).
     pub(super) fn hush(&mut self) {
         (self.sound.looping, self.sound.again_at) = (false, None);
+        (self.sound.alone, self.sound.strip.round) = (None, false);
         if self.sound.listening.take().is_some() {
             self.asks.push(Ask::Hush);
         }
@@ -34,13 +36,14 @@ impl Shell {
         (self.cfg.audio.drive, self.cfg.audio.ceiling)
     }
 
-    /// The song in `path` to play, at the volume the game and the player
-    /// set for music.
+    /// The song in `path` to play (or its channel alone, PLAY CHANNEL's),
+    /// at the volume the game and the player set for music.
     pub fn song(&self, path: &str) -> anyhow::Result<crate::audio::music::Player> {
         let file = self.dir.join(path);
         // As the text stands now, saved or not.
-        let text = match (&self.shown, self.memory.open.as_deref()) {
-            (Some(Shown::Code(b)), Some(open)) if open == path => b.code.text().to_string(),
+        let text = match (&self.shown, self.memory.open.as_deref(), &self.sound.alone) {
+            (_, _, Some(alone)) => alone.clone(),
+            (Some(Shown::Code(b)), Some(open), _) if open == path => b.code.text().to_string(),
             _ => std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?,
         };
         let mut song = crate::audio::music::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e:#}"))?;

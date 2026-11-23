@@ -156,6 +156,7 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--filter", "TEXT", "the list on the left filtered by TEXT, as typed in FILTER"),
             look("--line", "N", "with --open: the text's cursor on its line N, in view (a song: the instrument maker on the instrument there)"),
             look("--roll", "SORT", "with --open on a song: the instrument maker's SORT rolled (KICK, SNARE, HAT, CLAP, TOM, BASS, LEAD, PAD)"),
+            look("--transpose", "N", "with --open on a song and --line: TRANSPOSE pressed N times on the channel there (less than 0: down)"),
             look("--journal", "FILE", "a text left in the open file's journal before the IDE opens it"),
             look("--upgraded", "", "a game for an older Voxcade: its upgrade's page as after UPGRADE run dry"),
             trial("--remote", "", "let another session type into the console and read it, and use the IDE's windows as a person does (`voxcade mcp --remote`); without it the IDE refuses them all"),

@@ -46,6 +46,9 @@ pub struct ShotOptions {
     /// A song open: this sort of the instrument maker rolled over the
     /// instrument the cursor is in (`--roll`).
     pub roll: Option<String>,
+    /// A song open: TRANSPOSE pressed this many times on the channel the
+    /// cursor is in (down where less than 0; `--transpose`).
+    pub transpose: Option<i32>,
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
@@ -151,6 +154,9 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
         let words: Vec<&str> = super::instrument::Sort::ALL.iter().map(|s| s.word()).collect();
         let sort = super::instrument::Sort::named(word).with_context(|| format!("--roll {word}: the sorts are {}", words.join(", ")))?;
         shell.ask_roll(sort, 2);
+    }
+    if let Some(n) = opts.transpose {
+        shell.ask_transpose(n);
     }
     let mut page = GamePage::<G> { dir, opts, shell, play: None };
     headless(opts, &mut page)?;
