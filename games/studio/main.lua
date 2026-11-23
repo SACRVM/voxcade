@@ -150,12 +150,13 @@ local function pose()
   return parts
 end
 
--- The lamps, each lit (glow 1) or out (glow 0): only for the eye.
+-- The lamps, each lit (standing in its socket, glow 1) or out (sunk into
+-- the case, so its dark socket shows): only for the eye.
 local function lamps()
   local s = world.state
   local parts = {}
   local function lamp(name, lit)
-    parts[name] = { glow = lit and 1 or 0 }
+    parts[name] = lit and { glow = 1 } or { glow = 0, offset = { 0, 0, -3 } }
   end
   local light, live = sounding(), s.shown == s.playing
   for i = 1, 16 do
