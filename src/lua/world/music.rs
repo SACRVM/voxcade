@@ -1,6 +1,7 @@
-//! `music`: the game's song, its clock, its volume and muffle.
+//! `music`: the game's song, its clock, its volume and muffle, its channels' strips.
 
 use super::*;
+use crate::audio::music::{GLIDING, NEXT_NOTE, NO_KNOB};
 
 /// `music`: the song the game plays of its own choice, and its beats and
 /// bars, so the game can go with it (waves on the beat). Its clock is the
@@ -212,6 +213,9 @@ impl UserData for MusicView {
                 t.raw_set("volume", strip.volume)?;
                 t.raw_set("mute", strip.mute)?;
                 t.raw_set("pan", strip.pan.to)?;
+                for (word, v) in strip.turned() {
+                    t.raw_set(word, v)?;
+                }
                 return Ok(Value::Table(t));
             }
             let over = glide_seconds("music:mix", &seconds)?;
@@ -225,11 +229,15 @@ impl UserData for MusicView {
                 }
             };
             // The keys asked (None: kept); false gives a key, or the whole
-            // strip, back.
+            // strip, back. The instrument's words turned (None: given back).
+            let mut words: Vec<(&'static str, Option<f32>)> = Vec::new();
             let (volume, mute, pan) = match &settings {
-                Value::Boolean(false) => (Some(None), Some(false), Some(None)),
+                Value::Boolean(false) => {
+                    words.extend(GLIDING.iter().chain(&NEXT_NOTE).map(|w| (*w, None)));
+                    (Some(None), Some(false), Some(None))
+                }
                 Value::Table(t) => {
-                    known_keys(t, &["volume", "mute", "pan"], "music:mix")?;
+                    words = knob_words(t)?;
                     let volume = number("volume", t.raw_get("volume")?, 0.0, 1.0, "a number from 0 (silent) to 1 (as written)")?;
                     let pan = number("pan", t.raw_get("pan")?, -1.0, 1.0, "a number from -1 (left) to 1 (right)")?;
                     let mute = match t.raw_get::<Value>("mute")? {
@@ -239,7 +247,7 @@ impl UserData for MusicView {
                     };
                     (volume, mute, pan)
                 }
-                other => return Err(mlua::Error::runtime(format!("music:mix: after the channel, {{ volume = 0..1, mute = true|false, pan = -1..1 }} or false (as written), not {}", shown(other)))),
+                other => return Err(mlua::Error::runtime(format!("music:mix: after the channel, {{ volume = 0..1, mute = true|false, pan = -1..1, cutoff = 900, ... }} or false (as written), not {}", shown(other)))),
             };
             change(lua, "music:mix", |h| {
                 // A song file's channels are its own; a studio's are laid
@@ -265,6 +273,9 @@ impl UserData for MusicView {
                 if let Some(p) = pan {
                     strip.pan.ask(p.unwrap_or(0.0), over);
                 }
+                for (word, v) in &words {
+                    strip.turn(word, *v, over);
+                }
                 Ok(Value::Nil)
             })
         });
@@ -275,6 +286,53 @@ impl UserData for MusicView {
             mix_ask(lua, "music:muffle", "amount", "0 (clear) to 1 (very dull, as through a wall)", amount, seconds, |m| &mut m.muffle)
         });
     }
+}
+
+/// The instrument's words a `music:mix` table turns, each a number in its
+/// range (`audio::words`) or false (given back to the instrument), in the
+/// order of the tables; any other key but the strip's own is a mistake
+/// naming why, or the word meant.
+fn knob_words(t: &mlua::Table) -> mlua::Result<Vec<(&'static str, Option<f32>)>> {
+    use crate::audio::words;
+    const STRIP: [&str; 3] = ["volume", "mute", "pan"];
+    for pair in t.pairs::<Value, Value>() {
+        let (key, _) = pair?;
+        let name = match &key {
+            Value::String(s) => s.to_str()?.to_string(),
+            other => return Err(mlua::Error::runtime(format!("music:mix: a key is a word, like volume or cutoff, not {}", shown(other)))),
+        };
+        let name = name.as_str();
+        if STRIP.contains(&name) || GLIDING.contains(&name) || NEXT_NOTE.contains(&name) {
+            continue;
+        }
+        if let Some((_, why)) = NO_KNOB.iter().find(|(w, _)| *w == name) {
+            return Err(mlua::Error::runtime(format!("music:mix: {name} does not turn: {why}")));
+        }
+        if words::word(name).is_some_and(|w| w.mml.is_none()) {
+            return Err(mlua::Error::runtime(format!("music:mix: {name} is a word of sound files, not of an instrument")));
+        }
+        let all = || STRIP.iter().chain(&GLIDING).chain(&NEXT_NOTE).copied();
+        let near = words::near(name, all()).map_or(String::new(), |w| format!(" (did you mean {w}?)"));
+        return Err(mlua::Error::runtime(format!("music:mix: no word {name}{near}; it takes {}", all().collect::<Vec<_>>().join(", "))));
+    }
+    let mut turned = Vec::new();
+    for word in GLIDING.iter().chain(&NEXT_NOTE) {
+        let usage = words::word(word).and_then(|w| w.mml.as_ref()).expect("a knob is an instrument's word");
+        let (lo, hi) = usage.range.expect("a knob has a range");
+        let whole = usage.unit == words::Unit::Bits;
+        let value = match t.raw_get::<Value>(*word)? {
+            Value::Nil => continue,
+            Value::Boolean(false) => None,
+            Value::Integer(i) if (lo..=hi).contains(&(i as f64)) => Some(i as f32),
+            Value::Number(n) if (lo..=hi).contains(&n) && (!whole || n.fract() == 0.0) => Some(n as f32),
+            other => {
+                let kind = if whole { "a whole number" } else { "a number" };
+                return Err(mlua::Error::runtime(format!("music:mix: {word} is {kind} {}, or false for the instrument's own, not {}", words::range_words(usage), shown(&other))));
+            }
+        };
+        turned.push((*word, value));
+    }
+    Ok(turned)
 }
 
 /// `music:play`'s `channels`: each a letter and its MML (a table the

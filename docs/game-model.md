@@ -334,7 +334,31 @@ settings. Several players: `player` is seat 1, the others are in
   it), and starts with them as they are (a muted channel never sounds,
   not even for a song's first milliseconds); it follows an ask by what
   was asked, where to and over how long (`Glide::key`), so a state
-  brought back that asked as often but elsewhere is followed.
+  brought back that asked as often but elsewhere is followed. A strip
+  also turns its instrument's words (stage 2d), in their MML ranges
+  (`audio::words`), over the instrument's own for every note of the
+  channel whatever instrument it plays, `false` giving one back, read
+  back with the rest, each by how the voice reads it: `cutoff`,
+  `resonance`, `duty`, `pwm`, `vibrato`, `sustain` and `duck` glide
+  under a sounding note (`mix::GLIDING`; the cutoff in octaves, 20 ms at
+  least, the rest 5 ms; each coming in over the instrument's own and
+  given back by a glide of its own, so nothing steps), and a note's
+  cutoff sweep goes as deep from the cutoff turned, as a bass machine's
+  filter knob under its envelope; `attack`, `decay`, `release`, `freq`,
+  `sweep`, `sweep_time`, `cutoff_end`, `cutoff_time`, `vibrato_speed`,
+  `vibrato_delay`, `pwm_speed`, `arp_speed`, `lowpass`, `drive`,
+  `crush_rate`, `crush_bits`, `sidechain` and `sidechain_release` count
+  from the channel's next note (`mix::NEXT_NOTE`: a time a note's shape
+  is measured by, or what the voice takes up as a note begins; latched
+  in the voice's `Shape`, so the sounding note keeps its own to the
+  sample; a turned `cutoff_end` sweeps from where the cutoff is as the
+  note begins). A word a note's instrument lacks does nothing on that
+  note (a cutoff without a filter, `freq` on a pitched instrument, a
+  low-pass, `cutoff_end` or a crusher it has not), never a mistake: the
+  strip holds by letter across songs. `wave`, `filter`, `arp` and
+  `consonants` are refused, saying why (`mix::NO_KNOB`: another sound,
+  not a knob); a sound file's word or a slip is a mistake naming the
+  word meant (`words::near`). Only heard, as the rest of a strip.
   `music.tempo` (stage 2c) is the beats a minute of the game's song, 1
   to 999, settable: its `#tempo` until set, read through thousandths
   (124.4 reads 124.4), kept to a thousandth (124.4567 reads 124.457: the
@@ -412,8 +436,8 @@ settings. Several players: `player` is seat 1, the others are in
   laid: its instruments are read anew, the channels kept and read again,
   a channel that no longer reads halting the game as `music:play` would.
   `inspect` prints the laid channels under `"music"`. Built since:
-  silence, a channel's fader, mute and pan, the game's tempo (stage 2,
-  above). Not yet: an instrument's knobs per channel (2d), slides and
+  silence, a channel's fader, mute and pan, the game's tempo and an
+  instrument's knobs per channel (stage 2, above). Not yet: slides and
   knob moves in MML, a song begun anew by a stop and a play in one tick,
   a STOP that lets notes ring out, export. `games/drums` is the example.
 - `frame.pointer`: this machine's pointer in this picture (`x`, `y` in

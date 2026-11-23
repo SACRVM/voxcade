@@ -760,5 +760,23 @@ mod tests {
         };
         let (slow, fast, turned) = (knob(&|_| 0.5), knob(&|_| 2.0), knob(&|n| 0.5 + (n % 90) as f64 / 60.0));
         assert!(turned <= slow.max(fast) * 1.05, "a tempo turned stepped {turned}, held at half and twice {slow} {fast}");
+        // A strip's cutoff swept every tick for 10 s over sounding notes
+        // (`music:mix`'s knobs), its resonance and a next note's decay
+        // turned with it: nothing taken on the audio thread.
+        let acid = "#tempo 130\n@b saw filter=lowpass cutoff=400 cutoff_end=1200 cutoff_time=0.1 resonance=0.6 attack=0.002 decay=0.15 sustain=0.3\nB: @b o2 l16 c c > c < c d# c c > c < c f c c > c < c g\n";
+        let mut mixer = Mixer::default();
+        mixer.set_music(Some(music::Player::new(music::parse(acid).unwrap(), 1.0)));
+        let tick = SAMPLE_RATE as usize / 60;
+        let mut buf = vec![0.0f32; tick * 2];
+        let mut mix = music::Mix::default();
+        for n in 0..600 {
+            let strip = Arc::make_mut(&mut mix.strips).entry('B').or_default();
+            strip.turn("cutoff", Some(300.0 + 2000.0 * (n % 120) as f32 / 120.0), 1.0 / 60.0);
+            strip.turn("resonance", Some((n % 50) as f32 / 50.0), 0.0);
+            strip.turn("decay", Some(0.05 + (n % 30) as f32 / 100.0), 0.0);
+            mixer.music_mix(&mix);
+            mix.step();
+            assert_eq!(taken_by(|| mixer.mix(&mut buf)), 0, "memory taken with a knob turned every tick");
+        }
     }
 }
