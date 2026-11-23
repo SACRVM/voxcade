@@ -656,6 +656,110 @@ fn the_maker_rolls_and_goes_back() {
     assert!(sound::read("sounds/coin.toml", &text(&shell)).is_ok());
 }
 
+/// A song with two instruments, the second of layers.
+const TWO_INSTRUMENTS: &str = "; a song\n#tempo 125\n@lead square duty=0.5 attack=0.01 decay=0.3 sustain=0.55 release=0.25 lowpass=1600 volume=0.3 ; mine\n@kick sine freq=50 pitch_start=100 attack=0.001 decay=0.6 sustain=0 release=0.6 curve=exp volume=0.9\n  + noise freq=20000 filter=bandpass cutoff=1500 decay=0.08 sustain=0 release=0.08 curve=exp volume=0.1\n  = drive=3\nA: @lead o5 l8 c d e f\nB: @kick o4 l4 c c\n";
+
+/// A game with the song open, its cursor on line `line` (from 1).
+fn song_open(name: &str, line: usize) -> (crate::scratch::Scratch, Shell, egui::Context) {
+    let (dir, memory) = sound_game(name);
+    std::fs::create_dir_all(dir.join("music")).unwrap();
+    std::fs::write(dir.join("music/song.mml"), TWO_INSTRUMENTS).unwrap();
+    let mut shell = shell_on(&dir, &memory);
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut shell);
+    shell.show_at("music/song.mml", line);
+    for _ in 0..3 {
+        frame(&ctx, &mut shell);
+    }
+    (dir, shell, ctx)
+}
+
+/// The instrument maker over a song: the instrument the cursor is in, a
+/// roll writing only its lines anew as one step back (the key played at
+/// once), UNDO and Ctrl+Z going back over it, a key and LOOP playing the
+/// instrument as its text stands.
+#[test]
+fn the_instrument_maker_rolls_its_instrument_and_goes_back() {
+    let (_dir, mut shell, ctx) = song_open("instrument", 3);
+    assert_eq!(shell.sound.keys.of.as_deref(), Some("lead"));
+    assert_eq!(shell.sound.keys.octave, 5, "the octave its channel plays it in");
+    let text = |shell: &Shell| buffer(shell).code.text().to_string();
+    let first = text(&shell);
+    let (_, id) = shell.code_id().unwrap();
+    shell.roll_instrument(&ctx, id, instrument::Sort::Kick, 5);
+    let kicked = text(&shell);
+    let (old, new): (Vec<&str>, Vec<&str>) = (first.split('\n').collect(), kicked.split('\n').collect());
+    let grown = new.len() - old.len();
+    assert_eq!(new[..2], old[..2]);
+    assert_eq!(new[3 + grown..], old[3..], "every other line byte for byte");
+    assert!(new[2].starts_with("@lead sine ") && new[2].ends_with(" ; mine"), "{kicked}");
+    assert!(buffer(&shell).code.error.is_none(), "{kicked}");
+    assert_eq!(shell.take_asks(), [Ask::Sound], "played at once");
+    assert!(shell.heard().is_some_and(|(s, _)| s.iter().any(|x| x.abs() > 0.05)));
+    // One step back, as UNDO and as Ctrl+Z.
+    frame(&ctx, &mut shell);
+    shell.go_back(&ctx);
+    assert_eq!(text(&shell), first);
+    assert_eq!(shell.take_asks(), [Ask::Sound], "UNDO plays the key");
+    shell.roll_instrument(&ctx, id, instrument::Sort::Hat, 9);
+    assert!(text(&shell).contains("@lead noise "));
+    frame(&ctx, &mut shell);
+    frame(&ctx, &mut shell);
+    let ctrl_z = |pressed| egui::Event::Key { key: egui::Key::Z, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::COMMAND };
+    frame_with(&ctx, &mut shell, vec![ctrl_z(true)]);
+    frame_with(&ctx, &mut shell, vec![ctrl_z(false)]);
+    assert_eq!(text(&shell), first, "Ctrl+Z");
+    // A key, and LOOP playing it again once it has sounded.
+    let _ = shell.take_asks();
+    shell.sound.keys.key = 9;
+    shell.play_key();
+    assert_eq!(shell.take_asks(), [Ask::Sound]);
+    (shell.sound.looping, shell.sound.again_at) = (true, None);
+    let now = std::time::Instant::now();
+    shell.tick(now);
+    assert_eq!(shell.take_asks(), [Ask::Sound]);
+    shell.tick(now + std::time::Duration::from_secs(5));
+    assert_eq!(shell.take_asks(), [Ask::Sound], "again");
+    shell.hush();
+    // The cursor on the kick's layer: the kick.
+    shell.show_at("music/song.mml", 5);
+    frame(&ctx, &mut shell);
+    frame(&ctx, &mut shell);
+    assert_eq!(shell.sound.keys.of.as_deref(), Some("kick"));
+    assert_eq!(shell.sound.keys.octave, 4);
+}
+
+/// The instrument maker's page has one PLAY, no PLAY SOUND, its five
+/// faders and its twelve keys within the window at 1024 wide and wide;
+/// in a song's first lines, before any instrument, it is quiet.
+#[test]
+fn the_instrument_page_has_one_play_and_fits() {
+    let (_dir, mut shell, ctx) = song_open("instrument-fits", 3);
+    for (width, height) in [(1024.0, 600.0), (1920.0, 1080.0)] {
+        let size = egui::vec2(width, height);
+        drawn_rects(&ctx, &mut shell, size);
+        let texts = drawn_rects(&ctx, &mut shell, size);
+        let main: Vec<_> = texts.iter().filter(|(_, r)| r.min.x > 250.0 && r.min.y > 52.0).collect();
+        assert!(!main.iter().any(|(t, _)| t == "PLAY SOUND"), "{width}");
+        assert_eq!(main.iter().filter(|(t, _)| t == "PLAY").count(), 1, "{width}: one PLAY");
+        assert!(main.iter().any(|(t, _)| t == "@lead"), "{width}: the instrument's name");
+        for word in ["LENGTH", "PUNCH", "BRIGHT", "DRIVE", "LEVEL"] {
+            let r = main.iter().find(|(t, _)| t == word).unwrap_or_else(|| panic!("{width}: no {word}")).1;
+            assert!(r.min.x + 150.0 <= width, "{width}: {word} cut at {r:?}");
+        }
+        for word in ["KICK", "PAD", "OCTAVE"].iter().chain(instrument::KEYS.iter()) {
+            let r = main.iter().find(|(t, _)| t == word).unwrap_or_else(|| panic!("{width}: no {word}")).1;
+            assert!(r.max.x <= width, "{width}: {word} cut at {r:?}");
+        }
+    }
+    shell.show_at("music/song.mml", 1);
+    frame(&ctx, &mut shell);
+    frame(&ctx, &mut shell);
+    let texts = drawn_rects(&ctx, &mut shell, egui::vec2(1280.0, 720.0));
+    assert!(texts.iter().any(|(t, _)| t == "NO INSTRUMENT"));
+    assert_eq!(shell.sound.keys.of, None);
+}
+
 /// A song's text is changed and saved; a mistake in it shows its line
 /// and PLAY SONG takes the text as it stands.
 #[test]

@@ -168,32 +168,95 @@ impl Shell {
     /// sound at once. Whether it is to play now because a fader was let go.
     pub(super) fn maker_ui(&mut self, ui: &mut egui::Ui, id: egui::Id) -> bool {
         let ctx = ui.ctx().clone();
-        let (mut rolled, mut back, mut play) = (None, false, false);
         let can_go_back = matches!(&self.shown, Some(Shown::Code(b)) if b.code.can_go_back(&ctx, id));
-        // PLAY, LOOP and UNDO, then the dice and the sorts: on one row
-        // where the room allows, else the sorts on a row of their own.
+        let sorts: Vec<(&str, &str)> = maker::Sort::ALL.iter().map(|s| (s.word(), s.hover())).collect();
+        let tips = MakerTips {
+            play: "Plays the sound as it stands, at the game's sound volume.",
+            looping: "Plays the sound again and again with a short pause, so you hear what the faders and your typing do. Press again to stop.",
+            undo: "Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.",
+            dice: "These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.",
+        };
+        let pressed = self.maker_rows(ui, None, can_go_back, &tips, &sorts);
+        let mut play = pressed.play;
+        if let Some(i) = pressed.rolled {
+            self.roll(&ctx, maker::Sort::ALL[i]);
+        }
+        if pressed.back {
+            self.go_back(&ctx);
+        }
+        let Some(Shown::Code(buffer)) = &mut self.shown else { return false };
+        let now = std::time::Instant::now();
+        // The faders, where the text says a sound of numbers.
+        ui.add_space(6.0);
+        let synth = match &buffer.code.sound {
+            Some(SoundDef::Synth(s)) => Some(s.clone()),
+            _ => None,
+        };
+        let knobs: Vec<Knob> = maker::Fader::ALL
+            .iter()
+            .map(|&fader| {
+                let value = synth.as_ref().map_or(fader.range().0, |s| fader.place(s));
+                Knob { word: fader.word(), hover: fader.hover(), range: fader.range(), logarithmic: fader.logarithmic(), value, shown: fader.shown(value), quiet: synth.is_none().then(|| "The faders move a sound made of numbers; this text is not one now (a recording, silent, or a mistake in it).".to_string()) }
+            })
+            .collect();
+        let fading = &mut self.sound.fading;
+        for (&fader, (to, down)) in maker::Fader::ALL.iter().zip(fader_grid(ui, &knobs)) {
+            if let (Some(to), Some(s)) = (to, &synth) {
+                // Marked before the first change of a move, after its last.
+                if *fading != Some(fader) {
+                    buffer.code.mark(&ctx, id);
+                    *fading = Some(fader);
+                }
+                buffer.code.set_text(maker::faded(buffer.code.text(), s, fader, to));
+                buffer.code.check();
+                buffer.edited(now);
+            }
+            if *fading == Some(fader) && !down {
+                buffer.code.mark(&ctx, id);
+                *fading = None;
+                play = true;
+            }
+        }
+        play
+    }
+
+    /// A maker's first rows (the sound maker's, the instrument maker's):
+    /// `lead` (a word and its hover) first, then PLAY, LOOP and UNDO, then
+    /// the dice and the sorts (each a word and its hover), on one row
+    /// where the room allows, else the sorts on a row of their own. LOOP
+    /// switched here. What was pressed.
+    pub(super) fn maker_rows(&mut self, ui: &mut egui::Ui, lead: Option<(&str, egui::Color32, &str)>, can_go_back: bool, tips: &MakerTips, sorts: &[(&str, &str)]) -> Pressed {
+        let mut pressed = Pressed { play: false, back: false, rolled: None };
         let room = ui.available_width();
         let width = |ui: &egui::Ui, words: &[&str]| -> f32 {
             let font = TextStyle::Button.resolve(ui.style());
             let pad = 2.0 * ui.spacing().button_padding.x + ui.spacing().item_spacing.x;
             words.iter().map(|w| ui.fonts_mut(|f| f.layout_no_wrap(w.to_string(), font.clone(), TEXT).size().x) + pad).sum()
         };
-        let sorts: Vec<&str> = maker::Sort::ALL.iter().map(|s| s.word()).collect();
-        let one_row = width(ui, &["PLAY", "LOOP", "UNDO"]) + 18.0 + 30.0 + width(ui, &sorts) <= room;
+        let words: Vec<&str> = sorts.iter().map(|(w, _)| *w).collect();
+        let lead_width = lead.map_or(0.0, |(w, ..)| width(ui, &[w]) + 12.0);
+        let one_row = lead_width + width(ui, &["PLAY", "LOOP", "UNDO"]) + 18.0 + 30.0 + width(ui, &words) <= room;
+        let looping = &mut self.sound.looping;
+        let again_at = &mut self.sound.again_at;
         let mut controls = |ui: &mut egui::Ui| {
-            play = ui.button("PLAY").on_hover_text("Plays the sound as it stands, at the game's sound volume.").clicked();
-            if ui.add(egui::Button::new("LOOP").selected(self.sound.looping)).on_hover_text("Plays the sound again and again with a short pause, so you hear what the faders and your typing do. Press again to stop.").clicked() {
-                self.sound.looping = !self.sound.looping;
-                self.sound.again_at = None;
-                play |= self.sound.looping;
+            if let Some((word, color, hover)) = lead {
+                ui.label(RichText::new(word).color(color)).on_hover_text(hover);
+                ui.add_space(12.0);
             }
-            back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text("Back to the sound before the last change (a roll, a fader or typing); again for the one before. Ctrl+Z in the text does the same.").clicked();
+            pressed.play = ui.button("PLAY").on_hover_text(tips.play).clicked();
+            if ui.add(egui::Button::new("LOOP").selected(*looping)).on_hover_text(tips.looping).clicked() {
+                *looping = !*looping;
+                *again_at = None;
+                pressed.play |= *looping;
+            }
+            pressed.back = ui.add_enabled(can_go_back, egui::Button::new("UNDO")).on_hover_text(tips.undo).clicked();
         };
+        let mut rolled = None;
         let mut rolls = |ui: &mut egui::Ui| {
-            crate::gui::dice(ui).on_hover_text("These roll the dice: each press makes a new sound of that sort, never the same twice. Press one again for another.");
-            for sort in maker::Sort::ALL {
-                if ui.button(sort.word()).on_hover_text(sort.hover()).clicked() {
-                    rolled = Some(sort);
+            crate::gui::dice(ui).on_hover_text(tips.dice);
+            for (i, (word, hover)) in sorts.iter().enumerate() {
+                if ui.button(*word).on_hover_text(*hover).clicked() {
+                    rolled = Some(i);
                 }
             }
         };
@@ -207,71 +270,8 @@ impl Shell {
             ui.horizontal(|ui| controls(ui));
             ui.horizontal_wrapped(|ui| rolls(ui));
         }
-        if let Some(sort) = rolled {
-            self.roll(&ctx, sort);
-        }
-        if back {
-            self.go_back(&ctx);
-        }
-        let Some(Shown::Code(buffer)) = &mut self.shown else { return false };
-        let now = std::time::Instant::now();
-        // The faders, where the text says a sound of numbers.
-        ui.add_space(6.0);
-        let synth = match &buffer.code.sound {
-            Some(SoundDef::Synth(s)) => Some(s.clone()),
-            _ => None,
-        };
-        let fading = &mut self.sound.fading;
-        // As many faders a row as the room takes, the rows as even as can
-        // be (five: three and two), never one cut at the edge.
-        let gap = 22.0;
-        let fit = (((ui.available_width() + gap) / (FADER_WIDTH + gap)).floor() as usize).max(1);
-        let count = maker::Fader::ALL.len();
-        let rows = count.div_ceil(fit);
-        let per_row = count.div_ceil(rows);
-        ui.add_enabled_ui(synth.is_some(), |ui| {
-            for row in maker::Fader::ALL.chunks(per_row) {
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = gap;
-                    for &fader in row {
-                        let (lo, hi) = fader.range();
-                        let mut value = synth.as_ref().map_or(lo, |s| fader.place(s));
-                        let held = ui
-                            .allocate_ui_with_layout(egui::vec2(FADER_WIDTH, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(fader.word()).on_hover_text(fader.hover());
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        ui.label(RichText::new(fader.shown(value)).small().color(QUIET));
-                                    });
-                                });
-                                ui.spacing_mut().slider_width = FADER_WIDTH;
-                                ui.add(egui::Slider::new(&mut value, lo..=hi).logarithmic(fader.logarithmic()).show_value(false)).on_hover_text(fader.hover()).on_disabled_hover_text("The faders move a sound made of numbers; this text is not one now (a recording, silent, or a mistake in it).")
-                            })
-                            .inner;
-                        let down = held.is_pointer_button_down_on() || held.dragged();
-                        if held.changed()
-                            && let Some(s) = &synth
-                        {
-                            // Marked before the first change of a move, after its last.
-                            if *fading != Some(fader) {
-                                buffer.code.mark(&ctx, id);
-                                *fading = Some(fader);
-                            }
-                            buffer.code.set_text(maker::faded(buffer.code.text(), s, fader, value));
-                            buffer.code.check();
-                            buffer.edited(now);
-                        }
-                        if *fading == Some(fader) && !down {
-                            buffer.code.mark(&ctx, id);
-                            *fading = None;
-                            play = true;
-                        }
-                    }
-                });
-                ui.add_space(4.0);
-            }
-        });
-        play
+        pressed.rolled = rolled;
+        pressed
     }
 
     /// The text edit of the file open.
@@ -304,13 +304,82 @@ impl Shell {
         let Some(Shown::Code(buffer)) = &mut self.shown else { return };
         if buffer.code.go_back(ctx, id) {
             buffer.edited(std::time::Instant::now());
-            self.play_sound();
+            self.play_again();
         }
     }
 }
 
-/// How wide a fader of the sound maker is.
+/// How wide a fader of the makers is.
 pub(super) const FADER_WIDTH: f32 = 150.0;
+
+/// The hover words of a maker's first row.
+pub(super) struct MakerTips {
+    pub play: &'static str,
+    pub looping: &'static str,
+    pub undo: &'static str,
+    pub dice: &'static str,
+}
+
+/// What was pressed on a maker's first row: PLAY (or LOOP switched on),
+/// UNDO, a sort (its place among them).
+pub(super) struct Pressed {
+    pub play: bool,
+    pub back: bool,
+    pub rolled: Option<usize>,
+}
+
+/// A fader of a maker as drawn: its word and hover, its ends, whether it
+/// moves in octaves (or times), where it stands and its number as shown,
+/// and why it means nothing here, if it does not (quiet, the why on hover).
+pub(super) struct Knob {
+    pub word: &'static str,
+    pub hover: &'static str,
+    pub range: (f64, f64),
+    pub logarithmic: bool,
+    pub value: f64,
+    pub shown: String,
+    pub quiet: Option<String>,
+}
+
+/// A maker's faders, as many a row as the room takes, the rows as even as
+/// can be (five: three and two), never one cut at the edge. For each,
+/// where it was moved to this frame (if it was), and whether it is held.
+pub(super) fn fader_grid(ui: &mut egui::Ui, knobs: &[Knob]) -> Vec<(Option<f64>, bool)> {
+    let gap = 22.0;
+    let fit = (((ui.available_width() + gap) / (FADER_WIDTH + gap)).floor() as usize).max(1);
+    let rows = knobs.len().div_ceil(fit).max(1);
+    let per_row = knobs.len().div_ceil(rows).max(1);
+    let mut out = Vec::new();
+    for row in knobs.chunks(per_row) {
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for knob in row {
+                let (lo, hi) = knob.range;
+                let mut value = knob.value.clamp(lo, hi);
+                let held = ui
+                    .add_enabled_ui(knob.quiet.is_none(), |ui| {
+                        ui.allocate_ui_with_layout(egui::vec2(FADER_WIDTH, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            let quiet = knob.quiet.as_deref().unwrap_or("");
+                            ui.horizontal(|ui| {
+                                ui.label(knob.word).on_hover_text(knob.hover).on_disabled_hover_text(quiet);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(RichText::new(&knob.shown).small().color(QUIET));
+                                });
+                            });
+                            ui.spacing_mut().slider_width = FADER_WIDTH;
+                            ui.add(egui::Slider::new(&mut value, lo..=hi).logarithmic(knob.logarithmic).show_value(false)).on_hover_text(knob.hover).on_disabled_hover_text(quiet)
+                        })
+                        .inner
+                    })
+                    .inner;
+                let down = held.is_pointer_button_down_on() || held.dragged();
+                out.push((held.changed().then_some(value), down));
+            }
+        });
+        ui.add_space(4.0);
+    }
+    out
+}
 
 /// The pause between a sound's end and its next go under LOOP.
 pub(super) const LOOP_PAUSE: std::time::Duration = std::time::Duration::from_millis(500);

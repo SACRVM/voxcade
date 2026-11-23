@@ -490,7 +490,24 @@ nearest; its replay `tests/two_ships`);
   (comments kept) into the buffer as typing does, one step of the text
   edit's undo (UNDO and Ctrl+Z alike). A song (`.mml`) is text to change
   too, parsed after every change (`music::parse`), PLAY SONG plays the text
-  as it stands. Every text one can change says SAVED or NOT SAVED YET above
+  as it stands; between its line and its text the instrument maker (the
+  owner's, 2026-11-23: the sound maker's way for an instrument;
+  `ide/instrument.rs`, `shell/instrument_ui.rs`, the maker's rows and
+  faders shared, `maker_rows`, `fader_grid`) on the instrument the cursor
+  is in (`instrument::at_cursor`: its `@`, `+` and `=` lines, on a
+  channel the one it plays there, else the last above; none: quiet, NO
+  INSTRUMENT): KICK, SNARE, HAT, CLAP, TOM, BASS, LEAD, PAD roll from a
+  table of ranges, rendered and measured first (`instrument::good`; a
+  KICK by the owner's kick recipe inside its zone, `kick_meters`, the
+  owner's three meters ported, reading the RG-80's kick as its comment
+  says), its lines written anew in the register's order, only what
+  differs from the defaults (`rolled`: its name, the room after it and
+  every comment kept, layers added or taken out, one step of the
+  text's undo); LENGTH, PUNCH, BRIGHT, DRIVE, LEVEL change words in place
+  (`Fader::moved`, quiet with the why where they mean nothing); OCTAVE
+  and the keys C to B play a quarter at the song's tempo through the
+  music's own player (`instrument::note`), PLAY the last key, LOOP it
+  again; `ide --shot --line N [--roll SORT]`. Every text one can change says SAVED or NOT SAVED YET above
   it, left of the buttons (the path and the line of facts take the room left
   of them and are cut with "…", full text on hover: `main_area::header_row`),
   and Ctrl+S saves at once. RENAME and DELETE

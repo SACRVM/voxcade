@@ -399,6 +399,20 @@ impl Code {
         state.store(ctx, id);
     }
 
+    /// Where the cursor of the text edit `id` stands (a character), if it
+    /// has stood anywhere.
+    pub fn cursor(&self, ctx: &egui::Context, id: egui::Id) -> Option<usize> {
+        egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0.min(self.text.chars().count()))
+    }
+
+    /// The cursor of the text edit `id` put at the character `at` (a
+    /// change from outside, the instrument maker's, keeping its place).
+    pub fn put_cursor(&self, ctx: &egui::Context, id: egui::Id, at: usize) {
+        let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(at.min(self.text.chars().count())))));
+        state.store(ctx, id);
+    }
+
     /// Whether the API's names are offered at the cursor (Escape is theirs).
     pub fn offering(&self) -> bool {
         self.offer.is_some()

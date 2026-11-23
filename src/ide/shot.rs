@@ -41,6 +41,11 @@ pub struct ShotOptions {
     pub hit: Option<usize>,
     /// The list filtered by this text (`--filter`).
     pub filter: Option<String>,
+    /// The open text's cursor on this line (from 1), in view (`--line`).
+    pub line: Option<usize>,
+    /// A song open: this sort of the instrument maker rolled over the
+    /// instrument the cursor is in (`--roll`).
+    pub roll: Option<String>,
     pub width: u32,
     pub height: u32,
     pub out: PathBuf,
@@ -139,6 +144,14 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
         shell.unfold_console();
     }
     open_as_asked(&mut shell, opts.open.as_deref());
+    if let (Some(line), Some(path)) = (opts.line, &opts.open) {
+        shell.show_at(path, line);
+    }
+    if let Some(word) = &opts.roll {
+        let words: Vec<&str> = super::instrument::Sort::ALL.iter().map(|s| s.word()).collect();
+        let sort = super::instrument::Sort::named(word).with_context(|| format!("--roll {word}: the sorts are {}", words.join(", ")))?;
+        shell.ask_roll(sort, 2);
+    }
     let mut page = GamePage::<G> { dir, opts, shell, play: None };
     headless(opts, &mut page)?;
     println!("{}: {} open", opts.out.display(), page.shell.showing());

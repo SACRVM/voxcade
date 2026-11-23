@@ -221,6 +221,14 @@ impl Shell {
             play_sound |= self.maker_ui(ui, id);
             ui.add_space(10.0);
         }
+        // A song to change: the instrument maker between its line and its
+        // text.
+        if path.ends_with(".mml") && matches!(self.shown, Some(Shown::Code(_))) {
+            if self.instrument_ui(ui, id) {
+                self.play_key();
+            }
+            ui.add_space(10.0);
+        }
         if play_sound {
             self.play_sound();
         }
