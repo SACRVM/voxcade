@@ -614,24 +614,40 @@ nearest; its replay `tests/two_ships`);
   switch off before the bar and edits a pattern while it waits.
 - A machine played through its model (a trial, 2026-11-22): `games/studio`
   (no cover, not listed, not packaged; `GAMES_OF_VOXCADE` names it), the
-  drum machine as a level's piece, `machine.vvx`, a figure of 50 parts
+  HARALD RG-80 (the owner's invented maker and its Rhythmus-Gerät), a drum
+  machine after the analog one of 1980 in layout and function (never its
+  name, maker or lettering), as a level's piece, `machine.vvx`, a figure
+  of 81 parts, 400 by 110 voxels in one row of columns
   (`tools/gen_studio.py` made it and keeps it: the owner's now; main.lua
-  knows its parts by name only): `step_1`..`step_16`, a column a voice
-  (`pick_kick`/`_snare`/`_hat` under its level knob `knob_kick`/`_snare`/
-  `_hat`), `pattern_a`/`_b`, `start`, `knob_tempo` (shown only),
-  `knob_volume` (`music:volume`) and a lamp `led_*` for each button; its
-  labels and the nameplate (`NAME`, HARALD RG-80: the owner's invented
-  maker and its Rhythmus-Gerät, RM in English) painted into the case's top in 3 by 5 voxel letters. A knob is
-  one value turned by the hand alone (the owner: a knob that turns by
-  itself cannot be). `c.pointer = "system"`: a click reads
-  `input.pointer.part`; the machine answers by `thing.state.parts` set
-  every tick (a button held sinks by `offset`, a knob turns) and by
-  `frame:pose` each picture (a lamp lit or out by its `glow`, the part
-  under the pointer, else the keys' cursor, lit a little); STOP
-  plays the silent studio `music/off.mml`. Its scenarios `empty_machine`
-  and `stopped`; its replay `tests/click_the_machine` clicks steps, the
-  edge of one and the case between two, the voices, a pattern, drags and
-  wheels the knobs, stops and starts.
+  knows its parts by name only, their places by `thing:part`). Its sound
+  is the library's kit, `music/rg80.mml` copied; a column a voice (ACCENT,
+  BD, SD, LT, MT, HT, RS, CP, CB, CY, OH, CH), each with its `led_<code>`
+  and `<code>_level` knob, under it the knobs that shape it, each one
+  `music:mix` word on the voice's channels with the kit's value in its
+  middle (`bd_tone` drive, `bd_decay`/`cy_decay`/`oh_decay` decay and
+  release, `sd_tone`/`cy_tone` cutoff, `sd_snappy` the noise channel's
+  fader, `*_tuning` freq) or a switch `<code>_switch` to its other
+  instrument (toms to congas, rim shot to claves, clap to maracas; a pose's
+  `roll`); the open hat's channel takes a silent closed hat where only the
+  closed one plays (the choke); the accent row raises every voice's `v`.
+  The `selector` (twelve positions, the voice the sixteen `step_N` buttons
+  edit) is clicked, dragged round or wheeled through a HUD panel over its
+  dial (`frame:hud` placed by `frame:to_screen` of its part: the pointer
+  names a part but not where on it); `tempo`, `volume`, `start`,
+  `pattern_a`/`_b`, a lamp `led_*` for each button and step. Labels and
+  the nameplate are painted into the case's top in 3 by 5 voxel letters,
+  each in front of its knob. A knob is one value turned by the hand alone
+  (the owner: a knob that turns by itself cannot be). `c.pointer =
+  "system"`: a click reads `input.pointer.part`; the machine answers by
+  `thing.state.parts` set every tick (a button held sinks by `offset`, a
+  knob or the selector turns, a switch flips) and by `frame:pose` each
+  picture (a lamp lit or out by its `glow`, the part under the pointer,
+  else the keys' cursor, lit a little). The view (180 across) shows about
+  its middle third: a wider view or a camera that moves is the owner's
+  choice to make. Its scenarios `empty_machine`, `stopped`, `tempo_fast`
+  and `a_beat`; its replay `tests/click_the_machine` clicks steps and the
+  case between two, flips a switch, drags and wheels knobs, turns the
+  selector by the keys, switches the pattern, stops and starts.
 - A part lit or out, a pose for one picture (the owner's yes,
   2026-11-22, to `shots/reviews/machines-as-models-draft.md` as its
   review narrowed it): a pose entry (one type, `PoseEntry`, in

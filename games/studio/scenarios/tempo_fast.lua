@@ -3,7 +3,7 @@
 return {
   about = "Playing, the tempo knob near its top",
   setup = function()
-    world.state.knobs.knob_tempo = 0.94
+    world.state.knobs.tempo = 0.94
     apply_knobs(0)
   end,
 }

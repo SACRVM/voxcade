@@ -1,9 +1,0 @@
-; The drum machine's instruments: a file of instruments without a channel
-; (a studio). The game lays its channels over it, one a row of steps
-; (main.lua, music:play's channels); no player picks it as a song alone.
-; The drums are hot_pursuit.mml's from the library (music/).
-#title Drum kit
-#tempo 124
-@kick   triangle freq=130 sweep=-34 sweep_time=0.08 attack=0.001 decay=0.11 sustain=0 release=0.01 volume=0.85 sidechain=0.25
-@snare  noise freq=6000 attack=0.001 decay=0.12 sustain=0 release=0.02 lowpass=5000 volume=0.34 duck=0
-@hat    noise freq=14000 attack=0.001 decay=0.025 sustain=0 release=0.01 lowpass=6500 volume=0.14 duck=0
