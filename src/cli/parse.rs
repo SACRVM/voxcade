@@ -418,6 +418,8 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
         search: None,
         hit: None,
         filter: None,
+        line: None,
+        roll: None,
         width: 1920,
         height: 1080,
         out: PathBuf::new(),
@@ -443,6 +445,8 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
             "--search" => opts.search = Some(value.clone()),
             "--filter" => opts.filter = Some(value.clone()),
             "--hit" => opts.hit = Some(number("--hit N", value)?),
+            "--line" => opts.line = Some(number("--line N", value)?),
+            "--roll" => opts.roll = Some(value.clone()),
             "--play" => opts.play = Some(number("--play TICKS", value)?),
             "--shot" => {
                 opts.out = PathBuf::from(value);

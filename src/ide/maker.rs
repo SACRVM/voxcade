@@ -106,8 +106,9 @@ const POWER_UP: Ranges = Ranges { waves: &[Wave::Square, Wave::Triangle], freq: 
 const BLIP: Ranges = Ranges { waves: &[Wave::Square, Wave::Triangle, Wave::Sine], freq: (400.0, 1400.0), sweep: NONE, duty: (0.3, 0.5), hold: (0.01, 0.05), decay: (0.03, 0.09), punch: NONE, jump: &[0.0], jump_at: NONE, vibrato: NONE, vibrato_speed: (6.0, 6.0), lowpass: None, volume: (0.2, 0.28), longest: 0.2 };
 
 /// A small dice of its own (splitmix64): the IDE is not the simulation,
-/// and a roll from a seed comes out the same in the tests.
-struct Dice(u64);
+/// and a roll from a seed comes out the same in the tests. The
+/// instrument maker rolls with it too.
+pub(super) struct Dice(pub(super) u64);
 
 impl Dice {
     fn next(&mut self) -> u64 {
@@ -119,20 +120,20 @@ impl Dice {
     }
 
     /// From 0 to 1.
-    fn unit(&mut self) -> f64 {
+    pub(super) fn unit(&mut self) -> f64 {
         (self.next() >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    fn between(&mut self, (lo, hi): (f64, f64)) -> f64 {
+    pub(super) fn between(&mut self, (lo, hi): (f64, f64)) -> f64 {
         lo + (hi - lo) * self.unit()
     }
 
     /// Between two pitches, evenly in octaves.
-    fn pitch(&mut self, (lo, hi): (f64, f64)) -> f64 {
+    pub(super) fn pitch(&mut self, (lo, hi): (f64, f64)) -> f64 {
         lo * (hi / lo).powf(self.unit())
     }
 
-    fn pick<T: Copy>(&mut self, among: &[T]) -> T {
+    pub(super) fn pick<T: Copy>(&mut self, among: &[T]) -> T {
         among[(self.next() % among.len() as u64) as usize]
     }
 }
@@ -253,7 +254,7 @@ pub fn good(s: &Synth, longest: f32) -> Result<(), String> {
     if end > END_SHARE * peak {
         return Err(format!("ends loud: {end:.3} of {peak:.3}"));
     }
-    let heard = heard_share(&samples);
+    let heard = share_between(&samples, (HEARD_FROM, HEARD_TO));
     if heard < HEARD_SHARE {
         return Err(format!("only {:.0} % of it heard well", heard * 100.0));
     }
@@ -283,10 +284,10 @@ fn low_share(s: &Synth) -> f64 {
     low as f64 / POINTS as f64
 }
 
-/// The share of the samples' energy between `HEARD_FROM` and `HEARD_TO`
-/// Hz: their spectrum in frames of 2048 (Hann windows, half over each
-/// other), summed.
-fn heard_share(samples: &[f32]) -> f64 {
+/// The share of the samples' energy between `from` and `to` Hz (a sound
+/// heard well: `HEARD_FROM` to `HEARD_TO`): their spectrum in frames of
+/// 2048 (Hann windows, half over each other), summed.
+pub(super) fn share_between(samples: &[f32], (from, to): (f64, f64)) -> f64 {
     const N: usize = 2048;
     let window: Vec<f64> = (0..N).map(|i| 0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / N as f64).cos()).collect();
     let bin = SAMPLE_RATE as f64 / N as f64;
@@ -299,7 +300,7 @@ fn heard_share(samples: &[f32]) -> f64 {
         for k in 0..=N / 2 {
             let power = re[k] * re[k] + im[k] * im[k];
             all += power;
-            if (HEARD_FROM..=HEARD_TO).contains(&(k as f64 * bin)) {
+            if (from..=to).contains(&(k as f64 * bin)) {
                 heard += power;
             }
         }

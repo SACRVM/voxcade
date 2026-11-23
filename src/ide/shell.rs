@@ -24,6 +24,7 @@ use super::console::Console;
 use super::files::Files;
 use super::memory::Memory;
 use super::preview::Preview;
+use super::instrument;
 use super::maker;
 use super::sounds;
 use super::terminal;
@@ -37,6 +38,7 @@ mod list;
 mod main_area;
 mod manage;
 mod new_files;
+mod instrument_ui;
 mod sound_ui;
 mod view_state;
 use manage::{Act, Gone, Question, Renaming};
@@ -44,6 +46,7 @@ use agent::*;
 use errors::*;
 use new_files::*;
 use sound_ui::*;
+use instrument_ui::Keys;
 pub use main_area::is_model_file;
 pub(super) use main_area::{level_line, model_line};
 use crate::audio::sound::{self, SoundDef};
@@ -271,6 +274,8 @@ pub struct SoundPage {
     looping: bool,
     again_at: Option<std::time::Instant>,
     fading: Option<maker::Fader>,
+    /// The instrument maker over a song open: the instrument, its keys.
+    keys: Keys,
     /// The song playing (its file), started with PLAY SONG over it.
     pub listening: Option<String>,
 }
@@ -543,7 +548,7 @@ impl Shell {
         // LOOP: the sound again once it has sounded and the pause is over.
         if self.sound.looping && self.sound.again_at.is_none_or(|at| now >= at) {
             self.sound.again_at = None;
-            self.play_sound();
+            self.play_again();
             // (A sound that would not play ends the loop: nothing to wait for.)
             self.sound.looping = self.sound.again_at.is_some();
         }
