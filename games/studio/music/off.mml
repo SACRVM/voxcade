@@ -1,7 +1,0 @@
-; The machine stopped: a studio main.lua lays one silent channel over
-; (a whole note at volume 0), so nothing sounds while the clock goes on.
-; Started again, the kit is a song begun anew, at its beat 0: the first
-; step.
-#title Stopped
-#tempo 124
-@rest   triangle freq=130

@@ -17,7 +17,7 @@ function conf(c)
   c.light.sky = "#18161a"
 
   -- The kit: a file of instruments, no song of its own (as Drums').
-  c.audio.music = { "music/kit.mml", "music/off.mml" }
+  c.audio.music = { "music/kit.mml" }
 
   -- The mouse plays the machine's parts; the keys and the pad still work:
   -- the arrows move the cursor along the steps (up and down choose the
