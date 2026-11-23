@@ -1,22 +1,21 @@
 # Voxcade replay: Studio, 460 ticks, quit, score 0
 version = 1
 game = "Studio"
-fingerprint = "b3ece1868b523fd2"
+fingerprint = "9836eee1fe7a5844"
 ticks = 460
 outcome = "quit"
 score = 0
 input = "none:30;pointer=39,128+picture=21857+thing=1+part=step_2:5;click+pointer=39,128+picture=21857+thing=1+part=step_2:4;pointer=39,128+picture=21857+thing=1+part=step_2:20;pointer=31,128+picture=21857+thing=1+part=case:3;click+pointer=31,128+picture=21857+thing=1+part=case:3;pointer=31,128+picture=21857+thing=1+part=case:10;click+pointer=16,128+picture=21857+thing=1+part=step_1:1;click+pointer=16,128+picture=21857+thing=1+part=case:2;pointer=16,128+picture=21857+thing=1+part=case:1;pointer=16,128+picture=21857+thing=1+part=step_1:9;pointer=83,87+picture=21857+thing=1+part=pick_snare:5;click+pointer=83,87+picture=21857+thing=1+part=pick_snare:3;pointer=83,87+picture=21857+thing=1+part=pick_snare:10;click+pointer=56,128+picture=21857+thing=1+part=step_3:3;pointer=56,128+picture=21857+thing=1+part=step_3:20;pointer=87,63+picture=21857+thing=1+part=knob_snare:3;click+pointer=87,63+picture=21857+thing=1+part=knob_snare:2;click+pointer=87,58+picture=21857+thing=1+part=knob_snare:2;click+pointer=87,53+picture=21857+thing=1+part=knob_snare:2;pointer=87,53+picture=21857+thing=1+part=knob_snare:10;click+pointer=130,87+picture=21857+thing=1+part=pick_hat:3;pointer=130,87+picture=21857+thing=1+part=pick_hat:10;click+pointer=37,87+picture=21857+thing=1+part=pick_kick:3;pointer=37,87+picture=21857+thing=1+part=pick_kick:10;click+pointer=246,87+picture=21857+thing=1+part=pattern_b:3;pointer=246,87+picture=21857+thing=1+part=pattern_b:60;pointer=270,63+picture=21857+thing=1+part=knob_volume:3;turn_down+pointer=270,63+picture=21857+thing=1+part=knob_volume:1;pointer=270,63+picture=21857+thing=1+part=knob_volume:1;turn_down+pointer=270,63+picture=21857+thing=1+part=knob_volume:1;pointer=270,63+picture=21857+thing=1+part=knob_volume:5;click+pointer=279,87+picture=21857+thing=1+part=start:3;pointer=279,87+picture=21857+thing=1+part=start:40;click+pointer=279,87+picture=21857+thing=1+part=start:3;pointer=279,87+picture=21857+thing=1+part=start:60;none:5;right:1;none:3;toggle:1;none:20;up:1;none:5;pattern:1;none:69"
-checks = ["4094e2e84f7c45cf", "2fce6bc3a9159d66", "ba43119d5f066334", "dee09a448ba6391c", "4a5cce4188224770", "44fe6416d6c89e08", "9a8d26b8c92fd1d9"]
-final_state = "666c1748bdfdf9e8"
+checks = ["e932863c6e641156", "8c4011efc8b38bf5", "1bf0d9e903eea405", "940f3f983de58f09", "1c594da243c47cd6", "bd8d89f7dfd2b43a", "4a77629a3bb86c49"]
+final_state = "a1331dd0c39054e8"
 
 [fingerprint_parts]
 "conf.lua" = "bb8e9c89a4860381"
 "levels/studio.toml" = "e3860ffe658096bb"
 "machine.vvx" = "5c3c38c284bc467f"
-"main.lua" = "f24882602559e5a5"
-music = "376b42609fde1210"
+"main.lua" = "cf2e11daa2df1421"
+music = "750a12ec4c28eaba"
 "music/kit.mml" = "a3a96074551c2121"
-"music/off.mml" = "fd25e22f77f773fc"
 "table.vvx" = "fcfbcd96b2468566"
 
 [[controls]]
