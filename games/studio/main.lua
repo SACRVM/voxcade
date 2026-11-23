@@ -155,11 +155,7 @@ function apply_knobs(seconds)
   for r = 2, #VOICES do
     for letter in pairs(VOICES[r].plays) do strip(letter, { volume = k[VOICES[r].code .. "_level"] }) end
   end
-  -- The bass drum falls exponentially (curve=exp): its release the same
-  -- fall as its decay, which goes on as it went; its drive the sum's of
-  -- its layers (the kit's = line states one).
-  local bd = around(KIT.kick.decay, 4, k.bd_decay)
-  strip("K", { decay = bd, release = bd, drive = 12 * k.bd_tone })
+  strip("K", decay("kick", 4, k.bd_decay, { drive = 12 * k.bd_tone }))
   strip("S", { cutoff = around(KIT.snare.cutoff, 2, k.sd_tone) })
   strip("N", { volume = k.sd_level * k.sd_snappy })
   for r = 4, 6 do

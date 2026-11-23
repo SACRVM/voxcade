@@ -1707,7 +1707,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   made with the song; a voice holds its own copy of its note) while the
   next round begins on time (the owner, 2026-11-22: for every song, it
   was cut dead; test `a_note_rings_over_the_seam`; a song played once is
-  over when it has rung out); `Song::span` is exact, a fraction of a
+  over when it has rung out); a note the next on its channel takes over
+  fades out under it over 5 ms, the mixer's `STEAL_FADE`, in the
+  channel's slot for it (`player::give_way`, `Player::giving`, a tail
+  displaced at a seam too; with nowhere left, a `Residue` from its last
+  frame), the new note on time and as if alone (the owner's crackle on a
+  long kick, 2026-11-23: it was cut dead; a sung line goes on as ever;
+  tests in `audio/music/cut_tests.rs`); `Song::span` is exact, a fraction of a
   sample too, its ends `LOOP_SLACK` samples before the bar lines so a
   note on the line, a sum of lengths, is never a sample off (a loop of
   the song's first bars so begins a little before 0); `Player::within`

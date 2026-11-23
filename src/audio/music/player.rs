@@ -6,17 +6,20 @@ use super::mix::{CUTOFF, GLIDING, Glide, Knob, LETTERS, Mix, NEXT_NOTE, SHORTEST
 use super::clear::{self, Seg};
 use super::song::{Curve, FilterMode, Instrument, LAYERS, Note, Song, Sum, Voicing};
 use super::voice::{Segment, Singer};
+use crate::audio::STEAL_FADE;
 use crate::audio::synth::{OnePole, Oscillator};
 
 /// Channels a game laid, made on the main thread to be swapped in by the
 /// audio (`Player::pend`): the song and a voice for each of its channels
-/// (a channel laid before brings its own), room for the notes of channels
-/// laid no more to ring out, and the beats since the song began it is due
-/// at (`f64::NEG_INFINITY`: at once).
+/// with its tail and its slot for a note giving way (a channel laid before
+/// brings its own), room for the notes of channels laid no more to ring
+/// out, and the beats since the song began it is due at
+/// (`f64::NEG_INFINITY`: at once).
 pub struct Swap {
     song: Song,
     voices: Vec<Voice>,
     tails: Vec<Voice>,
+    giving: Vec<Voice>,
     loud: Vec<f32>,
     due: f64,
 }
@@ -32,9 +35,11 @@ impl Swap {
     pub fn new(song: Song, due: f64) -> Box<Swap> {
         let n = song.channels.len();
         let voices = (0..n).map(|i| Voice::new(i as u32 * 7919, song.names[i])).collect();
-        let mut tails = Vec::with_capacity(n + MOST_LETTERS);
+        // Room for each channel laid no more: its note and its tail.
+        let mut tails = Vec::with_capacity(n + 2 * MOST_LETTERS);
         tails.resize_with(n, Voice::default);
-        Box::new(Swap { voices, tails, loud: vec![1.0; n], due, song })
+        let giving = (0..n).map(|_| Voice::default()).collect();
+        Box::new(Swap { voices, tails, giving, loud: vec![1.0; n], due, song })
     }
 }
 
@@ -74,6 +79,68 @@ pub(super) struct Voice {
     /// Its channel's strip on the desk (`Player::lanes`, by letter): its
     /// own, so a note ringing out of a channel laid no more keeps it.
     strip: u8,
+    /// Samples left of its fade, a note that gave way to the next on its
+    /// channel (`give_way`; 0: not fading), and its last frame as heard.
+    fading: u32,
+    last: [f32; 2],
+}
+
+/// Samples a note giving way to the next on its channel fades out over
+/// (5 ms, as a sound the mixer steals), under the new one.
+const GIVE_WAY: u32 = STEAL_FADE as u32;
+
+/// What is left of notes that had to go at once (`Residue::add`): their
+/// last frame, laid down to silence in a straight line over `GIVE_WAY`
+/// samples, so even a note with nowhere left to fade ends without a step.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Residue {
+    now: [f32; 2],
+    left: u32,
+}
+
+impl Residue {
+    /// Takes over the frame a note made last (added to what is left of
+    /// others), from where it is to silence.
+    fn add(&mut self, last: [f32; 2]) {
+        self.now = [self.now[0] + last[0], self.now[1] + last[1]];
+        self.left = GIVE_WAY;
+    }
+
+    /// This sample's frame, and a step on.
+    fn next(&mut self) -> [f32; 2] {
+        if self.left == 0 {
+            return [0.0; 2];
+        }
+        let now = self.now;
+        let keep = (self.left - 1) as f32 / self.left as f32;
+        self.now = [now[0] * keep, now[1] * keep];
+        self.left -= 1;
+        now
+    }
+}
+
+/// Where a voice's note goes as the next note on its channel takes the
+/// voice at sample `time` of the song: let go, into the channel's slot for
+/// it (`giving`), fading out over `GIVE_WAY` samples under the new one,
+/// which starts on time as ever (from silence: the voice holds no note
+/// then). A note fading there still (notes closer than the fade) goes on
+/// as a residue from its last frame. A note that has ended is left alone,
+/// and a sung line goes on from syllable to syllable as ever (a voice's
+/// note taken up over a voice's).
+fn give_way(v: &mut Voice, next: &Instrument, song: &Song, time: u64, giving: &mut Voice, residue: &mut Residue) {
+    let Some(n) = v.note else { return };
+    if next.voice.is_some() && song.instruments.get(n.instrument).is_some_and(|i| i.voice.is_some()) {
+        return;
+    }
+    if giving.note.is_some() {
+        residue.add(giving.last);
+    }
+    giving.clone_from(v);
+    if let Some(n) = &mut giving.note {
+        n.held = n.held.min(time.wrapping_sub(v.started));
+    }
+    giving.fading = GIVE_WAY;
+    v.note = None;
 }
 
 /// One layer of a note as it sounds: its oscillator, its filters, its
@@ -646,6 +713,18 @@ impl Voice {
             }
             s * n.volume * volume * duck * fade * loud
         };
+        // A note giving way to the next fades out under it.
+        let gain = match self.fading {
+            0 => gain,
+            1 => {
+                (self.fading, self.note) = (0, None);
+                return None;
+            }
+            _ => {
+                self.fading -= 1;
+                gain * self.fading as f32 / GIVE_WAY as f32
+            }
+        };
         Some([gain * self.pan.0 * std::f32::consts::SQRT_2, gain * self.pan.1 * std::f32::consts::SQRT_2])
     }
 }
@@ -997,6 +1076,11 @@ pub struct Player {
     /// its release ringing on while the channel's voice begins the next
     /// round: made with the song, so the audio thread makes none.
     pub(super) tails: Vec<Voice>,
+    /// Each channel's note giving way to the next, fading out under it
+    /// (`give_way`), and what is left of notes that had nowhere to fade:
+    /// made with the song too.
+    pub(super) giving: Vec<Voice>,
+    residue: Residue,
     pub(super) time: u64,
     pub(super) duck: Option<Duck>,
     pub volume: f32,
@@ -1050,12 +1134,15 @@ impl Player {
     pub fn new(song: Song, volume: f32) -> Self {
         let voices = (0..song.channels.len()).map(|i| Voice::new(i as u32 * 7919, song.names[i])).collect();
         let tails = (0..song.channels.len()).map(|_| Voice::default()).collect();
+        let giving = (0..song.channels.len()).map(|_| Voice::default()).collect();
         let loud = song.layers.iter().map(|_| 1.0).collect();
         let lane = Lane::at(&Strip::default());
         Self {
             song,
             voices,
             tails,
+            giving,
+            residue: Residue::default(),
             time: 0,
             duck: None,
             volume,
@@ -1139,9 +1226,10 @@ impl Player {
         let at = self.within(at);
         let time = at.max(0.0) as u64;
         (self.time, self.carry, self.duck, self.since_jump) = (time, at - time as f64, None, 0);
-        for tail in &mut self.tails {
+        for tail in self.tails.iter_mut().chain(&mut self.giving) {
             tail.note = None;
         }
+        self.residue = Residue::default();
         for (v, notes) in self.voices.iter_mut().zip(&self.song.channels) {
             v.next = notes.partition_point(|n| n.start <= time);
             v.note = None;
@@ -1204,17 +1292,26 @@ impl Player {
 
     /// Whether a song that plays once has ended, its last notes rung out.
     pub fn over(&self) -> bool {
-        !self.song.looping && self.time as f64 + self.carry >= self.song.span.1 && self.voices.iter().chain(&self.tails).all(|v| v.note.is_none())
+        !self.song.looping && self.time as f64 + self.carry >= self.song.span.1 && self.voices.iter().chain(&self.tails).chain(&self.giving).all(|v| v.note.is_none()) && self.residue.left == 0
     }
 
     /// Lets go of every note that sounds as the song goes round or ends:
     /// it rings on in its channel's tail, the voice as it was (its filters,
     /// its noise) going on to the next round as when the note was cut
-    /// there. (A tail still ringing from the time before is cut.)
+    /// there. A tail still ringing from the time before gives way to it,
+    /// fading out (`give_way`'s slot; a note fading there already goes on
+    /// as a residue).
     fn let_go(&mut self) {
-        for (v, tail) in self.voices.iter_mut().zip(&mut self.tails) {
+        for ((v, tail), giving) in self.voices.iter_mut().zip(&mut self.tails).zip(&mut self.giving) {
             if let Some(n) = &mut v.note {
                 n.held = n.held.min(self.time.wrapping_sub(v.started));
+                if tail.note.is_some() {
+                    if giving.note.is_some() {
+                        self.residue.add(giving.last);
+                    }
+                    std::mem::swap(tail, giving);
+                    giving.fading = GIVE_WAY;
+                }
                 tail.clone_from(v);
                 v.note = None;
             }
@@ -1230,7 +1327,7 @@ impl Player {
         let time = at.max(0.0) as u64;
         let back = self.time - time;
         (self.time, self.carry) = (time, at - time as f64);
-        for tail in &mut self.tails {
+        for tail in self.tails.iter_mut().chain(&mut self.giving) {
             tail.started = tail.started.wrapping_sub(back);
         }
         for (v, notes) in self.voices.iter_mut().zip(&self.song.channels) {
@@ -1286,13 +1383,14 @@ impl Player {
             let (lanes, turned) = (&self.lanes, &self.turned);
             let knobs = |v: &Voice| (turning && lanes[v.strip as usize].turning).then(|| &turned[v.strip as usize]);
             let mut sum = [0.0f32; 2];
-            for (ch, (v, tail)) in self.voices.iter_mut().zip(&mut self.tails).enumerate() {
+            for (ch, ((v, tail), giving)) in self.voices.iter_mut().zip(&mut self.tails).zip(&mut self.giving).enumerate() {
                 let notes = &self.song.channels[ch];
                 while v.next < notes.len() && notes[v.next].start <= self.time {
                     // Rests and the end marker have no pitch: the note before rings out.
                     let n = &notes[v.next];
                     if n.freq.is_some() {
                         let ins = &self.song.instruments[n.instrument];
+                        give_way(v, ins, &self.song, self.time, giving, &mut self.residue);
                         v.take_up(n, ins, (&self.song.segments, &self.song.clear), self.time, lanes[v.strip as usize].take_up(ins.cutoff));
                         if v.tone.shape.sidechain > 0.0 {
                             self.duck = Some(Duck { from: self.heard, depth: v.tone.shape.sidechain, release: v.tone.shape.sidechain_release });
@@ -1301,19 +1399,21 @@ impl Player {
                     v.next += 1;
                 }
                 let scale = (self.volume, fade, self.loud[ch]);
-                let heard = [v.sound(&self.song, self.time, ducked, scale, knobs(v)).map(|s| strip(v, s)), tail.sound(&self.song, self.time, ducked, scale, knobs(tail)).map(|s| strip(tail, s))];
-                for [l, r] in heard.into_iter().flatten() {
-                    sum[0] += l;
-                    sum[1] += r;
+                for x in [v, tail, giving] {
+                    if let Some([l, r]) = x.sound(&self.song, self.time, ducked, scale, knobs(x)).map(|s| strip(x, s)) {
+                        (x.last, sum[0], sum[1]) = ([l, r], sum[0] + l, sum[1] + r);
+                    }
                 }
             }
             // The notes of channels laid no more, ringing out.
             for tail in &mut self.tails[self.voices.len()..] {
                 if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0), knobs(tail)).map(|s| strip(tail, s)) {
-                    sum[0] += l;
-                    sum[1] += r;
+                    (tail.last, sum[0], sum[1]) = ([l, r], sum[0] + l, sum[1] + r);
                 }
             }
+            // What had nowhere left to fade, this sample's included.
+            let [l, r] = self.residue.next();
+            (sum[0], sum[1]) = (sum[0] + l, sum[1] + r);
             // As loud and as clear as the game asked (`Mix`).
             let (l, r) = self.bus.apply(sum[0], sum[1]);
             frame[0] += l;
@@ -1366,20 +1466,35 @@ impl Player {
                 Some(j) => {
                     std::mem::swap(&mut new.voices[i], &mut self.voices[j]);
                     std::mem::swap(&mut new.tails[i], &mut self.tails[j]);
+                    std::mem::swap(&mut new.giving[i], &mut self.giving[j]);
                     new.loud[i] = self.loud[j];
                 }
                 None => new.loud[i] = if self.intensity >= new.song.layers[i] { 1.0 } else { 0.0 },
             }
         }
+        // A channel laid no more rings out: its note and its tail where
+        // there is room, the rest from its last frame (`Residue`); so do
+        // the notes still ringing out of channels laid no more before.
+        let mut ring_out = |v: &mut Voice, residue: &mut Residue| match () {
+            _ if v.note.is_none() => {}
+            _ if new.tails.len() < new.tails.capacity() => new.tails.push(std::mem::take(v)),
+            _ => residue.add(v.last),
+        };
         for (j, letter) in self.song.names.iter().enumerate() {
-            if !new.song.names.contains(letter) && self.voices[j].note.is_some() && new.tails.len() < new.tails.capacity() {
-                new.tails.push(std::mem::take(&mut self.voices[j]));
+            if !new.song.names.contains(letter) {
+                ring_out(&mut self.voices[j], &mut self.residue);
+                ring_out(&mut self.tails[j], &mut self.residue);
+                ring_out(&mut self.giving[j], &mut self.residue);
             }
+        }
+        for tail in &mut self.tails[self.voices.len()..] {
+            ring_out(tail, &mut self.residue);
         }
         let same_span = new.song.span == self.song.span;
         std::mem::swap(&mut self.song, &mut new.song);
         std::mem::swap(&mut self.voices, &mut new.voices);
         std::mem::swap(&mut self.tails, &mut new.tails);
+        std::mem::swap(&mut self.giving, &mut new.giving);
         std::mem::swap(&mut self.loud, &mut new.loud);
         // (`new` holds what played until now.)
         if !same_span {
@@ -1387,7 +1502,7 @@ impl Player {
             let time = at.max(0.0) as u64;
             let shift = time.wrapping_sub(self.time);
             (self.time, self.carry) = (time, at - time as f64);
-            for v in self.voices.iter_mut().chain(&mut self.tails) {
+            for v in self.voices.iter_mut().chain(&mut self.tails).chain(&mut self.giving) {
                 v.started = v.started.wrapping_add(shift);
             }
         }

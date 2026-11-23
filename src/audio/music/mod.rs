@@ -131,6 +131,8 @@
 //! song, as through a wall (`Mix`), each gliding to what the game asked.
 
 #[cfg(test)]
+mod cut_tests;
+#[cfg(test)]
 mod loop_tests;
 #[cfg(test)]
 mod laid_tests;

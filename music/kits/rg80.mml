@@ -5,9 +5,9 @@
 ;
 ; Every sound comes from the voice circuits as their sources describe them;
 ; the source is named above each line, then what is our own because this
-; synth has a few layers an instrument at most, an oscillator each, and no
-; samples. The bass drum is HARALD's own, built from layers by the kick
-; measurements of [JE].
+; synth has a few layers an instrument at most, an oscillator each (the kit
+; plays no samples). Below the bass drum, kept as an example, a layered one
+; of HARALD's own built by the kick measurements of [JE].
 ;
 ; Sources:
 ; [N]  The machine's service notes, first edition, 15 June 1981: p. 14 the
@@ -53,16 +53,25 @@
 #title RG-80
 #tempo 125
 
-; Bass drum, HARALD's own: three layers and their sum, by [JE]'s recipe
-; (a sub, a body, a click, a soft clipper over them), warmer and longer
-; than [JE]'s hard techno kicks: the long booming one of this machine.
-; [BD]: a 1 ms trigger pulse rings a bridged-T band pass, centre ~49.5 Hz
-; ([N]: 56 Hz, a period of 18 ms); for the first ~6 ms the centre lies
-; more than an octave higher (punchier, not heard as a pitch); then
+; Bass drum. [BD]: a 1 ms trigger pulse rings a bridged-T band pass, centre
+; ~49.5 Hz ([N]: 56 Hz, a period of 18 ms); for the first ~6 ms the centre
+; lies more than an octave higher (punchier, not heard as a pitch); then
 ; leakage through R161 makes the "pitch sigh", a slight fall. [AX]: f0
 ; 49.5 Hz, a fall of about a semitone over the first 0.4 s. [N]: decay 50,
 ; 300 or 800 ms (knob short, middle, long); [BD]: up to seconds when
-; modded.
+; modded. Ours: a sine from 52.4 Hz falling one semitone to 49.5 Hz over
+; 0.4 s (the sigh), decay 300 ms read as above.
+; The octave-high first 6 ms, tried as a sine on a second channel, was not heard (2026-11-22).
+@kick sine freq=52.44 sweep=-1 sweep_time=0.4 attack=0.001 decay=0.33 sustain=0 release=0.225 volume=0.9
+
+; An example, not played: the layered bass drum below, rated "geht" (so so)
+; by the owner on 2026-11-23, the plain one above "gut" (good). Take the
+; semicolons off its four instrument lines (and put the plain @kick out)
+; to hear it.
+; Bass drum, HARALD's own: three layers and their sum, by [JE]'s recipe
+; (a sub, a body, a click, a soft clipper over them), warmer and longer
+; than [JE]'s hard techno kicks: the long booming one of this machine
+; ([BD], [AX], [N] as above).
 ; The sub: a sine settling at 49.5 Hz ([BD], [AX]), beginning an octave
 ; higher at 100 Hz and falling in Hz with a time constant of 35 ms (the
 ; octave of [BD]'s first ms; 100 Hz and 35 ms are [JE]'s long booming
@@ -85,10 +94,10 @@
 ; TONE starts. [JE]'s meters read it KNALL -42 dB, BALLERN -14.3 dB,
 ; BRUSTKORB 13 ms against their good zone -46 to -13, -13.5 to -8.6, 11 to
 ; 69: a dB under the zone's slam, the warmth ours (2026-11-23).
-@kick sine freq=49.5 pitch_start=100 pitch_decay=0.035 attack=0.001 decay=0.9 sustain=0 release=0.9 curve=exp volume=0.9
-  + sine freq=130 pitch_start=260 pitch_decay=0.01 attack=0.001 decay=0.08 sustain=0 release=0.08 curve=exp drive=6 volume=0.4
-  + noise freq=20000 filter=bandpass cutoff=1500 resonance=0.2 attack=0.0005 decay=0.08 sustain=0 release=0.08 curve=exp volume=0.08
-  = drive=3
+; @kick sine freq=49.5 pitch_start=100 pitch_decay=0.035 attack=0.001 decay=0.9 sustain=0 release=0.9 curve=exp volume=0.9
+;   + sine freq=130 pitch_start=260 pitch_decay=0.01 attack=0.001 decay=0.08 sustain=0 release=0.08 curve=exp drive=6 volume=0.4
+;   + noise freq=20000 filter=bandpass cutoff=1500 resonance=0.2 attack=0.0005 decay=0.08 sustain=0 release=0.08 curve=exp volume=0.08
+;   = drive=3
 
 ; Snare drum, tone. [N]: two bridged-T networks ring at 238 Hz (period
 ; 4.2 ms) and 476 Hz (2.1 ms), VR8 sets their ratio; decay 60 ms; "snappy"

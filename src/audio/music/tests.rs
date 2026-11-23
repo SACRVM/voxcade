@@ -250,8 +250,11 @@ fn digest(samples: &[f32]) -> u64 {
 /// voice's, drive and the crusher made before those came.
 /// Renewed once when the music went through `libm`: all but two samples within
 /// 1e-5 of before, 1248 of 320,726 one 12-bit step off, a pulse edge a sample
-/// earlier in two.
-const PINNED: (usize, u64) = (320_726, 0x10cb_940d_f3d7_a5d3);
+/// earlier in two. Renewed again when a note giving way to the next came to
+/// fade out under it (`GIVE_WAY`) instead of stopping dead: 31 places differ,
+/// each within the 219 samples after a note was taken over, the rest the
+/// same to the bit.
+const PINNED: (usize, u64) = (320_726, 0x03b1_a914_d1af_a88c);
 
 /// Every instrument word but the voice's, drive and the crusher plays as
 /// before they came: the song pinned by the samples it made then.
@@ -759,7 +762,7 @@ fn the_music_does_its_own_math() {
     files.extend(["src/audio/limiter.rs", "src/audio/loudness.rs", "src/audio/synth.rs"].map(Into::into));
     for path in files {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if ["tests.rs", "loop_tests.rs", "laid_tests.rs", "layer_tests.rs", "sample_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
+        if ["tests.rs", "loop_tests.rs", "laid_tests.rs", "layer_tests.rs", "sample_tests.rs", "cut_tests.rs"].contains(&name.as_str()) || path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();

@@ -206,7 +206,8 @@ fn a_layered_note_rings_over_the_seam() {
 
 /// A layered note keeps its shape at another tempo (each layer's fall and
 /// pitch by the samples heard), and the next note on its channel takes the
-/// voice over as from a plain one.
+/// voice over as from a plain one: once the kick has faded out under it
+/// (`GIVE_WAY`, 5 ms), the same samples.
 #[test]
 fn a_layered_note_keeps_its_shape_at_another_tempo_and_gives_way() {
     let kick = "@k sine freq=50 pitch_start=180 pitch_decay=0.022 attack=0.001 decay=0.6 sustain=0 release=0.4 curve=exp\n+ sine freq=140 pitch_start=320 pitch_decay=0.012 attack=0.001 decay=0.09 sustain=0 curve=exp drive=8 volume=0.5\n+ noise freq=20000 filter=bandpass cutoff=2100 attack=0.0005 decay=0.02 sustain=0 curve=exp volume=0.3\n= drive=4\n";
@@ -220,7 +221,8 @@ fn a_layered_note_keeps_its_shape_at_another_tempo_and_gives_way() {
     // A plain note after the kick plays as after a plain one.
     let after = |first: &str| left(&format!("#tempo 120\n{kick}@p sine attack=0.002 decay=0 sustain=1 volume=0.5\n@q sine freq=50 volume=0.4\nA: {first} @p o4 c4\n"), 1.0);
     let (a, b) = (after("@k c4"), after("@q c4"));
-    assert!(a[(0.5 * SR) as usize..] == b[(0.5 * SR) as usize..], "the kick's layers sound on under the next note");
+    let faded = (0.505 * SR) as usize;
+    assert!(a[faded..] == b[faded..], "the kick's layers sound on under the next note past their fade");
 }
 
 /// A layered note of a channel a game laid rings out in a tail of its own
