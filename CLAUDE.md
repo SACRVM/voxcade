@@ -1530,7 +1530,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `c.title_screen.level` names a level of `levels/` (never the start;
   `Levels::title`, `levels::start_in`) that the window opens in
   (`Session::begin_title`, `app::own_title`), no engine title, table or
-  initials, a run's end and QUIT TO TITLE back there; a run of its own
+  initials, a run's end and QUIT TO TITLE back there; its song
+  `c.title_screen.music` from `music_at`'s bar, the game's own as if
+  asked before its handlers (`LuaGame::title_song`, set in `begin` where
+  `on_level_start` asked no song or silence; a song of `c.audio.music`,
+  else a mistake at load; `music:play`/`music:stop` win; unset, the
+  player's song; tests in `src/lua/tests/title.rs`); a run of its own
   that counts for nothing (`Session::on_title`: `Runs::start` records
   none, no `world:save`, no pause); its code asks `world:new_game()` or
   `world:load(slot)` (save games: `world:save(slot, { label })`, `world:delete_save(slot)` at the tick's end through `Game::saving`'s `saves::Change`, `world.saves.newest` by the order saves were made in the run, `lua::host::Stage::newest_save`; `Game::anew`: the session begins the run in its
@@ -1790,7 +1795,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   there (`lua::host::Music`'s `at`, in the hash only when not 1;
   `MusicCue::start`), and the engine's title's song at
   `c.title_screen.music_at` (checked as the game loads, `check_title_bar`;
-  a title level of the game's own uses `at`; the settings' preview plays
+  a title level of the game's own begins its song there too; the settings' preview plays
   the chosen song from its start, as the game plays the player's song);
   a bar past the song's end, or after its `#loop` (which it never
   leaves), is a mistake (`Timing::bar_mistake`). MIDI comes in through `tools/midi2mml.py` and an import file

@@ -486,10 +486,11 @@ impl Default for PlayerConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct TitleScreenConfig {
-    /// What plays on the title (a song of `c.audio.music`; none: the first).
+    /// What plays on the title, a song of `c.audio.music`. Unset: on the engine's title its first song, on a title level of the game's own the player's song, as in a run.
+    /// On a title level of the game's own (`c.title_screen.level`) it begins as the level does, as the game's own song (`music.song` says it), until your code plays another or stops it (`music:play`, `music:stop`, in `on_level_start` too), and again each time the title comes back.
     pub music: Option<String>,
     /// The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro.
-    /// It goes round as the song says (`#loop`). The engine's title only: a title level of the game's own picks with `music:play`'s `at`.
+    /// It goes round as the song says (`#loop`). On the engine's title and on a title level of the game's own alike (there as `music:play`'s `at`).
     pub music_at: u32,
     /// The ground point the camera looks at (default: where the player starts).
     pub at: Option<[f32; 2]>,

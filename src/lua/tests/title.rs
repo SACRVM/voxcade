@@ -265,3 +265,90 @@ fn a_scenario_may_begin_on_the_title() {
     assert!(!g.on_title() && g.scenario.is_none() && !g.helped());
     assert_eq!(at(&mut g), ("zone_1".into(), "start".into()));
 }
+
+/// Three songs in `music/` and `c.audio.music` (`one`, `two`, `three`,
+/// eight bars of four beats each), with `lines` added to the conf.
+fn with_songs(dir: &Path, lines: &str) {
+    std::fs::create_dir_all(dir.join("music")).unwrap();
+    for name in ["one", "two", "three"] {
+        std::fs::write(dir.join(format!("music/{name}.mml")), "#tempo 120\n@a triangle\nA: c1 c1 c1 c1 c1 c1 c1 c1\n").unwrap();
+    }
+    with_conf(dir, &format!("  c.audio.music = {{ \"music/one.mml\", \"music/two.mml\", \"music/three.mml\" }}\n{lines}"));
+}
+
+/// The song the game plays (`music.song`), and the beat its cue begins
+/// at (`MusicCue::start`: its bar's).
+fn song(g: &mut Session<LuaGame>) -> (String, Option<f64>) {
+    (said(g, "music.song"), g.game.music().map(|c| c.start))
+}
+
+/// `c.title_screen.music` holds for a title level of the game's own: it
+/// begins as the level does, from `music_at`'s bar, as the game's own song
+/// (`music.song` says it from `on_level_start`'s end and on the first
+/// tick, the session makes it for the mixer), and again each time the
+/// title comes back; a run begun from it plays as before (the player's
+/// song). Unset, the title plays the player's song as before.
+#[test]
+fn the_games_own_title_plays_the_title_song() {
+    let main = "function on_tick() world.state.song = world.state.song or music.song end\n";
+    let dir = title_folder("title-song", main);
+    with_songs(&dir, "  c.title_screen.music = \"music/three.mml\"\n  c.title_screen.music_at = 3\n");
+    let mut g = game_in(&dir);
+    assert_eq!(song(&mut g), ("nil".into(), None), "a run begins past the title: as before");
+    g.begin_title().unwrap();
+    assert_eq!(song(&mut g), ("\"three\"".into(), Some(8.0)), "from the third bar");
+    g.step(&Input::default());
+    assert_eq!(said(&mut g, "world.state.song"), "\"three\"", "on the first tick");
+    assert_eq!(g.game.music().map(|c| c.song), Some(2));
+    assert!(g.music().is_some(), "the title's song for the mixer");
+    said(&mut g, "world:new_game()");
+    g.step(&Input::default());
+    assert!(!g.on_title());
+    assert_eq!(song(&mut g), ("nil".into(), None), "the run: the player's song");
+    g.begin_title().unwrap();
+    assert_eq!(song(&mut g), ("\"three\"".into(), Some(8.0)), "back on the title: again");
+    // Unset: the player's song, as before.
+    let plain = title_folder("title-song-unset", main);
+    with_songs(&plain, "");
+    let mut g = game_in(&plain);
+    g.begin_title().unwrap();
+    g.step(&Input::default());
+    assert_eq!(song(&mut g), ("nil".into(), None));
+}
+
+/// The game's code wins over the title's song: `music:play` or
+/// `music:stop` in the title's `on_level_start` (the title's song never
+/// begins), or later on the title (as anywhere).
+#[test]
+fn the_games_music_wins_over_the_title_song() {
+    let conf = "  c.title_screen.music = \"music/three.mml\"\n";
+    for (start, says) in [("music:play(\"one\")", "\"one\""), ("music:play(\"three\")", "\"three\""), ("music:stop()", "nil")] {
+        let main = format!("function on_level_start() {start} end\n");
+        let dir = title_folder("title-song-wins", &main);
+        with_songs(&dir, conf);
+        let mut g = game_in(&dir);
+        g.begin_title().unwrap();
+        assert_eq!(song(&mut g).0, "nil", "{start}: asked, nothing begun yet");
+        g.step(&Input::default());
+        assert_eq!(song(&mut g), (says.to_string(), (says != "nil").then_some(0.0)), "{start}: the game's");
+        assert_eq!(g.game.music_silent(), says == "nil");
+    }
+    let dir = title_folder("title-song-later", "function on_tick() if world.tick == 3 then music:play(\"two\", \"now\") end end\n");
+    with_songs(&dir, conf);
+    let mut g = game_in(&dir);
+    g.begin_title().unwrap();
+    steps(&mut g, 2);
+    assert_eq!(song(&mut g).0, "\"three\"");
+    steps(&mut g, 2);
+    assert_eq!(song(&mut g).0, "\"two\"", "played later on the title");
+}
+
+/// A title level of the game's own plays its song as the game's: one not
+/// in `c.audio.music` is a mistake at load naming both settings.
+#[test]
+fn a_title_song_not_among_the_games_songs_is_a_mistake() {
+    let dir = title_folder("title-song-missing", MAIN);
+    with_songs(&dir, "  c.title_screen.music = \"music/four.mml\"\n");
+    let e = start_error(&dir);
+    assert!(e.contains("c.title_screen.music = \"music/four.mml\": a title level of the game's own (c.title_screen.level) plays a song of c.audio.music"), "{e}");
+}

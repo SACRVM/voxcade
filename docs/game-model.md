@@ -900,6 +900,18 @@ Then:
   does. `world:go_to`, `world:win` and `world:lose` there are mistakes
   saying so; `world:new_game()` during a run is a mistake (from the title
   only), and so is going to the title level.
+- Its song is `c.title_screen.music` (a song of `c.audio.music`, from
+  `c.title_screen.music_at`'s bar), the game's own as if it had asked
+  for it before its handlers ran: `music.song` says it once
+  `on_level_start` is done, `music.beat` counts and `on_beat` hears it.
+  `music:play` or `music:stop` in the title's `on_level_start` win (the
+  title's song never begins), later on the title as anywhere; each
+  return to the title begins it again. A run begun from the title starts
+  without it, as every run (the player's song until its code plays one).
+  Without `c.title_screen.music` the title plays the player's song, as a
+  run does; a title song not in `c.audio.music` is a mistake at load
+  naming both settings. (Until 0.7 a title level of the game's own
+  ignored `c.title_screen.music` and played the player's song.)
 - The level a run begins in is `c.start`'s, else the first of
   `world.levels` that is not the title (`Levels::first`); `world.levels`
   still lists it, and `level.next` passes it over.
