@@ -97,7 +97,9 @@ impl std::ops::Deref for ModelRef<'_> {
 /// model file of the game the first time it is drawn (`frame:model`), each
 /// with its mistake if it would not load, kept until the level is left
 /// (`let_go`) or its file changes (`forget`). Only the picture reads
-/// them: what is in memory never changes the simulation. A model new here
+/// them, and `level:effect` how many frames one has (how long the effect
+/// shows, the picture's alone): what is in memory never changes the
+/// simulation. A model new here
 /// is drawn as cubes until it is put in the bank (`fresh`, `bank_fresh`).
 pub struct Needed {
     files: Mutex<Files>,
@@ -324,7 +326,7 @@ impl Models {
     }
 
     /// How many frames each of the game's models has, by name: the kept
-    /// ones and the levels' pieces' (`level:effect`, a piece's pose).
+    /// ones and the levels' pieces' (a kind's effect, `frame:model`).
     pub fn frame_counts(&self) -> BTreeMap<String, usize> {
         let pieces = self.pieces.iter().map(|(f, p)| (f.clone(), p.frames));
         pieces.chain(self.actors.iter().map(|(spec, m)| (spec.name.clone(), m.frames.len()))).collect()

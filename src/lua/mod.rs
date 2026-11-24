@@ -890,10 +890,9 @@ impl<K: Kit> Game for LuaGame<K> {
             return;
         }
         // Pictures played once go on, and end with their last frame.
-        let frames = self.stage.frames.clone();
         self.stage.effects.retain_mut(|e| {
             e.age += 1;
-            ((e.age as f32 * e.fps / 60.0) as usize) < frames.get(&e.model).copied().unwrap_or(1)
+            e.frame() < e.frames
         });
         self.stage.hud.tick();
         // A run that ended tells the script nothing more (its rules may
@@ -1249,6 +1248,7 @@ impl<K: Kit> Game for LuaGame<K> {
         let kinds = Arc::new(kinds);
         self.stage.kinds = kinds.clone();
         self.stage.frames = Arc::new(models.frame_counts());
+        self.stage.needed = models.needed();
         self.stage.heights = Arc::new(models.heights());
         self.stage.bursts = Arc::new(bursts(&kinds, models));
         self.stage.solids = Arc::new(host::solid_cells(&kinds, models));

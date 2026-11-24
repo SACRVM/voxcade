@@ -619,8 +619,14 @@ pub struct Stage {
     /// What the script asked of the machine (`world:open`, `world:quit`):
     /// not part of the game.
     pub requests: Vec<crate::game::Request>,
-    /// How many frames each of the game's models has (`level:effect`).
+    /// How many frames each of the game's kept models has (a kind's
+    /// effect, `frame:model`).
     pub frames: Arc<std::collections::BTreeMap<String, usize>>,
+    /// The models loaded when needed (`session::Needed`): `level:effect`
+    /// reads the frame count of any model file of the game there, as it
+    /// is called. Only the effect's length reads it, which is no part of
+    /// the game (never hashed, never read by a rule).
+    pub needed: Arc<crate::session::Needed>,
     /// How tall each of the game's models is (a piece's body).
     pub heights: Arc<std::collections::BTreeMap<String, f32>>,
     /// The voxels each kind that bursts as it goes bursts into (`effect =
@@ -952,7 +958,9 @@ impl HudState {
     }
 }
 
-/// A model played once at a point (`level:effect`).
+/// A model played once at a point (`level:effect`, a kind's effect): only
+/// the picture's, never hashed nor read by a rule, though the tick keeps
+/// it (so a snapshot brings it back).
 #[derive(Clone, Debug)]
 pub struct Shown {
     pub model: String,
@@ -960,6 +968,15 @@ pub struct Shown {
     pub age: u32,
     /// Frames a second.
     pub fps: f32,
+    /// How many frames it has, read as it began: it ends after its last.
+    pub frames: usize,
+}
+
+impl Shown {
+    /// The frame it shows at its age.
+    pub fn frame(&self) -> usize {
+        (self.age as f32 * self.fps / 60.0) as usize
+    }
 }
 
 /// How a touch began (`on_touch`'s `where`): which face of the other one
@@ -1318,8 +1335,8 @@ impl Stage {
         let Some(k) = self.kinds.get(kind) else { return };
         if let Some(shape) = self.bursts.get(&kind) {
             burst(self.host.sim_mut(), shape, at, look);
-        } else if let Some(e) = k.effect.clone().filter(|e| self.frames.contains_key(&e.model)) {
-            self.effects.push(Shown { model: e.model, at, age: 0, fps: e.fps });
+        } else if let Some((e, &frames)) = k.effect.clone().and_then(|e| self.frames.get(&e.model).map(|f| (e, f))) {
+            self.effects.push(Shown { model: e.model, at, age: 0, fps: e.fps, frames });
         }
         if let Some(sound) = k.sound {
             self.host.sim_mut().sound(sound, at, 0.8);

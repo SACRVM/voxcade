@@ -507,7 +507,15 @@ pub const API: &[Item] = &[
             thing:in_block." },
     Item { of: "level", name: "effect", what: Method { params: &[("model", "string"), ("at", "Thing|Point"), ("fps?", "number")], returns: "" },
         doc: "Plays a model's frames once (a puff, a sparkle), its feet where a thing stands or at a point, fps frames a second (12). Only \
-            shown: not part of the game." },
+            shown: not part of the game.\n- model: any model file of the game, by its path in the game folder (\"poof.vvx\", \
+            \"fx/poof.vvx\"), as frame:model takes it. A file that is not there or is no model is a mistake at this call.\n- at: the \
+            voxel the point lies in, or where the thing stands then; it stays there, it does not follow the thing. The model's pivot \
+            (the middle cell of its bottom layer) stands on that voxel.\n- It shows frame 0 first, the next every 1/fps of a second of \
+            the game (hit stop holds it), and is gone after its last. A figure of parts has one frame.\nIt faces south: the first row \
+            of its layers (its front, +y) towards the camera of a level not turned, its first column on the right; in a level seen from \
+            behind (camera yaw 180) its back shows. It stands on the grid, never turned.\nIt is drawn as the game's models are: lit by \
+            the sun and the lamps, casting a shadow, shaded and outlined as c.light.model_shading and c.effects.outline say; its GLOW \
+            colors glow and its glass is see-through." },
     Item { of: "level", name: "explode", what: Method { params: &[("at", "Thing|Point"), ("radius", "number")], returns: "" },
         doc: "Blows a hole: voxels fly as debris, pieces cut off fall." },
     Item { of: "level", name: "clear_rounds", what: Method { params: &[("team?", "string")], returns: "" },

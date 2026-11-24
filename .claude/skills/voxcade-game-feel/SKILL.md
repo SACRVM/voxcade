@@ -50,7 +50,7 @@ actions, always short.
 | glow | bright colours glow (`c.effects.glow`) | `frame:cube(x, y, z, color, glow)` | picture | — |
 | particles | `sim.dust`, `sparks`, `fireball`, `blood_spray`, `flash` (muzzle) | `level:explode` (debris, fire) | **simulation** (random from `Sim::rng`) | — |
 | white flash on a thing | `thing.flash = ticks` (the shooter tints it) | — | picture | — |
-| effect model | a kind's `effect = "poof.vvx"` (played once where a thing went; `{ model = "poof.vvx", fps = 20 }` its speed) | `frame:model(file, thing, index)` with an index from `world.tick` | picture | — |
+| effect model | a kind's `effect = "poof.vvx"` (played once where a thing went; `{ model = "poof.vvx", fps = 20 }` its speed) | `level:effect(file, at, fps)`: any model file of the game, played once at a thing or a point (no kind needed); or `frame:model(file, thing, index)` with an index from `world.tick` | picture | — |
 | poses | a kind's `frames = { jump = {..}, crouch = {..} }`, drawn by hand, each set at its own `fps` (or `stride`, by the way walked) and once (`loop = false`) if it says | `frame:model(..., index)` | picture | — |
 
 Effect speeds scale with `c.physics.body_width` (`Sim::effect_scale`), so

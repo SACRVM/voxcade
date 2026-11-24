@@ -303,10 +303,16 @@ impl UserData for LevelView {
                 _ => to_point(lua, &at, "level:effect")?,
             };
             change(lua, "level:effect", |h| {
-                if !h.frames.contains_key(&model) {
-                    return Err(mlua::Error::runtime(format!("level:effect: no model called '{model}' (a kind's model or effect, an item's, or a level's piece)")));
-                }
-                h.effects.push(crate::lua::host::Shown { model, at, age: 0, fps: fps.unwrap_or(crate::sim::things::EFFECT_FPS).max(0.1) });
+                // A model the game keeps, else any model file of the game,
+                // read now if it is not yet (`session::Needed`): a file that
+                // is not there or no model is a mistake here, in the tick
+                // that asks. Only its frame count is read, for how long it
+                // shows; the game never reads it.
+                let frames = match h.frames.get(&model) {
+                    Some(&frames) => frames,
+                    None => h.needed.load(&model).map_err(|e| mlua::Error::runtime(format!("level:effect: {e:#}")))?.frames.len(),
+                };
+                h.effects.push(crate::lua::host::Shown { model, at, age: 0, fps: fps.unwrap_or(crate::sim::things::EFFECT_FPS).max(0.1), frames });
                 Ok(())
             })
         });

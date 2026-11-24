@@ -643,6 +643,86 @@ end
     assert_eq!(run(Some(0), None).1, print, "a model only drawn is no part of the fingerprint");
 }
 
+/// A model file of `frames` frames, a voxel each, as a `.vvx`.
+fn frames_model(frames: usize) -> String {
+    let frame = "[[frame]]\nlayers = \"\"\"\n...\n.a.\n...\n\"\"\"\n";
+    format!("format = \"voxcade voxel 1\"\nsize = [3, 3, 1]\n\n[palette]\na = \"#ffffff\"\n\n{}", vec![frame; frames].join("\n"))
+}
+
+/// `level:effect` plays any model file of the game, as `frame:model`
+/// draws one: no kind, item or piece names it. It shows its frames, fps
+/// a second, and is gone after the last; its length is read from the file
+/// as it is called, and the run is the same however many frames the file
+/// has (each tick's state hash; the fingerprint does not count it). A file
+/// that is not there, or no model, is a mistake at the line that plays it.
+#[test]
+fn an_effect_plays_any_model_file_of_the_game() {
+    let main = r##"
+function on_level_start()
+  level:fill(0, 0, 0, 63, 63, 0, "#808080")
+  level.state.r = level:spawn("robot", 32, 32)
+end
+
+function on_tick()
+  level.state.r:walk(input.dir, 10)
+  if world.tick == 3 then level:effect("fx/puff.vvx", level.state.r, 30) end
+  if world.tick == 4 then level:effect("fx/puff.vvx", { x = 10, y = 12.5, z = 1 }) end
+end
+"##;
+    let dir = folder("effect-any", main);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.things.robot = { model = \"robot.vvx\" }\nend\n").unwrap();
+    crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
+    std::fs::create_dir_all(dir.join("fx")).unwrap();
+    std::fs::write(dir.join("fx/puff.vvx"), frames_model(3)).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 4);
+    assert_eq!(halted(&g), "");
+    let shown = |g: &Session<LuaGame>| g.game.stage.effects.iter().map(|e| (e.model.clone(), e.at, e.frame(), e.frames)).collect::<Vec<_>>();
+    let robot = g.game.stage.effects[0].at;
+    assert_eq!(shown(&g), [("fx/puff.vvx".to_string(), robot, 0, 3), ("fx/puff.vvx".to_string(), glam::Vec3::new(10.0, 12.5, 1.0), 0, 3)]);
+    // Drawn: from its file, at the voxel the point lies in.
+    let frame = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "");
+    assert!(g.models.needed().names().contains(&"fx/puff.vvx".to_string()));
+    let white: Vec<glam::Vec3> = frame.cubes().iter().filter(|i| i.color == [255, 255, 255, 255]).map(|i| glam::Vec3::from_slice(&i.pos_size[..3])).collect();
+    assert!(white.contains(&glam::Vec3::new(10.5, 12.5, 1.5)), "the second on its voxel: {white:?}");
+    // 30 a second: three frames in 6 ticks, then gone; 12 a second: 15.
+    steps(&mut g, 4);
+    assert_eq!(shown(&g).iter().map(|e| e.2).collect::<Vec<_>>(), [2, 0], "the first in its last frame");
+    steps(&mut g, 1);
+    assert_eq!(shown(&g).iter().map(|e| e.2).collect::<Vec<_>>(), [1], "the first gone after its last frame");
+    steps(&mut g, 9);
+    assert_eq!(shown(&g).iter().map(|e| e.2).collect::<Vec<_>>(), [2], "the second in its last frame");
+    steps(&mut g, 1);
+    assert!(shown(&g).is_empty(), "the second gone too");
+    // The run is the same whatever the file holds; its fingerprint too.
+    let run = |frames: usize| {
+        std::fs::write(dir.join("fx/puff.vvx"), frames_model(frames)).unwrap();
+        let mut g = game_in(&dir);
+        let mut hashes = Vec::new();
+        for tick in 0..60 {
+            g.step(&Input { right: tick % 20 < 10, ..Input::default() });
+            hashes.push(g.game.state_hash());
+        }
+        assert_eq!(halted(&g), "");
+        (hashes, g.fingerprint().unwrap())
+    };
+    assert_eq!(run(1), run(7), "an effect's model never changes the run");
+    // Not there, no model, out of the game: mistakes at the call.
+    for (file, says) in [
+        ("fx/gone.vvx", "main.lua:9: level:effect: no model file \"fx/gone.vvx\" in the game folder"),
+        ("conf.lua", "conf.lua: a model is a .vvx file"),
+        ("../puff.vvx", "level:effect: \"../puff.vvx\" is no file of the game"),
+    ] {
+        std::fs::write(dir.join("main.lua"), main.replace("\"fx/puff.vvx\", level.state.r", &format!("\"{file}\", level.state.r"))).unwrap();
+        let mut g = game_in(&dir);
+        steps(&mut g, 2);
+        assert_eq!(halted(&g), "", "{file}: not before it is played");
+        steps(&mut g, 1);
+        assert!(halted(&g).contains(says), "{file}: {}", halted(&g));
+    }
+}
+
 /// Entering a level loads what it names (its pieces' models) and lets go
 /// of what the level left named, out of memory and the bank: what one
 /// room shows does not lie in memory in the next; models only drawn go at

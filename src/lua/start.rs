@@ -92,6 +92,7 @@ impl<K: Kit> LuaGame<K> {
                 effects: Vec::new(),
                 requests: Vec::new(),
                 frames: Arc::new(models.frame_counts()),
+                needed: models.needed(),
                 heights: Arc::new(models.heights()),
                 bursts: kinds_bursting,
                 solids: kinds_solid,

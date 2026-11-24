@@ -89,7 +89,7 @@ impl<K: Kit> LuaGame<K> {
             }
         }
         for e in &self.stage.effects {
-            out.model(&e.model, (e.age as f32 * e.fps / 60.0) as usize, e.at.floor(), glam::IVec2::NEG_Y, None);
+            out.model(&e.model, e.frame(), e.at.floor(), glam::IVec2::NEG_Y, None);
         }
         for cmd in self.drawn.borrow().iter() {
             match cmd {
