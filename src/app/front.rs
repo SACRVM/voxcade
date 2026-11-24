@@ -65,8 +65,12 @@ pub(super) struct Front {
     pub attracting: bool,
     pub attract_time: f32,
     pub leave_attract: bool,
-    /// Looking away during a level change's fade pauses once it is over.
-    pub pause_after_fade: bool,
+    /// The window has lost the focus: a game of one holds (no ticks, its
+    /// song held as a pause holds it) and goes on by itself when the
+    /// window has it again, no menu opened (the owner, 2026-11-24: landing
+    /// in the pause menu on every switch of windows annoyed). A network
+    /// game goes on: nobody waits.
+    pub away: bool,
     /// The title's round as at an arcade machine: the title, the high
     /// score table, a replay. Whether the table is showing in it, and
     /// whether it was shown since the last replay.
@@ -94,7 +98,7 @@ impl Front {
             attracting: false,
             attract_time: 0.0,
             leave_attract: false,
-            pause_after_fade: false,
+            away: false,
             table_in_round: false,
             table_shown: false,
             typing_address: false,
@@ -169,6 +173,23 @@ impl Front {
         self.attracting
     }
 
+    /// The window lost the focus: a game of one holds, whatever menu is
+    /// open staying so; a network game (`networked`) goes on.
+    pub fn look_away(&mut self, networked: bool) {
+        self.away = !networked;
+    }
+
+    /// The window has the focus again: what held goes on.
+    pub fn look_back(&mut self) {
+        self.away = false;
+    }
+
+    /// Whether the game holds now: a menu over it or the window elsewhere
+    /// (no ticks; the game's song held).
+    pub fn holds(&self) -> bool {
+        self.menu.is_open() || self.away
+    }
+
     /// The title alone shows: no game, no glide, no page but the title's.
     pub fn on_title(&self) -> bool {
         !self.playing && self.intro.is_none() && self.menu.stack.len() == 1 && self.menu.page() == Some(Page::Title)
@@ -218,6 +239,26 @@ impl Front {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Losing the focus opens no menu: a game of one holds, and with the
+    /// focus back it goes on; a menu open stays open; a network game goes
+    /// on throughout.
+    #[test]
+    fn losing_the_focus_holds_and_opens_no_menu() {
+        let mut front = Front::new(Menu::title());
+        front.straight_in();
+        front.look_away(false);
+        assert!(front.holds() && !front.menu.is_open() && front.playing);
+        front.look_back();
+        assert!(!front.holds());
+        front.menu = Menu::pause();
+        front.look_away(false);
+        front.look_back();
+        assert!(front.menu.is_open() && front.holds(), "the pause menu stays");
+        front.menu = Menu::default();
+        front.look_away(true);
+        assert!(!front.holds(), "a network game goes on");
+    }
 
     /// The table's time runs out.
     fn table_shown_long(front: &mut Front) {

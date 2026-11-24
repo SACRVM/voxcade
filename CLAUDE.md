@@ -1608,7 +1608,15 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (the user's idea); `shot --pad xbox|nintendo|playstation` shows a
   pad's. Pausing (Escape, P, Start) gives way to a game's actions: a key
   one of them has, by default or saved before, pauses no more
-  (`Bindings::pause_gives_way`, test `pausing_gives_way_to_the_game`). Player settings, the high score table and save games
+  (`Bindings::pause_gives_way`, test `pausing_gives_way_to_the_game`).
+  The window losing the focus opens no menu (the owner, 2026-11-24): a
+  game of one holds (`Front::away`, `look_away`, `holds`: no ticks, its
+  song held with the pause's 5 ms fade, the keys and mouse let go) and
+  goes on by itself with the focus back, the time away owed to nobody
+  (`TickClock::settle`); a menu open stays open; a network game goes on;
+  the IDE's PLAY holds as it did (no ticks, its speaker held); tests
+  `losing_the_focus_holds_and_opens_no_menu`,
+  `looking_away_holds_the_game_and_looking_back_goes_on`. Player settings, the high score table and save games
   (`src/saves.rs`, `saves/<key>/N.toml`; `shot`, `check`, `inspect` and
   replays keep theirs for the run only) live in the user's config folder
   (`src/kept.rs`; `$XDG_CONFIG_HOME` or `~/.config`, macOS too for

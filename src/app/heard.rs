@@ -49,7 +49,19 @@ impl Heard {
     /// game); whether a song of the game's began.
     pub fn music<G: Game>(&mut self, game: &mut Session<G>, held: bool) -> bool {
         let made = made_music(game, &mut self.front);
+        let held = held || self.front.holds();
         hand_made(made, game, &mut self.mixer, held, &self.settings)
+    }
+
+    /// The window loses the focus, or has it again (`Front::look_away`,
+    /// `look_back`), a network game's or not.
+    pub fn focus(&mut self, has: bool, networked: bool) {
+        if has { self.front.look_back() } else { self.front.look_away(networked) }
+    }
+
+    /// Whether the window's game holds now (a menu, the window elsewhere).
+    pub fn holds(&self) -> bool {
+        self.front.holds()
     }
 
     /// The sounds of the tick just played, as the window plays them.
@@ -134,7 +146,7 @@ mod tests {
         let mut most = 0;
         for _ in 0..frames {
             heard.music(game, held);
-            if !held && heard.front.playing {
+            if !held && !heard.holds() && heard.front.playing {
                 // Level changes fade, as in a window.
                 game.fades = true;
                 game.step(&Input::default());
@@ -232,6 +244,37 @@ mod tests {
             assert_eq!((t.songs, t.jumps, t.silences), (1, 0, 0), "{name}: {t:?}");
             assert!(off < 0.02, "{name}: the song's level strayed by {:.1} %", off * 100.0);
         }
+    }
+
+    /// The window losing the focus holds a game of one, no pause menu
+    /// opened: no ticks, its song faded out over 5 ms and held; the focus
+    /// back, it goes on at once, the song from the sample it held at (one
+    /// song, no jump), the clock where it held. A menu open stays open.
+    #[test]
+    fn looking_away_holds_the_game_and_looking_back_goes_on() {
+        let (_dir, mut g) = game("heard-focus", &asking("one", "", ""), "");
+        let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
+        frames(&mut heard, &mut g, 60, false);
+        let tick = g.game.sim().tick;
+        heard.focus(false, false);
+        assert!(heard.holds() && !heard.front.menu.is_open(), "held, no menu");
+        let at = heard.samples.len();
+        frames(&mut heard, &mut g, 60, false);
+        assert_eq!(g.game.sim().tick, tick, "no ticks while away");
+        assert!(heard.samples[at + 2 * 735..].iter().all(|v| *v == 0.0), "the song held");
+        heard.focus(true, false);
+        frames(&mut heard, &mut g, 60, false);
+        assert!(g.game.sim().tick > tick && !heard.holds(), "on again by itself");
+        let t = heard.mixer.tally;
+        assert_eq!((t.songs, t.jumps, heard_now(&heard)), (1, 0, vec!["one"]), "{t:?}");
+        // A menu open before stays open; a network game goes on.
+        heard.menu(Menu::pause());
+        heard.focus(false, false);
+        heard.focus(true, false);
+        assert!(heard.front.menu.is_open() && heard.holds());
+        heard.menu(Menu::default());
+        heard.focus(false, true);
+        assert!(!heard.holds(), "a network game goes on");
     }
 
     /// A different song on the far side of a faded change of scene changes

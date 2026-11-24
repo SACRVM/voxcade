@@ -23,22 +23,25 @@ impl<G: Game> App<G> {
                 let super::Display { screen, renderer, .. } = &mut self.display;
                 screen.resize(renderer, w, h);
             }
-            // Looking away pauses the game (a network game's host fetching
-            // a drink would freeze every screen: ESCAPE does it). The game's
-            // own title is no run to pause.
-            Event::Window { win_event: WindowEvent::FocusLost, .. } if self.front.playing && !self.front.menu.is_open() && !phase_over && self.net.is_none() && !self.game.on_title() => {
-                if self.game.fading() {
-                    self.front.pause_after_fade = true;
-                } else {
-                    pause_for(&mut self.front, &self.game, self.watching.is_none(), None);
-                }
+            // Looking away holds a game of one, no menu opened, and looking
+            // back lets it go on at once (a network game goes on: the host
+            // fetching a drink would freeze every screen; ESCAPE does it).
+            // What was held lets go (the keys, the mouse's buttons), and the
+            // time away is owed to nobody.
+            Event::Window { win_event: WindowEvent::FocusLost, .. } => {
+                self.front.look_away(self.net.is_some());
+                self.mouse.let_go();
+            }
+            Event::Window { win_event: WindowEvent::FocusGained, .. } => {
+                self.front.look_back();
+                self.clock.last = std::time::Instant::now();
+                self.clock.ticks.settle();
             }
             Event::GamepadAdded { which, .. } => self.pads.added(which),
             Event::GamepadRemoved { which, .. } => self.pads.removed(which),
             Event::TextInput { text, .. } if self.prompt.open => self.prompt.type_text(&text),
             Event::TextInput { text, .. } if self.front.typing_address => text.chars().for_each(|c| self.front.menu.type_address(c)),
             Event::TextInput { text, .. } if self.mouse.typing => self.mouse.type_text(crate::input::Typed { text: text.chars().filter(|&c| crate::ui::writes(c)).collect(), ..Default::default() }),
-            Event::Window { win_event: WindowEvent::FocusLost, .. } => self.mouse.let_go(),
             Event::Window { win_event: WindowEvent::MouseLeave, .. } => self.mouse.at = None,
             Event::MouseMotion { x, y, .. } if self.game.has_pointer() => self.mouse_moved([x, y]),
             Event::MouseButtonDown { mouse_btn, x, y, .. } if self.game.has_pointer() => self.mouse_down(mouse_btn, [x, y], commands),

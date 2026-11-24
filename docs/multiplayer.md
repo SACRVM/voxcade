@@ -495,7 +495,9 @@ it says so. What remains is the evening on the home network.
   no bundles are built and every machine stops within its hand; the
   heartbeats say PAUSED and by whom, so nobody takes it for a lost host.
   Going on needs nothing more: the guests fill their hands and play on.
-  The host's window losing its focus pauses a game of one as today, but
+  The window losing its focus holds a game of one, no menu opened (since
+  2026-11-24: it opened the pause menu, which annoyed; it goes on by
+  itself when the window has the focus again, `Front::look_away`), but
   not a network game (the host fetching a drink would freeze every
   screen; ESCAPE does it). A guest's ESCAPE opens its own menu without
   stopping the game: its SETTINGS (each machine's own), LEAVE, QUIT TO

@@ -499,7 +499,7 @@ impl<G: Game> App<G> {
         let Some(speaker) = speaker else { return };
         game.music_ahead(clock.ticks.behind(clock.last.elapsed().as_secs_f32()));
         let made = made_music(game, front);
-        let held = front.menu.is_open() || prompt.open;
+        let held = front.holds() || prompt.open;
         let Some(mut mixer) = speaker.lock() else { return };
         if hand_made(made, game, &mut mixer, held, settings) {
             *now_playing = mixer.music_title().map_or(String::new(), |t| format!(" | \u{266a} {t}"));
@@ -625,7 +625,7 @@ impl<G: Game> App<G> {
     /// Whether the game's own song keeps time with its clock, here alone:
     /// the time a frame was held up in is then caught up, not dropped.
     fn keeps_time(&self) -> bool {
-        self.front.playing && !self.front.title_music && self.net.is_none() && self.game.steers_music()
+        self.front.playing && !self.front.title_music && !self.front.holds() && !self.prompt.open && self.net.is_none() && self.game.steers_music()
     }
 
     /// The script's keys for player 1 (`--input`), a step every tick's
@@ -735,7 +735,7 @@ impl<G: Game> App<G> {
                 {
                     j.fade(game);
                 }
-            } else if front.playing && !front.menu.is_open() && !prompt.open && !replay_over {
+            } else if front.playing && !front.holds() && !prompt.open && !replay_over {
                 let input = match playback {
                     Some(p) => p.next_input(game),
                     None => input.clone(),
@@ -780,11 +780,7 @@ impl<G: Game> App<G> {
                     }
                     _ => {}
                 }
-                let App { front, playback, game, runs, speaker, settings, pads, watching, net, queued, .. } = self;
-                if front.pause_after_fade && !game.fading() {
-                    front.pause_after_fade = false;
-                    pause_for(front, game, watching.is_none(), None);
-                }
+                let App { front, playback, game, runs, speaker, settings, pads, net, queued, .. } = self;
                 // What the game asked of the window: SETTINGS over it, the
                 // end (not a replay's, nor over the network yet).
                 let asked = game.requests();
