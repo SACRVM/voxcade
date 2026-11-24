@@ -499,8 +499,8 @@ nearest; its replay `tests/two_ships`);
   INSTRUMENT): KICK, SNARE, HAT, CLAP, TOM, BASS, LEAD, PAD roll from a
   table of ranges, rendered and measured first (`instrument::good`; a
   KICK by the owner's kick recipe inside its zone, `kick_meters`, the
-  owner's three meters ported, reading the RG-80's kick as its comment
-  says), its lines written anew in the register's order, only what
+  owner's three meters ported, reading a layered kick as they read it,
+  test `the_kits_kick_reads_as_its_comment_measured_it`), its lines written anew in the register's order, only what
   differs from the defaults (`rolled`: its name, the room after it and
   every comment kept, layers added or taken out, one step of the
   text's undo); LENGTH, PUNCH, BRIGHT, DRIVE, LEVEL change words in place
@@ -648,78 +648,6 @@ nearest; its replay `tests/two_ships`);
   scenarios `second_pattern` and `empty_machine`; its replay
   `tests/toggle_and_switch` toggles steps, switches the pattern, calls a
   switch off before the bar and edits a pattern while it waits.
-- A machine played through its model (a trial, 2026-11-22; in fine voxels
-  since 2026-11-24): `games/studio` (no cover, not listed, not packaged;
-  `GAMES_OF_VOXCADE` names it), the HARALD RG-80 (the owner's invented
-  maker and its Rhythmus-Gerät), a drum machine after the analog one of
-  1980 in function (never its name, maker or lettering), as a level's
-  piece, `machine.vvx`, a figure of 230 parts, 512 by 310 voxels, on a
-  table that is the level's own land (a `[terrain]` of one height:
-  cheaper to draw than a model of one voxel a cell). The owner's rules
-  for a device (2026-11-24): it fits the screen whole at 1280 by 720
-  (pixels limit what reads, not voxels: fine voxels, the view 640
-  across, pitch 70, fov 25, about 2 pixels a voxel at 720); the sixteen
-  steps and their lamps in one row; on the device symbols or signs of two
-  or three letters, the full name at the screen's bottom edge; the same
-  margins and gaps on all sides (`tools/gen_studio.py` works every place
-  out from a few numbers, M 16 among them, a gap made wider the further
-  back it lies, `gap`, for the perspective, and prints the margins; it
-  made the machine and keeps it: the owner's now; main.lua knows its
-  parts by name only, their places by `thing:part`). Its sound is the
-  library's kit, `music/rg80.mml` copied. Eleven voice columns (BD, SD,
-  LT, MT, HT, RS, CP, CB, CY, OH, CH), each its heading (`<code>_head`,
-  the name and its lamp `led_<code>`, lit for 0.09 s as the voice hits,
-  brighter on an accent, from the pattern and `music.position` as the
-  running light), its `<code>_level` knob and under it the knobs that
-  shape it, each one `music:mix` word on the voice's channels with the
-  kit's value in its middle (`bd_tone` drive, `bd_decay`/`cy_decay`/
-  `oh_decay` decay and release, `sd_tone`/`cy_tone` cutoff, `sd_snappy`
-  the noise channel's fader, `*_tuning` freq), or a toggle switch
-  `<code>_switch` to its other instrument (toms to congas, rim shot to
-  claves, clap to maracas: a lever on a round base, `<code>_mount`,
-  tipped left or right by a pose's `roll`, its two signs over it; a flush
-  plate `<code>_plate` round it takes the click too); the open hat's
-  channel takes a silent closed hat where only the closed one plays (the
-  choke). A knob is round, 14 voxels across (the masters 18), its pointer
-  line a part of its own (`<name>_ptr`) and a flush plate round it
-  (`<name>_base`) that a drag on it turns too; one value turned by the
-  hand alone (the owner: a knob that turns by itself cannot be). The top
-  strip: the nameplate flush left; ACC (`ac_level`, the accent row's
-  `v`), BPM (the `display`, three digits of seven segments, each
-  `seg_<d>_<s>` faint and `lit_<d>_<s>` sunk when dark, and the `tempo`
-  knob) and VOL (`volume`) flush right. The `selector` alone in the left
-  panel: twelve positions (ACC, in the yellow of the third group of keys,
-  then the eleven voices), a ring of lamps `sel_1` .. `sel_12` showing the
-  voice the sixteen `step_N` keys edit, clicked, dragged round or wheeled
-  through a HUD panel over its dial (`frame:hud` placed by
-  `frame:to_screen` of its part: the pointer names a part but not where
-  on it). Under it SOLO (the owner's, 2026-11-24: `solo`, its lamp
-  `led_solo`, `solo_plate`, `solo_mark`; the key S, the pad's east; the
-  dial, its ring and SOLO one group, the three gaps the band's groove to
-  SOLO to the ring to the names' line equal as they look): while on,
-  every voice but the selector's is muted, all its channels (`music:mix`'s
-  `mute`, 20 ms; `apply_solo`, again as the selector turns; on ACC none),
-  the column lamps still showing every voice's hits. The band: `start`
-  (its signs `start_play`/`start_stop`),
-  `pattern_a`/`_b`, the steps in four colors by fours, a lamp `led_*`
-  behind each; the keys' cursor a white bar in front of a key
-  (`<name>_mark`), shown once the keys moved it. Signs are painted into
-  the case's top in an alphabet of 6 by 9 voxels. `c.pointer = "system"`:
-  a click reads `input.pointer.part`; the machine answers by
-  `thing.state.parts` set every tick (a key held sinks by `offset`, a knob
-  or the selector turns, a switch tips) and by `frame:pose` each picture
-  (lamps, segments, the part under the pointer marked: a knob's line, a
-  switch's lever, a key's bar). The bottom line says the part under the
-  pointer (or the keys' cursor): its full name, its value with its unit,
-  its MML word (`BASS DRUM DECAY  0.87 s  decay`, `TEMPO  124 BPM  #tempo`). Its
-  scenarios `empty_machine`, `stopped`, `tempo_fast` and `a_beat`; its
-  replay `tests/click_the_machine` clicks steps (middle and edge) and the
-  case between two controls, turns the selector by click and keys, drags
-  and wheels a voice's knob and the three masters, wheels over the
-  display, flips a switch by its lever and its plate, rests on a column's
-  heading, stops and starts, switches the pattern, sets steps by keys,
-  and switches SOLO on, turns the selector under it by keys and a click,
-  and off and on and off again by its key and a click.
 - A part lit or out, a pose for one picture (the owner's yes,
   2026-11-22, to `shots/reviews/machines-as-models-draft.md` as its
   review narrowed it): a pose entry (one type, `PoseEntry`, in
@@ -804,7 +732,7 @@ nearest; its replay `tests/two_ships`);
   holds the packages back): Linux and Windows
   (macOS Intel only started by hand with it), SDL3 built in (`--features
   static-sdl`); `tools/package.py` puts the folder together (the games
-  but the Arena, the Bench, Lights, Drums and Studio, `dist/README.txt` and `LIESMICH.txt`, players first; on
+  but the Arena, the Bench, Lights and Drums, `dist/README.txt` and `LIESMICH.txt`, players first; on
   Linux `start-voxcade.sh`; `THIRD-PARTY-LICENSES.txt` from
   `tools/third_party_licenses.py`: the licences of every crate linked,
   SDL, Lua and egui's fonts). The program started without anything opens
@@ -818,7 +746,7 @@ nearest; its replay `tests/two_ships`);
   its picture, `cover.png` in its folder, 480 by 270, a shot of the
   game; without one the card shows its name; of the games beside the
   program only those with a cover are listed, and the package leaves
-  the Arena, the Bench, Lights, Drums and Studio out: only the games we show, the user). New versions
+  the Arena, the Bench, Lights and Drums out: only the games we show, the user). New versions
   (`src/update.rs`, `voxcade update [--install]`): the feed is the
   website's `release.toml` (the version, each system's package and its
   SHA-256; `VOXCADE_UPDATE_FEED` another, a file's path too), nothing
@@ -1857,7 +1785,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`headless::samples_beside`); the IDE's PLAY SONG reads the game
   folder's. Tests `src/audio/music/sample_tests.rs`,
   `src/lua/tests/samples.rs`; `games/drums/samples/thump.wav` (the
-  engine's own render of the RG-80's `@kick`) is the studio's `@thump`.
+  engine's own render of a layered `@kick`) is the studio's `@thump`.
   The player's strips are boxed (`Player::lanes`: a mixer holds seven
   players, and `the_audio_thread_takes_no_memory`'s stack overflowed). `#loop 33 80` (the owner's, 2026-11-20: songs with 32 bars
   of intro and outro for mixing) plays a song from its start once, then
@@ -1968,9 +1896,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   -60 dB in their time, the last 2 ms (`TAPER`) laid down straight; no
   sound file's words (their envelope is another). `music:mix` turns the
   first layer, but drive, cutoff, resonance the sum's where `=` states
-  them; `curve` no knob. Tests in `audio/music/layer_tests.rs`. The
-  RG-80's bass drum is HARALD's own from them, by the owner's kick
-  meters (KNALL, BALLERN, BRUSTKORB; `shots/kits/kick_meters.py`).
+  them; `curve` no knob. Tests in `audio/music/layer_tests.rs`. A
+  layered kick is checked by the owner's kick meters (KNALL, BALLERN,
+  BRUSTKORB; `ide::instrument::kick_meters`).
   The MML pulse wave is centred (no DC offset off duty 0.5, the owner's D6,
   2026-11-13; it changed the sound of End Boss slightly), so no song has
   thumps or lost headroom. MML refuses out-of-range values and names its

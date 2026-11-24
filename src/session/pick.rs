@@ -481,28 +481,76 @@ mod tests {
         n + rays.len()
     }
 
+    /// A game of one big figure, a level's piece on the level's land (a
+    /// `[terrain]` of one height), its parts posed every tick: a board 512
+    /// by 310 voxels and 4 high (its top and bottom whole, its walls 2
+    /// thick) with 229 parts standing on it, 32 keys, 16 lamps, 176 knobs
+    /// and 5 switches, boxes of 20 by 14 by 3, 6 by 6 by 2, 8 by 8 by 3 and
+    /// 4 by 8 by 6 voxels (386,768 voxels in all), seen at 640 voxels
+    /// across from a pitch of 70 and a field of view of 25. `on_tick` turns
+    /// every third knob (one tipped and moved by less than a voxel too),
+    /// sinks every other key, sinks and puts out every fourth lamp and
+    /// tips the switches.
+    fn big_figure_game() -> crate::scratch::Scratch {
+        let dir = crate::scratch::Scratch::new("pick-board");
+        let boxed = |name: &str, at: [i32; 3], [w, d, h]: [usize; 3], sign: char| {
+            let row = sign.to_string().repeat(w) + &if d > 1 { format!(" *{d}") } else { String::new() };
+            let layers = if h > 1 { format!("{row}\n*{h}") } else { row };
+            format!("\n[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\nlayers = \"\"\"\n{layers}\n\"\"\"\n", at[0], at[1], at[2])
+        };
+        let (full, edge) = ("a".repeat(512), format!("aa{}aa", ".".repeat(508)));
+        let mut model = format!(
+            "format = \"voxcade voxel 1\"\nsize = [512, 310, 10]\n\n[palette]\na = \"#34343a\"\nb = \"#d6d4cc\"\nc = \"#1e1e22\"\nd = {{ color = \"#ff4028\", glow = 1.0 }}\ne = \"#c4c2bc\"\n\
+             \n[[part]]\nname = \"board\"\nat = [-256, -155, 0]\nlayers = \"\"\"\n{full} *310\n\n{full} *2\n{edge} *306\n{full} *2\n*2\n\n{full} *310\n\"\"\"\n"
+        );
+        for i in 0..32 {
+            model += &boxed(&format!("key_{}", i + 1), [-240 + 30 * (i % 16), -140 + 20 * (i / 16), 4], [20, 14, 3], 'b');
+        }
+        for i in 0..16 {
+            model += &boxed(&format!("lamp_{}", i + 1), [-233 + 30 * i, -100, 4], [6, 6, 2], 'd');
+        }
+        for i in 0..176 {
+            model += &boxed(&format!("knob_{}", i + 1), [-234 + 30 * (i % 16), -80 + 20 * (i / 16), 4], [8, 8, 3], 'c');
+        }
+        for i in 0..5 {
+            model += &boxed(&format!("switch_{}", i + 1), [-202 + 100 * i, 136, 4], [4, 8, 6], 'e');
+        }
+        let heights = (["1"; 58].join(" ") + "\n").repeat(34);
+        let level = format!(
+            "format = \"voxcade level 1\"\nsize = [580, 340, 40]\n\n[terrain]\nspacing = 10\nat = [0, 0, 0]\nheights = \"\"\"\n{heights}\"\"\"\n\n[[terrain.material]]\ncolor = \"#5c4634\"\n\
+             \n[[thing]]\nname = \"board\"\nmodel = \"board.vvx\"\nat = [290, 170, 1]\nfacing = \"north\"\n\n[[place]]\nname = \"start\"\nat = [290, 156, 1]\n"
+        );
+        let conf = "function conf(c)\n  c.voxcade = \"0.7.0\"\n  c.world.size = nil\n  c.camera.pitch = 70\n  c.camera.fov = 25\n  c.camera.view_width = 640\n  c.light.sun = { 0.3, 0.5, -1.0 }\n  c.light.ambient = 0.45\n  c.pointer = \"system\"\n  c.actions = { \"click\" }\n  c.keys = { click = { \"mouse_left\" } }\n  c.title_screen.attract_after = 0\nend\n";
+        let main = "function on_tick()\n  local parts = {}\n  for i = 1, 176, 3 do parts[\"knob_\" .. i] = { rotation = (i * 37 + world.tick) % 270 - 135 } end\n  for i = 1, 32, 2 do parts[\"key_\" .. i] = { offset = { 0, 0, -1 } } end\n  for i = 1, 16, 4 do parts[\"lamp_\" .. i] = { glow = 0, offset = { 0, 0, -2 } } end\n  for i = 1, 5 do parts[\"switch_\" .. i] = { roll = i % 2 == 0 and 20 or -20 } end\n  parts.knob_8 = { rotation = 33, pitch = 12, offset = { 0.3, -0.2, 0 } }\n  level:thing(\"board\").state.parts = parts\nend\n";
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        for (file, text) in [("conf.lua", conf), ("main.lua", main), ("board.vvx", model.as_str()), ("levels/board.toml", level.as_str())] {
+            std::fs::write(dir.join(file), text).unwrap();
+        }
+        dir
+    }
+
     /// The pointer's walk through each part's own grid (`model_met`)
     /// answers as trying every voxel did (`model_met_by_every_voxel`), to
     /// the bit: where, which thing, which part, over rays aimed at
     /// voxels' corners, edges and faces (a hair off and not), grazing
-    /// along the axes, at random, and the picture's pointers, on Studio's
-    /// machine (posed: keys, lamps, knobs, switches) and its table (the
-    /// level's land), the Lights'
-    /// posed figure and its load, More Blood's start; and on figures and
-    /// models placed every way (four facings, turned freely and tipped off
-    /// the quarter turns, posed and moved by less than a voxel, between
-    /// voxels): a figure with mirrored clones and an empty part, Studio's
-    /// machine, More Blood's soldier of frames. Studio's machine in fine
-    /// voxels (380,000 of them) is aimed at more thinly, every 160th and
-    /// 1800th voxel: trying every voxel costs with the voxels squared, and
-    /// at the coarse machine's thinning the test took over five minutes.
+    /// along the axes, at random, and the picture's pointers, on a big
+    /// figure of 230 parts posed on the level's land (`big_figure_game`),
+    /// the Lights' posed figure and its load, More Blood's start; and on
+    /// figures and models placed every way (four facings, turned freely
+    /// and tipped off the quarter turns, posed and moved by less than a
+    /// voxel, between voxels): a figure with mirrored clones and an empty
+    /// part, the big figure, More Blood's soldier of frames. The big figure
+    /// (387,000 voxels) is aimed at more thinly, every 160th and 1800th
+    /// voxel: trying every voxel costs with the voxels squared, and aimed
+    /// at as thickly as the others the test would take many minutes.
     #[test]
     fn the_walk_meets_what_every_voxel_meets() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let board = big_figure_game();
         let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
         let mut rays = 0;
-        for (game, scenario, every, grid) in [("games/studio", None, 160, (128, 72)), ("games/lights", Some("posed"), 1, (320, 180)), ("games/lights", Some("load"), 7, (320, 180)), ("games/moreblood", None, 1, (320, 180))] {
-            let mut g = Session::<crate::Voxcade>::load(&root.join(game)).unwrap();
+        for (game, scenario, every, grid) in [(board.to_path_buf(), None, 160, (128, 72)), (root.join("games/lights"), Some("posed"), 1, (320, 180)), (root.join("games/lights"), Some("load"), 7, (320, 180)), (root.join("games/moreblood"), None, 1, (320, 180))] {
+            let mut g = Session::<crate::Voxcade>::load(&game).unwrap();
             if let Some(s) = scenario {
                 g.start_scenario(s).unwrap();
             }
@@ -510,16 +558,17 @@ mod tests {
                 g.step(&crate::input::Input::default());
             }
             g.look();
-            println!("{game} {scenario:?}:");
+            assert_eq!(g.game.halted(), None, "{}", game.display());
+            println!("{} {scenario:?}:", game.file_name().unwrap().to_string_lossy());
             rays += scan_scene(&g, every, grid, &mut dice);
         }
         let car = crate::vvx::read(&crate::vvx::tests::empty_car_text()).unwrap();
-        let machine = crate::vox::load_model(&root.join("games/studio/machine.vvx")).unwrap();
+        let big = crate::vox::load_model(&board.join("board.vvx")).unwrap();
         let soldier = crate::vox::load_model(&root.join("games/moreblood/enemy.vvx")).unwrap();
-        assert!(car.parts.iter().any(|p| p.empty.is_some()) && soldier.frames.len() > 1);
+        assert!(car.parts.iter().any(|p| p.empty.is_some()) && soldier.frames.len() > 1 && big.parts.len() == 230);
         let origins = [Vec3::new(40.0, 30.0, 2.0), Vec3::new(40.37, 29.81, 2.25)];
         let turns = [Quat::IDENTITY, turning(90.0, 0.0, 0.0), turning(33.0, 0.0, 0.0), turning(17.0, 23.0, -11.0), turning(0.0, 90.0, 0.0), turning(-140.0, -61.0, 37.0)];
-        for (name, model, every) in [("car", &car, 1), ("machine", &machine, 1800), ("soldier", &soldier, 1)] {
+        for (name, model, every) in [("car", &car, 1), ("board", &big, 1800), ("soldier", &soldier, 1)] {
             let mut n = 0;
             for (i, look) in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X].into_iter().enumerate() {
                 for (j, &turn) in turns.iter().enumerate() {
@@ -545,22 +594,22 @@ mod tests {
         println!("{rays} rays in all, every one answered alike");
     }
 
-    /// What a pointer costs on Studio, a machine of 230 parts in fine
-    /// voxels (512 by 310, 358,000 voxels drawn) on the level's land: a
-    /// grid of 64 by 36 pointers over the picture, the things met by the
-    /// walk and by trying every voxel, and whole answers (`point`); said,
-    /// and the walk kept under 300 voxels tried and 40 µs a pointer on
-    /// average (2026-11-24: 17 voxels and 12 µs, over a key 27 and 13 µs;
-    /// every voxel tried: some 343,000 and 3.5 ms).
+    /// What a pointer costs on a big figure of 230 parts posed on the
+    /// level's land (`big_figure_game`: 512 by 310 voxels, 387,000 of
+    /// them): a grid of 64 by 36 pointers over the picture, the things met
+    /// by the walk and by trying every voxel, and whole answers (`point`)
+    /// over a key; said, and the walk kept under 300 voxels tried and 40 µs
+    /// a pointer on average.
     #[test]
-    fn the_studios_pointer_is_answered_quickly() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut g = Session::<crate::Voxcade>::load(&root.join("games/studio")).unwrap();
+    fn a_pointer_on_a_big_figure_is_answered_quickly() {
+        let board = big_figure_game();
+        let mut g = Session::<crate::Voxcade>::load(&board).unwrap();
         for _ in 0..30 {
             g.step(&crate::input::Input::default());
         }
         g.look();
         let scene = g.picked.borrow().clone();
+        assert!(g.game.halted().is_none() && scene.picks.iter().any(|p| p.pose.iter().any(|q| q.turn != Quat::IDENTITY)), "the board is posed");
         let points: Vec<(f32, f32)> = (0..64 * 36).map(|i| ((i % 64) as f32 + 0.5, (i / 64) as f32 + 0.5)).collect();
         let rays: Vec<Ray> = points.iter().filter_map(|&(x, y)| ray(scene.view_proj, x / 32.0 - 1.0, 1.0 - y / 18.0)).collect();
         let world = &g.game.sim().world;
@@ -568,7 +617,7 @@ mod tests {
         let first = thing_met(&g.models, &scene.picks, rays[0].0, rays[0].1, f32::INFINITY, model_met);
         let made = started.elapsed().as_secs_f64() * 1e3;
         let bytes: usize = scene.picks.iter().map(|p| g.models.drawn(&p.model).map_or(0, |m| (0..m.parts.len().max(1)).map(|i| m.pick_cells(i).bytes()).sum())).sum();
-        println!("studio: its bits made with the first pointer in {made:.3} ms, {bytes} bytes ({})", if first.is_some() { "on a thing" } else { "on none" });
+        println!("board: its bits made with the first pointer in {made:.3} ms, {bytes} bytes ({})", if first.is_some() { "on a thing" } else { "on none" });
         let mut each = [0.0; 2];
         for (k, (how, met)) in [("the walk", model_met as Meeting), ("every voxel", model_met_by_every_voxel)].into_iter().enumerate() {
             let tried = TRIED.with(|n| n.get());
@@ -579,19 +628,21 @@ mod tests {
             }
             each[k] = started.elapsed().as_secs_f64() * 1e6 / rays.len() as f64;
             let tried = (TRIED.with(|n| n.get()) - tried) as f64 / rays.len() as f64;
-            println!("studio, {how}: {:.1} µs and {tried:.0} voxels tried a pointer ({things} of {} on a thing)", each[k], rays.len());
+            println!("board, {how}: {:.1} µs and {tried:.0} voxels tried a pointer ({things} of {} on a thing)", each[k], rays.len());
             if k == 0 {
                 assert!(tried < 300.0, "{tried:.0} voxels tried a pointer");
             }
         }
-        // Over the machine (step_2).
-        let p = g.point(99.0, 144.0, 16.0 / 9.0);
+        // Over a key of the front row (key_2).
+        let p = g.point(55.0, 148.0, 16.0 / 9.0);
         let (tried, started) = (TRIED.with(|n| n.get()), std::time::Instant::now());
         for _ in 0..100 {
-            g.point(99.0, 144.0, 16.0 / 9.0);
+            g.point(55.0, 148.0, 16.0 / 9.0);
         }
         let over = started.elapsed().as_secs_f64() * 1e4;
-        println!("studio, the walk over {:?}: {over:.1} µs and {} voxels tried a pointer", p.level.as_ref().and_then(|m| m.part.clone()), (TRIED.with(|n| n.get()) - tried) / 100);
+        let part = p.level.as_ref().and_then(|m| m.part.clone());
+        println!("board, the walk over {part:?}: {over:.1} µs and {} voxels tried a pointer", (TRIED.with(|n| n.get()) - tried) / 100);
+        assert_eq!(part.as_deref(), Some("key_2"));
         assert!(each[0] < 40.0, "{:.1} µs a pointer", each[0]);
     }
 

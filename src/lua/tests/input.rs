@@ -166,7 +166,7 @@ fn an_older_replay_shows_an_action_it_lacks_unbound() {
 /// Every key a game or a template binds to start with is one SDL knows by
 /// that name (Pulsar's "LShift" was none: Shift never bombed, and only the
 /// window's start said so), or one of the mouse's (`input::MOUSE_KEYS`, a
-/// game with a pointer: Studio's).
+/// game with a pointer: Drums').
 #[test]
 fn every_games_keys_are_keys() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));

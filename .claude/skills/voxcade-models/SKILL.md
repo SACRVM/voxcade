@@ -199,8 +199,7 @@ leaves unset), so a bigger figure is no extra work there.
   voxels of that colour glow; the voxel editor keeps it when it saves,
   and sets it on the held colour (the quiet word beside the colour:
   GLASS, METAL, ROUGH, GLOW).
-  `_flux` and `_ldr` are not read. The Studio's lamps glow
-  (`games/studio/machine.vvx`).
+  `_flux` and `_ldr` are not read.
   A pose may light a part or put it out without the file
   (`{ led_3 = { glow = 1 } }`, `glow = 0`: every voxel of the part, in
   place of its colours' glow), so a lamp that must go out need not sink
