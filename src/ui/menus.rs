@@ -522,7 +522,6 @@ fn chosen(value: &str, selected: bool) -> String {
 /// unsaid: everybody knows them (the owner, 2026-11-24: "es ist
 /// standard"). Empty where there is nothing more to say.
 pub(super) fn hint_text(menu: &Menu, page: Page, lang: &str) -> String {
-    let say = |en: &'static str| crate::lang::say(lang, en);
     let with = |en: &'static str, parts: &[&str]| crate::lang::say_with(lang, en, parts);
     // Keys as signs, the name where there is none.
     let key = |device: Device, label: &str| crate::ui::signs::key_sign(device, label).map_or_else(|| label.to_string(), String::from);
@@ -534,7 +533,6 @@ pub(super) fn hint_text(menu: &Menu, page: Page, lang: &str) -> String {
         (Device::Gamepad, _, Page::Initials) => with("{}: LETTER", &[&pad_up_down]),
         (Device::Keyboard, _, Page::Initials) => with("TYPE OR {}", &[&keys_up_down]),
         (Device::Gamepad, _, Page::Join | Page::Code) => with("{}: SIGN   {}: ONE MORE", &[&pad_up_down, &pad("dpright")]),
-        (Device::Keyboard, _, Page::Join | Page::Code) => say("TYPE").to_string(),
         _ => String::new(),
     }
 }
