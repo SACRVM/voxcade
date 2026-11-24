@@ -2615,3 +2615,78 @@ fn the_ticks_part_is_where_the_picture_draws_it() {
     }
     eprintln!("the walks lie at most {worst} apart");
 }
+
+/// A free turn of a whole figure of parts (`frame:model`'s rotation)
+/// turns every part alike, as one body about the model's turn centre:
+/// a part with an offset in its file or its pose, one hanging on another
+/// or standing alone, on an empty root, glass, thin, from the bank and as
+/// cubes, every quarter the figure faces. A game's logo whose subtitle
+/// seemed to stay still at `{ rotation = 15 }` was reported.
+#[test]
+fn a_free_turn_turns_every_part_of_a_figure_alike() {
+    let text = |root: &str, subtitle_parent: &str| {
+        let title_parent = if root.is_empty() { "" } else { "parent = \"rig\"\n" };
+        format!(
+            "format = \"voxcade voxel 1\"\nsize = [21, 3, 12]\n\n[palette]\nt = \"#c04030\"\nw = \"#30a040\"\ns = \"#3050c0\"\ng = {{ color = \"#88ccff\", glass = 0.5 }}\n\n{root}\
+[[part]]\nname = \"title\"\nat = [-10, -1, 7]\n{title_parent}layers = \"\"\"\nttttttttttttttttttttt\nttttttttttttttttttttt\nttttttttttttttttttttt\n*4\n\"\"\"\n\n\
+[[part]]\nname = \"word\"\nat = [-6, -1, 4]\nparent = \"title\"\noffset = [0.25, 0, 0.3]\nlayers = \"\"\"\nwwwwwwwwwwwww\nwwwwwwwwwwwww\nwwwwwwwwwwwww\n*2\n\"\"\"\n\n\
+[[part]]\nname = \"pane\"\nat = [-2, -1, 3]\nparent = \"word\"\nlayers = \"\"\"\nggggg\n\"\"\"\n\n\
+[[part]]\nname = \"subtitle\"\nat = [-5, 0, 0]\n{subtitle_parent}layers = \"\"\"\nsssssssssss\n\"\"\"\n"
+        )
+    };
+    let variants = [
+        ("the subtitle alone", text("", "")),
+        ("the subtitle on the word", text("", "parent = \"word\"\n")),
+        ("on an empty root", text("[[part]]\nname = \"rig\"\n\n", "parent = \"rig\"\n")),
+        ("the word turned at rest", text("", "parent = \"word\"\n").replace("offset = [0.25, 0, 0.3]\n", "offset = [0.25, 0, 0.3]\nrotation = 10\npitch = 12\n")),
+    ];
+    let origin = Vec3::new(40.0, 50.0, 3.0);
+    for (what, text) in variants {
+        let mut m = crate::vvx::read(&text).unwrap_or_else(|e| panic!("{what}: {e:#}"));
+        let mut bank = ModelBank::default();
+        bank.add(&mut m);
+        let names: Vec<&str> = m.parts.iter().map(|p| p.name.as_str()).collect();
+        let at = |name: &str| names.iter().position(|n| *n == name).unwrap();
+        let mut poses = vec![Vec::new()];
+        let mut offset = vec![PartPose::REST; m.parts.len()];
+        offset[at("subtitle")].offset = Vec3::new(0.0, -1.0, 0.5);
+        offset[at("title")].offset = Vec3::new(0.0, 0.0, 0.4);
+        poses.push(offset.clone());
+        offset[at("word")].turn = turning(0.0, 20.0, 0.0);
+        poses.push(offset);
+        // Every voxel as cubes, and the bank's draws with the glass as
+        // cubes, each with its colour: both the same.
+        let drawn = |look: IVec2, rot: Quat, pose: &[PartPose]| {
+            let mut cubes: Vec<(Vec3, [u8; 4])> = Vec::new();
+            draw(&mut |corner: Vec3, color, _, _, _, _, _| cubes.push((corner + 0.5, color)), None, &m, 0, origin, look, rot, pose, None);
+            let mut gpu: Vec<(Vec3, [u8; 4])> = Vec::new();
+            let mut on_gpu = Vec::new();
+            draw(&mut |corner: Vec3, color, _, _, _, _, _| gpu.push((corner + 0.5, color)), Some(&mut on_gpu), &m, 0, origin, look, rot, pose, None);
+            gpu.extend(on_gpu.iter().flat_map(|d| bank.cubes(d)).map(|i| (Vec3::from_slice(&i.pos_size[..3]), i.color)));
+            let key = |c: &(Vec3, [u8; 4])| (c.1, c.0.to_array().map(f32::to_bits));
+            let (mut a, mut b) = (cubes.clone(), gpu);
+            a.sort_by_key(key);
+            b.sort_by_key(key);
+            assert!(a == b, "{what} {look} {rot}: the bank draws other cubes");
+            cubes
+        };
+        for look in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X] {
+            for pose in &poses {
+                let still = drawn(look, Quat::IDENTITY, pose);
+                for free in [turning(15.0, 0.0, 0.0), turning(0.0, 5.0, 0.0), turning(15.0, 5.0, -3.0), turning(90.0, 0.0, 0.0)] {
+                    let turned = drawn(look, free, pose);
+                    // The free turn as the world sees it, about the turn centre.
+                    let quarter = Quat::from_rotation_z(-(look.x as f32).atan2(look.y as f32));
+                    let world = quarter * free * quarter.inverse();
+                    let centre = origin + crate::render::turn_centre(m.size);
+                    assert_eq!(still.len(), turned.len());
+                    for ((s, colour), (t, _)) in still.iter().zip(&turned) {
+                        let want = centre + world * (*s - centre);
+                        let part = m.parts.iter().filter(|p| !p.voxels.is_empty()).find(|p| m.frames[0][p.voxels[0] as usize].1 == *colour).map_or("?", |p| p.name.as_str());
+                        assert!((want - *t).length() < 1e-3, "{what}, facing {look}, {free}, pose {pose:?}: the {part}'s voxel at {s} drawn at {t}, not {want}");
+                    }
+                }
+            }
+        }
+    }
+}
