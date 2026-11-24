@@ -648,42 +648,69 @@ nearest; its replay `tests/two_ships`);
   scenarios `second_pattern` and `empty_machine`; its replay
   `tests/toggle_and_switch` toggles steps, switches the pattern, calls a
   switch off before the bar and edits a pattern while it waits.
-- A machine played through its model (a trial, 2026-11-22): `games/studio`
-  (no cover, not listed, not packaged; `GAMES_OF_VOXCADE` names it), the
-  HARALD RG-80 (the owner's invented maker and its Rhythmus-Gerät), a drum
-  machine after the analog one of 1980 in layout and function (never its
-  name, maker or lettering), as a level's piece, `machine.vvx`, a figure
-  of 81 parts, 400 by 110 voxels in one row of columns
-  (`tools/gen_studio.py` made it and keeps it: the owner's now; main.lua
-  knows its parts by name only, their places by `thing:part`). Its sound
-  is the library's kit, `music/rg80.mml` copied; a column a voice (ACCENT,
-  BD, SD, LT, MT, HT, RS, CP, CB, CY, OH, CH), each with its `led_<code>`
-  and `<code>_level` knob, under it the knobs that shape it, each one
-  `music:mix` word on the voice's channels with the kit's value in its
-  middle (`bd_tone` drive, `bd_decay`/`cy_decay`/`oh_decay` decay and
-  release, `sd_tone`/`cy_tone` cutoff, `sd_snappy` the noise channel's
-  fader, `*_tuning` freq) or a switch `<code>_switch` to its other
-  instrument (toms to congas, rim shot to claves, clap to maracas; a pose's
-  `roll`); the open hat's channel takes a silent closed hat where only the
-  closed one plays (the choke); the accent row raises every voice's `v`.
-  The `selector` (twelve positions, the voice the sixteen `step_N` buttons
-  edit) is clicked, dragged round or wheeled through a HUD panel over its
-  dial (`frame:hud` placed by `frame:to_screen` of its part: the pointer
-  names a part but not where on it); `tempo`, `volume`, `start`,
-  `pattern_a`/`_b`, a lamp `led_*` for each button and step. Labels and
-  the nameplate are painted into the case's top in 3 by 5 voxel letters,
-  each in front of its knob. A knob is one value turned by the hand alone
-  (the owner: a knob that turns by itself cannot be). `c.pointer =
-  "system"`: a click reads `input.pointer.part`; the machine answers by
-  `thing.state.parts` set every tick (a button held sinks by `offset`, a
-  knob or the selector turns, a switch flips) and by `frame:pose` each
-  picture (a lamp lit or out by its `glow`, the part under the pointer,
-  else the keys' cursor, lit a little). The view (180 across) shows about
-  its middle third: a wider view or a camera that moves is the owner's
-  choice to make. Its scenarios `empty_machine`, `stopped`, `tempo_fast`
-  and `a_beat`; its replay `tests/click_the_machine` clicks steps and the
-  case between two, flips a switch, drags and wheels knobs, turns the
-  selector by the keys, switches the pattern, stops and starts.
+- A machine played through its model (a trial, 2026-11-22; in fine voxels
+  since 2026-11-24): `games/studio` (no cover, not listed, not packaged;
+  `GAMES_OF_VOXCADE` names it), the HARALD RG-80 (the owner's invented
+  maker and its Rhythmus-Gerät), a drum machine after the analog one of
+  1980 in function (never its name, maker or lettering), as a level's
+  piece, `machine.vvx`, a figure of 226 parts, 512 by 310 voxels, on a
+  table that is the level's own land (a `[terrain]` of one height:
+  cheaper to draw than a model of one voxel a cell). The owner's rules
+  for a device (2026-11-24): it fits the screen whole at 1280 by 720
+  (pixels limit what reads, not voxels: fine voxels, the view 640
+  across, pitch 70, fov 25, about 2 pixels a voxel at 720); the sixteen
+  steps and their lamps in one row; on the device symbols or signs of two
+  or three letters, the full name at the screen's bottom edge; the same
+  margins and gaps on all sides (`tools/gen_studio.py` works every place
+  out from a few numbers, M 16 among them, a gap made wider the further
+  back it lies, `gap`, for the perspective, and prints the margins; it
+  made the machine and keeps it: the owner's now; main.lua knows its
+  parts by name only, their places by `thing:part`). Its sound is the
+  library's kit, `music/rg80.mml` copied. Eleven voice columns (BD, SD,
+  LT, MT, HT, RS, CP, CB, CY, OH, CH), each its heading (`<code>_head`,
+  the name and its lamp `led_<code>`, lit for 0.09 s as the voice hits,
+  brighter on an accent, from the pattern and `music.position` as the
+  running light), its `<code>_level` knob and under it the knobs that
+  shape it, each one `music:mix` word on the voice's channels with the
+  kit's value in its middle (`bd_tone` drive, `bd_decay`/`cy_decay`/
+  `oh_decay` decay and release, `sd_tone`/`cy_tone` cutoff, `sd_snappy`
+  the noise channel's fader, `*_tuning` freq), or a toggle switch
+  `<code>_switch` to its other instrument (toms to congas, rim shot to
+  claves, clap to maracas: a lever on a round base, `<code>_mount`,
+  tipped left or right by a pose's `roll`, its two signs over it; a flush
+  plate `<code>_plate` round it takes the click too); the open hat's
+  channel takes a silent closed hat where only the closed one plays (the
+  choke). A knob is round, 14 voxels across (the masters 18), its pointer
+  line a part of its own (`<name>_ptr`) and a flush plate round it
+  (`<name>_base`) that a drag on it turns too; one value turned by the
+  hand alone (the owner: a knob that turns by itself cannot be). The top
+  strip: the nameplate flush left; ACC (`ac_level`, the accent row's
+  `v`), BPM (the `display`, three digits of seven segments, each
+  `seg_<d>_<s>` faint and `lit_<d>_<s>` sunk when dark, and the `tempo`
+  knob) and VOL (`volume`) flush right. The `selector` alone in the left
+  panel: twelve positions (ACC, in the yellow of the third group of keys,
+  then the eleven voices), a ring of lamps `sel_1` .. `sel_12` showing the
+  voice the sixteen `step_N` keys edit, clicked, dragged round or wheeled
+  through a HUD panel over its dial (`frame:hud` placed by
+  `frame:to_screen` of its part: the pointer names a part but not where
+  on it). The band: `start` (its signs `start_play`/`start_stop`),
+  `pattern_a`/`_b`, the steps in four colors by fours, a lamp `led_*`
+  behind each; the keys' cursor a white bar in front of a key
+  (`<name>_mark`), shown once the keys moved it. Signs are painted into
+  the case's top in an alphabet of 6 by 9 voxels. `c.pointer = "system"`:
+  a click reads `input.pointer.part`; the machine answers by
+  `thing.state.parts` set every tick (a key held sinks by `offset`, a knob
+  or the selector turns, a switch tips) and by `frame:pose` each picture
+  (lamps, segments, the part under the pointer marked: a knob's line, a
+  switch's lever, a key's bar). The bottom line says the part under the
+  pointer (or the keys' cursor): its full name, its value with its unit,
+  its MML word (`BASS DRUM DECAY  0.87 s  decay`, `TEMPO  124 BPM  #tempo`). Its
+  scenarios `empty_machine`, `stopped`, `tempo_fast` and `a_beat`; its
+  replay `tests/click_the_machine` clicks steps (middle and edge) and the
+  case between two controls, turns the selector by click and keys, drags
+  and wheels a voice's knob and the three masters, wheels over the
+  display, flips a switch by its lever and its plate, rests on a column's
+  heading, stops and starts, switches the pattern and sets steps by keys.
 - A part lit or out, a pose for one picture (the owner's yes,
   2026-11-22, to `shots/reviews/machines-as-models-draft.md` as its
   review narrowed it): a pose entry (one type, `PoseEntry`, in

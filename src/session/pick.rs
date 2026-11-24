@@ -486,7 +486,8 @@ mod tests {
     /// the bit: where, which thing, which part, over rays aimed at
     /// voxels' corners, edges and faces (a hair off and not), grazing
     /// along the axes, at random, and the picture's pointers, on Studio's
-    /// machine (posed: buttons, lamps, knobs) and table, the Lights'
+    /// machine (posed: keys, lamps, knobs, switches) and its table (the
+    /// level's land), the Lights'
     /// posed figure and its load, More Blood's start; and on figures and
     /// models placed every way (four facings, turned freely and tipped off
     /// the quarter turns, posed and moved by less than a voxel, between
@@ -541,12 +542,13 @@ mod tests {
         println!("{rays} rays in all, every one answered alike");
     }
 
-    /// What a pointer costs on Studio, a machine of 50 parts (29,000
-    /// voxels that can be seen) on a table (51,000): a grid of 64 by 36
-    /// pointers over the picture, the things met by the walk and by trying
-    /// every voxel, and whole answers (`point`); said, and the walk kept
-    /// under 300 voxels tried and 40 µs a pointer on average (every voxel
-    /// tried: some 25,000 and 0.3 ms; over the machine 80,000 and 0.8 ms).
+    /// What a pointer costs on Studio, a machine of 226 parts in fine
+    /// voxels (512 by 310, 358,000 voxels drawn) on the level's land: a
+    /// grid of 64 by 36 pointers over the picture, the things met by the
+    /// walk and by trying every voxel, and whole answers (`point`); said,
+    /// and the walk kept under 300 voxels tried and 40 µs a pointer on
+    /// average (2026-11-24: 17 voxels and 12 µs, over a key 27 and 13 µs;
+    /// every voxel tried: some 343,000 and 3.5 ms).
     #[test]
     fn the_studios_pointer_is_answered_quickly() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -579,11 +581,11 @@ mod tests {
                 assert!(tried < 300.0, "{tried:.0} voxels tried a pointer");
             }
         }
-        // Over the machine (step_2), as the draft measured it.
-        let p = g.point(39.0, 128.0, 16.0 / 9.0);
+        // Over the machine (step_2).
+        let p = g.point(99.0, 144.0, 16.0 / 9.0);
         let (tried, started) = (TRIED.with(|n| n.get()), std::time::Instant::now());
         for _ in 0..100 {
-            g.point(39.0, 128.0, 16.0 / 9.0);
+            g.point(99.0, 144.0, 16.0 / 9.0);
         }
         let over = started.elapsed().as_secs_f64() * 1e4;
         println!("studio, the walk over {:?}: {over:.1} µs and {} voxels tried a pointer", p.level.as_ref().and_then(|m| m.part.clone()), (TRIED.with(|n| n.get()) - tried) / 100);
