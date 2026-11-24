@@ -56,13 +56,9 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("PRESS START", "DRÜCKE START", "APPUIE SUR START"),
     ("ENTER YOUR INITIALS", "DEINE INITIALEN", "TES INITIALES"),
     ("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD", "LAUFEN: PFEILE ODER WASD, STICK ODER KREUZ", "BOUGER: FLÈCHES OU WASD, STICK OU CROIX"),
-    ("ENTER: SELECT   ESC: BACK", "ENTER: WÄHLEN   ESC: ZURÜCK", "ENTER: CHOISIR   ESC: RETOUR"),
-    ("ENTER: CONTINUE", "ENTER: WEITER", "ENTER: CONTINUER"),
-    ("TYPE OR UP/DOWN   ENTER: NEXT   ESC: BACK", "TIPPEN ODER HOCH/RUNTER  ENTER: WEITER  ESC: ZURÜCK", "TAPE OU HAUT/BAS   ENTER: SUITE   ESC: RETOUR"),
-    ("ESC OR {}: CANCEL", "ESC ODER {}: ABBRECHEN", "ESC OU {}: ANNULER"),
-    ("UP/DOWN: LETTER   {}: NEXT   {}: BACK", "HOCH/RUNTER: BUCHSTABE   {}: WEITER   {}: ZURÜCK", "HAUT/BAS: LETTRE   {}: SUITE   {}: RETOUR"),
-    ("{}: CONTINUE", "{}: WEITER", "{}: CONTINUER"),
-    ("{}: SELECT   {}: BACK", "{}: WÄHLEN   {}: ZURÜCK", "{}: CHOISIR   {}: RETOUR"),
+    ("TYPE OR {}", "TIPPEN ODER {}", "TAPE OU {}"),
+    ("{} OR {}: CANCEL", "{} ODER {}: ABBRECHEN", "{} OU {}: ANNULER"),
+    ("{}: LETTER", "{}: BUCHSTABE", "{}: LETTRE"),
     ("{} PLACE   SCORE {}", "{} PLATZ   PUNKTE {}", "{} PLACE   SCORE {}"),
     ("EMPTY", "LEER", "VIDE"),
     ("AUDIO", "TON", "AUDIO"),
@@ -88,10 +84,8 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("JOINING", "BEITRITT", "CONNEXION"),
     ("DROP {}", "{} ENTFERNEN", "RETIRER {}"),
     ("THE HOST'S ADDRESS (ITS PAUSE PAGE SAYS IT)", "DIE ADRESSE DES SPIELS (SEINE PAUSE ZEIGT SIE)", "L'ADRESSE DE L'HÔTE (SA PAUSE L'INDIQUE)"),
-    ("UP/DOWN: SIGN   RIGHT: ONE MORE   {}: JOIN   {}: BACK", "HOCH/RUNTER: ZEICHEN  RECHTS: NOCH EINS  {}: LOS  {}: ZURÜCK", "HAUT/BAS: SIGNE  DROITE: UN DE PLUS  {}: REJOINDRE  {}: RETOUR"),
-    ("TYPE   ENTER: JOIN   ESC: BACK", "TIPPEN   ENTER: BEITRETEN   ESC: ZURÜCK", "TAPE   ENTER: REJOINDRE   ESC: RETOUR"),
-    ("{}: CANCEL", "{}: ABBRECHEN", "{}: ANNULER"),
-    ("ESC: CANCEL", "ESC: ABBRECHEN", "ESC: ANNULER"),
+    ("{}: SIGN   {}: ONE MORE", "{}: ZEICHEN   {}: NOCH EINS", "{}: SIGNE   {}: UN DE PLUS"),
+    ("TYPE", "TIPPEN", "TAPE"),
     ("ASKING {}", "FRAGE BEI {} AN", "DEMANDE À {}"),
     ("THE TICKET'S HOST", "DEN HOST DES TICKETS", "L'HÔTE DU TICKET"),
     ("THE HOST LEFT", "DER HOST IST GEGANGEN", "L'HÔTE EST PARTI"),
@@ -230,7 +224,7 @@ mod tests {
         assert_eq!(say_with("de", "{} MIN AGO", &["5"]), "VOR 5 MIN");
         assert_eq!(say_line("de", "THE HOST LEFT"), "DER HOST IST GEGANGEN");
         assert_eq!(say_line("fr", "SOMETHING THE TABLE LACKS"), "SOMETHING THE TABLE LACKS");
-        assert_eq!(say_with("fr", "{}: SELECT   {}: BACK", &["A", "B"]), "A: CHOISIR   B: RETOUR");
+        assert_eq!(say_with("fr", "{} OR {}: CANCEL", &["A", "B"]), "A OU B: ANNULER");
         assert_eq!((ordinal("en", 2), ordinal("en", 12), ordinal("de", 3), ordinal("fr", 1), ordinal("fr", 4)), ("2ND".into(), "12TH".into(), "3.".into(), "1ER".into(), "4E".into()));
         let longest = WORDS.iter().map(|w| w.0.chars().count()).max().unwrap();
         for (en, de, fr) in WORDS {
@@ -277,6 +271,7 @@ mod tests {
         ("{} {} MS{}", "a machine's name and its round trip"),
         ("{} {} MS", "a machine's name and its round trip"),
         ("VOX", "the high score table's first lines' initials"),
+        ("ESCAPE", "a key's name, drawn as its sign"),
         ("CAD", "initials"),
         ("ACE", "initials"),
         ("SKY", "initials"),

@@ -516,34 +516,35 @@ fn chosen(value: &str, selected: bool) -> String {
     if selected { format!("< {value} >") } else { value.to_string() }
 }
 
-/// The hint line of a page: how to steer, for the device in hand.
+/// The hint line of a page: what is not plain, for the device in hand,
+/// its keys as signs (`signs`). Choosing with Return, a click or the pad's
+/// confirm button, going back with Escape and moving with the arrows go
+/// unsaid: everybody knows them (the owner, 2026-11-24: "es ist
+/// standard"). Empty where there is nothing more to say.
 pub(super) fn hint_text(menu: &Menu, page: Page, lang: &str) -> String {
     let say = |en: &'static str| crate::lang::say(lang, en);
-    let style = menu.pad_style;
     let with = |en: &'static str, parts: &[&str]| crate::lang::say_with(lang, en, parts);
-    let (south, east) = (pad_label("south", style), pad_label("east", style));
+    // Keys as signs, the name where there is none.
+    let key = |device: Device, label: &str| crate::ui::signs::key_sign(device, label).map_or_else(|| label.to_string(), String::from);
+    let pad = |name: &str| key(Device::Gamepad, &pad_label(name, menu.pad_style));
+    let (pad_up_down, keys_up_down) = (format!("{}{}", pad("dpup"), pad("dpdown")), format!("{}{}", key(Device::Keyboard, "UP"), key(Device::Keyboard, "DOWN")));
     match (menu.device, menu.rebinding.is_some(), page) {
-        (_, true, _) => with("ESC OR {}: CANCEL", &[&pad_label("back", style)]),
-        (Device::Gamepad, _, Page::Initials) => with("UP/DOWN: LETTER   {}: NEXT   {}: BACK", &[&south, &east]),
-        (Device::Keyboard, _, Page::Initials) => say("TYPE OR UP/DOWN   ENTER: NEXT   ESC: BACK").to_string(),
-        (Device::Gamepad, _, Page::HighScores) => with("{}: CONTINUE", &[&south]),
-        (Device::Keyboard, _, Page::HighScores) => say("ENTER: CONTINUE").to_string(),
-        (Device::Gamepad, _, Page::Join) => with("UP/DOWN: SIGN   RIGHT: ONE MORE   {}: JOIN   {}: BACK", &[&south, &east]),
-        (Device::Keyboard, _, Page::Join) => say("TYPE   ENTER: JOIN   ESC: BACK").to_string(),
-        (Device::Gamepad, _, Page::Code) => with("UP/DOWN: SIGN   RIGHT: ONE MORE   {}: JOIN   {}: BACK", &[&south, &east]),
-        (Device::Keyboard, _, Page::Code) => say("TYPE   ENTER: JOIN   ESC: BACK").to_string(),
-        (Device::Gamepad, _, Page::Joining) => with("{}: CANCEL", &[&east]),
-        (Device::Keyboard, _, Page::Joining) => say("ESC: CANCEL").to_string(),
-        (Device::Gamepad, _, _) => with("{}: SELECT   {}: BACK", &[&south, &east]),
-        (Device::Keyboard, _, _) => say("ENTER: SELECT   ESC: BACK").to_string(),
+        // Any key binds: how not to.
+        (_, true, _) => with("{} OR {}: CANCEL", &[&key(Device::Keyboard, "ESCAPE"), &pad("back")]),
+        (Device::Gamepad, _, Page::Initials) => with("{}: LETTER", &[&pad_up_down]),
+        (Device::Keyboard, _, Page::Initials) => with("TYPE OR {}", &[&keys_up_down]),
+        (Device::Gamepad, _, Page::Join | Page::Code) => with("{}: SIGN   {}: ONE MORE", &[&pad_up_down, &pad("dpright")]),
+        (Device::Keyboard, _, Page::Join | Page::Code) => say("TYPE").to_string(),
+        _ => String::new(),
     }
 }
 
-/// A hint broken into lines of at most `cols` letters: at the gaps of two
-/// spaces or more between its parts first, else at a single space; a word
-/// longer than a line stays whole.
+/// A hint broken into lines of at most `cols` letters (a key's sign as
+/// wide as it is drawn): at the gaps of two spaces or more between its
+/// parts first, else at a single space; a word longer than a line stays
+/// whole.
 pub(super) fn wrap_hint(hint: &str, cols: usize) -> Vec<String> {
-    let len = |s: &str| s.chars().count();
+    let len = |s: &str| ((text_width(s, 1) + 1.0) / 6.0).ceil() as usize;
     if len(hint) <= cols {
         return vec![hint.to_string()];
     }

@@ -897,8 +897,9 @@ pub const API: &[Item] = &[
     Item { of: "frame", name: "text", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width \
             across, frame.height down).\n- color: a Color, a fourth value see-through.\n- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).\n- An action \
-            in braces is its key as the player sees it: \"PRESS {jump}\" writes PRESS X, or the pad's button (controls:key). {{ writes a \
-            brace.\nWritten as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ \
+            in braces is its key as the player sees it: \"{jump} JUMP\" draws the key as a small sign where there is one (an arrow, a \
+            letter in a thin frame, the pad's button, the mouse), else writes its name (controls:key); \"{jump:name}\" always its name. The \
+            big letters of a display font write the name. {{ writes a brace.\nWritten as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ \
             ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals.\nWhat is drawn first on the HUD lies on top: where \
             two things share a voxel, the first keeps it (a box drawn later does not cover an icon drawn before)." },
     Item { of: "frame", name: "players", what: Field { ty: "Player[]", set: false }, doc: "The players at the machine this picture is drawn \
@@ -943,7 +944,8 @@ pub const API: &[Item] = &[
     Item { of: "controls", name: "key", what: Method { params: &[("action", "string")], returns: "string" },
         doc: "The first key or button of an action (c.actions, one the ready-made rules bring, or pause) as the player sees it: the \
             keyboard's key as it is printed on it (Y where the binding is Z on a German keyboard), the pad's button as it is printed on the \
-            pad (B, CIRCLE). Empty if nothing is bound or nobody plays." },
+            pad (B, CIRCLE). Empty if nothing is bound or nobody plays. In a text, {action} draws it as a sign, {action:name} writes \
+            this." },
     Item { of: "area", name: "name", what: Field { ty: "string", set: false }, doc: "Its name in the level's file (level.areas.NAME)." },
     Item { of: "area", name: "x", what: Field { ty: "integer", set: false }, doc: "Its low corner in voxels: x, y and z where it begins." },
     Item { of: "area", name: "y", what: Field { ty: "integer", set: false }, doc: "Its low corner's y." },

@@ -382,6 +382,95 @@ fn every_letter_reads_as_it_did() {
     assert!(moved.is_empty(), "the letters changed ({} of {} cells; on purpose: VOXCADE_PICTURES=renew):\n  {}", moved.len(), cols * rows, moved.join("\n  "));
 }
 
+const SIGNS_HEADER: &str = "voxcade signs 1";
+
+/// The pad's buttons as a game binds them, each shown as its sign.
+const PAD_BUTTONS: [&str; 16] = ["south", "east", "west", "north", "leftshoulder", "rightshoulder", "lefttrigger", "righttrigger", "start", "back", "leftstick", "rightstick", "dpup", "dpdown", "dpleft", "dpright"];
+
+/// A game of nothing but keys: an action for each of `keys` (bound on the
+/// keyboard, or with `pad` on a pad), its key in braces drawn in the small
+/// letters and twice as big on a plain sky.
+fn sign_game(dir: &Path, keys: &[String], pad: bool) -> PathBuf {
+    let game = dir.join(if pad { "pad" } else { "keys" });
+    std::fs::create_dir_all(&game).unwrap();
+    let actions: Vec<String> = (0..keys.len()).map(|i| format!("k{i}")).collect();
+    let bound: Vec<String> = actions.iter().zip(keys).map(|(a, k)| format!("    {a} = {{ \"{k}\" }},")).collect();
+    let conf = format!(
+        "function conf(c)\n  c.voxcade = \"{}\"\n  c.title = \"Signs\"\n  c.world.size = {{ 16, 16, 8 }}\n  c.light.sky = {{ 25.5, 30.6, 51 }}\n  c.pointer = \"system\"\n  c.actions = {{ {} }}\n  c.{} = {{\n{}\n  }}\nend\n",
+        env!("CARGO_PKG_VERSION"),
+        actions.iter().map(|a| format!("\"{a}\"")).collect::<Vec<_>>().join(", "),
+        if pad { "pad" } else { "keys" },
+        bound.join("\n")
+    );
+    std::fs::write(game.join("conf.lua"), conf).unwrap();
+    let mut main = String::from("function on_draw(frame)\n");
+    for (i, a) in actions.iter().enumerate() {
+        main += &format!("  frame:text(\"{{{a}}}\", {}, {})\n", 4 + (i % 12) * 26, 4 + (i / 12) * 11);
+        main += &format!("  frame:text(\"{{{a}}}\", {}, {}, nil, 2)\n", 4 + (i % 6) * 52, 40 + (i / 6) * 22);
+    }
+    main += "end\n";
+    std::fs::write(game.join("main.lua"), main).unwrap();
+    game
+}
+
+/// Every key's sign (`ui::signs`: the keyboard's, the mouse's, each pad's)
+/// drawn on a plain sky, in the small letters and twice as big, its mean
+/// colors in cells of 8 by 8 pixels against `tests/signs.txt` as the
+/// letters' are (renewed with `VOXCADE_PICTURES=renew`): a sign that
+/// breaks moves cells. The keys drawn are every sign there is.
+#[test]
+fn every_sign_reads_as_it_did() {
+    use voxcade::controls::{Device, PadStyle, pad_label};
+    let signs = voxcade::ui::signs::every_sign();
+    // The keyboard's by the names a game binds (the mouse's as input
+    // names them), a picture for each 23 of them (32 actions at most).
+    let keys: Vec<String> = signs.iter().filter(|(d, ..)| *d == Device::Keyboard).map(|(_, label, _)| match *label {
+        "MOUSE LEFT" | "MOUSE RIGHT" | "MOUSE MIDDLE" | "WHEEL UP" | "WHEEL DOWN" => label.to_lowercase().replace(' ', "_"),
+        other => other.to_string(),
+    }).collect();
+    let mut groups: Vec<(String, Vec<String>, Option<&str>)> = keys.chunks(23).enumerate().map(|(i, k)| (format!("keyboard_{}", i + 1), k.to_vec(), None)).collect();
+    let mut shown: Vec<String> = Vec::new();
+    for (kind, style) in [("xbox", PadStyle::Xbox), ("nintendo", PadStyle::Nintendo), ("playstation", PadStyle::PlayStation)] {
+        groups.push((kind.to_string(), PAD_BUTTONS.iter().map(|b| b.to_string()).collect(), Some(kind)));
+        shown.extend(PAD_BUTTONS.iter().map(|b| pad_label(b, style)));
+    }
+    let unshown: Vec<&str> = signs.iter().filter(|(d, l, _)| *d == Device::Gamepad && !shown.iter().any(|s| s == l)).map(|(_, l, _)| *l).collect();
+    assert!(unshown.is_empty(), "a pad's signs no pad's button shows: {unshown:?}");
+    let (cols, rows) = LETTER_GRID;
+    let mut drawn = Vec::new();
+    for (name, keys, pad) in &groups {
+        let dir = Scratch::new_named(&format!("signs-{name}"));
+        let game = sign_game(dir.path(), keys, pad.is_some());
+        let mut args: Vec<String> = ["shot", &game.to_string_lossy(), "--frames", "2", "--size", "640x360", "--out", "{out}"].iter().map(|a| a.to_string()).collect();
+        if let Some(kind) = pad {
+            args.extend(["--pad".to_string(), kind.to_string()]);
+        }
+        let (w, h, rgb) = draw_with(name, &args, dir.path());
+        drawn.push((name.clone(), w, h, means_of(w, h, &rgb, cols, rows)));
+    }
+    let file = root().join("tests/signs.txt");
+    if std::env::var("VOXCADE_PICTURES").is_ok_and(|v| v == "renew") {
+        let intro = format!("# The mean colour of each cell of a {cols} by {rows} grid over pictures of every key's sign, row by row.\n# Made by `VOXCADE_PICTURES=renew cargo test --release --test pictures`; see tests/pictures.rs.\n");
+        std::fs::write(&file, write_text_as(SIGNS_HEADER, &intro, cols, &drawn)).unwrap();
+        eprintln!("pictures: the numbers in tests/signs.txt are renewed; look at the diff");
+        return;
+    }
+    let text = std::fs::read_to_string(&file).expect("tests/signs.txt (renew it with VOXCADE_PICTURES=renew)");
+    let kept = read_text_as(SIGNS_HEADER, "tests/signs.txt", &text);
+    assert_eq!(kept.iter().map(|k| k.0.as_str()).collect::<Vec<_>>(), drawn.iter().map(|d| d.0.as_str()).collect::<Vec<_>>(), "tests/signs.txt holds other pictures (renew it)");
+    let tol = tolerance();
+    let mut moved = Vec::new();
+    for ((name, w, h, cells), (_, kw, kh, expected)) in drawn.iter().zip(&kept) {
+        assert_eq!((kw, kh, expected.len()), (w, h, cols * rows), "tests/signs.txt: {name} is of another size (renew it)");
+        for (i, (a, b)) in cells.iter().zip(expected).enumerate() {
+            if (0..3).any(|c| (a[c] as f32 - b[c] as f32).abs() > tol) {
+                moved.push(format!("{name}: row {} column {} is #{:02x}{:02x}{:02x}, was #{:02x}{:02x}{:02x}", i / cols + 1, i % cols + 1, a[0], a[1], a[2], b[0], b[1], b[2]));
+            }
+        }
+    }
+    assert!(moved.is_empty(), "the signs changed ({} cells; on purpose: VOXCADE_PICTURES=renew):\n  {}", moved.len(), moved.join("\n  "));
+}
+
 #[test]
 fn the_picture_numbers_are_written_and_read_back() {
     let pictures = vec![("a".to_string(), 16, 8, (0..GRID * GRID).map(|i| [i as u8, 255 - i as u8, 7]).collect::<Vec<_>>())];

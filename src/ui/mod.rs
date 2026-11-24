@@ -24,12 +24,14 @@ use crate::world::cell_hash;
 
 // The parts: a game's menus drawn from its HUD (`hud`), big letters and
 // the title's logo (`logo`), the engine's menus (`menus`), the panels over
-// the game (`panels`), the pixel font (`pixel`).
+// the game (`panels`), the pixel font (`pixel`), keys as signs in its
+// lines (`signs`).
 mod hud;
 mod logo;
 mod menus;
 mod panels;
 mod pixel;
+pub mod signs;
 
 pub use hud::*;
 pub use logo::*;
@@ -221,24 +223,31 @@ mod tests {
     #[test]
     fn hints_stay_within_the_screen() {
         let cols = (Layout::of(&UiConfig::default(), 16.0 / 9.0).width / 6.0) as usize - 2;
-        let mut broke = 0;
+        let fits = |l: &str, cols: usize| text_width(l, 1) <= cols as f32 * 6.0 - 1.0;
         for lang in ["en", "de", "fr"] {
             for device in [Device::Keyboard, Device::Gamepad] {
-                for page in [Page::Title, Page::Initials, Page::HighScores, Page::Join, Page::Code, Page::Joining, Page::Settings] {
-                    let mut menu = Menu::title();
-                    menu.device = device;
-                    let hint = hint_text(&menu, page, lang);
-                    let lines = wrap_hint(&hint, cols);
-                    broke += (lines.len() > 1) as usize;
-                    for l in &lines {
-                        assert!(l.chars().count() <= cols, "{lang} {page:?} {device:?}: '{l}' is too wide");
+                for rebinding in [false, true] {
+                    for page in [Page::Title, Page::Initials, Page::HighScores, Page::Join, Page::Code, Page::Joining, Page::Settings] {
+                        let mut menu = Menu::title();
+                        menu.device = device;
+                        menu.rebinding = rebinding.then_some("jump");
+                        let hint = hint_text(&menu, page, lang);
+                        let lines = wrap_hint(&hint, cols);
+                        for l in &lines {
+                            assert!(fits(l, cols), "{lang} {page:?} {device:?}: '{l}' is too wide");
+                        }
+                        assert_eq!(lines.join(" ").split_whitespace().collect::<Vec<_>>(), hint.split_whitespace().collect::<Vec<_>>());
                     }
-                    assert_eq!(lines.join(" ").split_whitespace().collect::<Vec<_>>(), hint.split_whitespace().collect::<Vec<_>>());
                 }
             }
         }
-        assert!(broke > 0, "no hint needed breaking");
-        assert_eq!(wrap_hint("ENTER: SELECT   ESC: BACK", 53), vec!["ENTER: SELECT   ESC: BACK"]);
+        // A long one broken at its gaps, a key's sign as wide as drawn.
+        let a = crate::ui::signs::key_sign(Device::Keyboard, "ESCAPE").unwrap();
+        let hint = format!("{a} OR B: CANCEL   UP: ONE MORE   DOWN: ONE LESS");
+        let lines = wrap_hint(&hint, 20);
+        assert_eq!(lines, [format!("{a} OR B: CANCEL"), "UP: ONE MORE".into(), "DOWN: ONE LESS".into()]);
+        assert!(lines.iter().all(|l| fits(l, 20)));
+        assert_eq!(wrap_hint("TYPE OR UP", 53), vec!["TYPE OR UP"]);
     }
 
     /// An accented capital stays within the capitals' height (a menu row has

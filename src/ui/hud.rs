@@ -13,9 +13,9 @@ pub(super) const SLOT: [u8; 4] = [38, 33, 30, 255];
 pub(super) const ROW: f32 = 10.0;
 pub(super) const PAD: f32 = 6.0;
 
-/// A small text's width (5 a letter, 1 between).
+/// A small text's width (5 a letter, 1 between; a key's sign its own).
 pub(super) fn small_width(s: &str) -> f32 {
-    (s.chars().count() as f32 * 6.0 - 1.0).max(0.0)
+    text_width(s, 1).max(0.0)
 }
 
 /// A plate from (x, y), its top left counted down from the top `top`, w by

@@ -167,7 +167,7 @@ fn chosen(t: &Table, key: &str, count: usize, what: &str) -> mlua::Result<Option
 pub(super) fn menu(lua: &Lua, t: &Table) -> mlua::Result<Menu> {
     const WHAT: &str = "frame:menu";
     known_keys(t, &["name", "x", "y", "width", "title", "tabs", "tab", "rows", "at", "shown", "hint"], WHAT)?;
-    let fill = |s: String| look(lua, |h| fill_keys(h.drawn_controls(), &s));
+    let fill = |s: String| look(lua, |h| fill_keys(h.drawn_controls(), &s, true));
     let mut rows = Vec::new();
     if let Some(list) = t.raw_get::<Option<Given>>("rows")? {
         for (n, v) in list.sequence_values::<GivenValue>().enumerate() {
@@ -245,7 +245,7 @@ pub(super) fn grid(lua: &Lua, t: &Table) -> mlua::Result<Grid> {
         Some(c) => return Err(mlua::Error::runtime(format!("{WHAT}: cell = {c}, at least 8 voxels"))),
         None => 18.0,
     };
-    let title = t.raw_get::<Option<String>>("title")?.map(|s| look(lua, |h| fill_keys(h.drawn_controls(), &s))).transpose()?;
+    let title = t.raw_get::<Option<String>>("title")?.map(|s| look(lua, |h| fill_keys(h.drawn_controls(), &s, true))).transpose()?;
     Ok(Grid { name: panel_name(t, WHAT)?, x: t.raw_get("x")?, y: t.raw_get("y")?, columns, cell, title, at: chosen(t, "at", cells.len(), WHAT)?, cells })
 }
 

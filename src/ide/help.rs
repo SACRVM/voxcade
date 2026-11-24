@@ -1091,7 +1091,7 @@ end
     },
     Topic {
         title: "TEXT AND KEYS ON SCREEN",
-        text: "on_draw(frame) draws this picture: frame:text writes on the screen, counted from its top left corner; an action in braces, {jump}, is written as the key the player presses for it, the way their keyboard or pad prints it. controls is what the player plays with, in every handler: controls.device (keyboard or gamepad) and controls:key(action), the key alone.",
+        text: "on_draw(frame) draws this picture: frame:text writes on the screen, counted from its top left corner; an action in braces, {jump}, is drawn as the key the player presses for it, a small sign where there is one (an arrow, a letter in a thin frame, the pad's button), else its name the way their keyboard or pad prints it; {jump:name} always writes the name. Say only what is not plain: everybody knows that Return or a click chooses. controls is what the player plays with, in every handler: controls.device (keyboard or gamepad) and controls:key(action), the key alone.",
         conf: r##"c.actions = { "jump" }
 c.keys = { jump = { "Space" } }"##,
         files: &[],

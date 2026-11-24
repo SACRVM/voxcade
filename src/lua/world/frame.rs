@@ -129,12 +129,16 @@ pub(super) fn drawn_language(h: &Stage) -> String {
     }
 }
 
-/// `text` with every `{action}` its key, `{{` a brace.
-pub(super) fn fill_keys(controls: &Controls, text: &str) -> mlua::Result<String> {
+/// `text` with every `{action}` its key, `{{` a brace: the key's sign
+/// where `signs` and the engine has one (`ui::signs`), else its name, as
+/// `{action:name}` always. The signs' own characters a script's text
+/// never carries: they are left out.
+pub(super) fn fill_keys(controls: &Controls, text: &str, signs: bool) -> mlua::Result<String> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
+    let plain = |out: &mut String, s: &str| out.extend(s.chars().filter(|c| !crate::ui::signs::in_signs(*c)));
     while let Some(at) = rest.find('{') {
-        out.push_str(&rest[..at]);
+        plain(&mut out, &rest[..at]);
         rest = &rest[at + 1..];
         if let Some(after) = rest.strip_prefix('{') {
             out.push('{');
@@ -142,14 +146,29 @@ pub(super) fn fill_keys(controls: &Controls, text: &str) -> mlua::Result<String>
             continue;
         }
         let Some(end) = rest.find('}') else {
-            return Err(mlua::Error::runtime("frame:text: a '{' without its '}' (an action's key is {jump}, a brace {{)"));
+            return Err(mlua::Error::runtime("frame:text: a '{' without its '}' (an action's key is {jump}, its name {jump:name}, a brace {{)"));
         };
-        // A key's name in capitals, as on the keys themselves.
-        out.push_str(&crate::ui::engine_case(key_of(controls, &rest[..end], "frame:text")?));
+        let (action, named) = match rest[..end].split_once(':') {
+            None => (&rest[..end], false),
+            Some((action, "name")) => (action, true),
+            Some((action, other)) => return Err(mlua::Error::runtime(format!("frame:text: {{{action}:{other}}}: after an action only :name, its key's name ({{{action}:name}})"))),
+        };
+        let label = key_of(controls, action, "frame:text")?;
+        match controls.device.filter(|_| signs && !named).and_then(|device| crate::ui::signs::key_sign(device, label)) {
+            Some(sign) => out.push(sign),
+            // A key's name in capitals, as on the keys themselves.
+            None => out.push_str(&crate::ui::engine_case(label)),
+        }
         rest = &rest[end + 1..];
     }
-    out.push_str(rest);
+    plain(&mut out, rest);
     Ok(out)
+}
+
+/// Whether a text of `size` shows keys as signs: they are drawn in the
+/// pixel font, so not in the big letters of a display font.
+pub(super) fn signs_at(size: i32, font: Option<&crate::font::DisplayFont>) -> bool {
+    size < 2 || font.is_none()
 }
 
 
@@ -347,8 +366,8 @@ impl UserData for Frame {
             Ok(())
         });
         m.add_method_mut("text", |lua, o, (text, x, y, rgba, size): (String, f32, f32, Option<GivenValue>, Option<i32>)| {
-            let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             let size = text_size(size, "frame:text")?;
+            let text = look(lua, |h| fill_keys(h.drawn_controls(), &text, signs_at(size, o.font.as_deref())))?;
             o.cmds.push(Cmd::Text { text, x, y, color: color(rgba.as_ref().map(|g| &g.0), "frame:text: color", crate::ui::TEXT)?, size });
             Ok(())
         });
@@ -374,8 +393,9 @@ impl UserData for Frame {
             Ok((Some((x + 1.0) * 0.5 * o.width), Some((1.0 - y) * 0.5 * o.height)))
         });
         m.add_method("text_width", |lua, o, (text, size): (String, Option<i32>)| {
-            let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
-            Ok(crate::ui::line_width(&text, text_size(size, "frame:text_width")?, o.font.as_deref()))
+            let size = text_size(size, "frame:text_width")?;
+            let text = look(lua, |h| fill_keys(h.drawn_controls(), &text, signs_at(size, o.font.as_deref())))?;
+            Ok(crate::ui::line_width(&text, size, o.font.as_deref()))
         });
         m.add_method_mut("box", |_, o, (x, y, width, height, rgba): (f32, f32, f32, f32, Option<GivenValue>)| {
             o.cmds.push(Cmd::Box { x, y, width, height, color: color(rgba.as_ref().map(|g| &g.0), "frame:box: color", crate::ui::TEXT)? });
@@ -405,8 +425,8 @@ impl UserData for Frame {
             Ok(())
         });
         m.add_method_mut("drop_in", |lua, o, (text, x, y, ticks, rgba, size): (String, f32, f32, f32, Option<GivenValue>, Option<i32>)| {
-            let text = look(lua, |h| fill_keys(h.drawn_controls(), &text))?;
             let size = text_size(size, "frame:drop_in")?;
+            let text = look(lua, |h| fill_keys(h.drawn_controls(), &text, signs_at(size, o.font.as_deref())))?;
             o.cmds.push(Cmd::Drop { text, x, y, ticks, color: color(rgba.as_ref().map(|g| &g.0), "frame:drop_in: color", crate::ui::TEXT)?, size });
             Ok(())
         });
