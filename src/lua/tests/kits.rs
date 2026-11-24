@@ -375,9 +375,12 @@ fn the_jump_and_run_rules_as_code() {
     let rules = &template[..template.find("-- Every torch").expect("the template's torches")];
     let main = format!("{rules}\nlocal start, fell, died = on_tick, on_fall_out, on_death\nfunction on_fall_out(t) world.state.why = (world.state.why or '') .. 'fell ' .. tostring(t) .. ' ' .. world.tick .. ' ' .. math.floor(t.z) .. ';' fell(t) end\nfunction on_death(t, by) world.state.why = (world.state.why or '') .. 'died ' .. tostring(t) .. ' ' .. world.tick .. ';' died(t, by) end\nfunction on_tick()\n  start()\n  world.state.log = (world.state.log or '') .. (player.state.checkpoint or '-') .. ',' .. player.state.lives .. ',' .. player.state.taken .. ';'\nend\n");
     let dir = levels_folder("jump-and-run-rules", &main, &[("a", &[])]);
+    // The template's song, which its rules play.
+    std::fs::create_dir_all(dir.join("music")).unwrap();
+    std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/platformer/music/under_the_dunes.mml"), dir.join("music/under_the_dunes.mml")).unwrap();
     std::fs::write(
         dir.join("conf.lua"),
-        "function conf(c)\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.physics.gravity = 400\n  c.things.hero = { behavior = \"hero\", height = 6, speed = 60 }\n  c.things.gem = { behavior = \"pickup\", height = 4, family = \"pickups\", props = { worth = 100 }, sound = \"pickup\" }\n  c.things.checkpoint = { behavior = \"prop\", stands = true, height = 8 }\n  c.things.door = { behavior = \"prop\", stands = true, height = 8 }\nend\n",
+        "function conf(c)\n  c.audio.music = { \"music/under_the_dunes.mml\" }\n  c.kit = \"platformer\"\n  c.state.player = { hp = 3, lives = 3, taken = 0 }\n  c.world.blocks = { file = \"level.toml\", below = 16 }\n  c.physics.gravity = 400\n  c.things.hero = { behavior = \"hero\", height = 6, speed = 60 }\n  c.things.gem = { behavior = \"pickup\", height = 4, family = \"pickups\", props = { worth = 100 }, sound = \"pickup\" }\n  c.things.checkpoint = { behavior = \"prop\", stands = true, height = 8 }\n  c.things.door = { behavior = \"prop\", stands = true, height = 8 }\nend\n",
     )
     .unwrap();
     // A floor of 12 cells, a pit two cells wide in it.

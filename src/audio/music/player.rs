@@ -1110,6 +1110,11 @@ pub struct Player {
     /// Samples into the song as written played on and on, never folded
     /// round its loop (the game's beats, `follow`): where a swap is due.
     pub(super) position: f64,
+    /// Where a game's beat 0 lies, in samples as written past the song's
+    /// own (`rebase`): 0 for a song begun at its clock; a song that plays
+    /// on into a run begun anew keeps sounding, its new clock's beat 0
+    /// where it was then.
+    base: f64,
     /// Channels a game laid, to swap in when `position` reaches their due
     /// point (`pend`), and those swapped out, for the main thread to drop
     /// (the audio thread gives no memory back).
@@ -1176,6 +1181,7 @@ impl Player {
             ratio: 1.0,
             heard: 0,
             position: 0.0,
+            base: 0.0,
             pending: None,
             spent: None,
             since_jump: FADE_IN,
@@ -1301,7 +1307,7 @@ impl Player {
     fn off(&self, beats: f64, ahead: f64) -> (f64, f64) {
         let (from, to) = self.song.span;
         let length = to - from;
-        let unwrapped = self.at_beat(beats) + ahead.max(0.0) * SAMPLE_RATE as f64 * self.ratio;
+        let unwrapped = self.at_beat(beats) + ahead.max(0.0) * SAMPLE_RATE as f64 * self.ratio + self.base;
         let target = self.within(unwrapped);
         let now = self.time as f64 + self.carry;
         let mut off = target - now;
@@ -1316,11 +1322,13 @@ impl Player {
         (unwrapped, off / self.ratio)
     }
 
-    /// Whether it is with a game's clock at `beats` (and `ahead` seconds
-    /// heard past them) as `follow` would leave it, closing in unheard:
-    /// within a jump of it.
-    pub fn keeps_with(&self, beats: f64, ahead: f64) -> bool {
-        self.off(beats, ahead).1.abs() <= JUMP as f64
+    /// Takes a game's clock as it is now, at `beats` (and `ahead` seconds
+    /// heard past them), to be where the song is: it plays on, unbroken,
+    /// and keeps time with that clock from here (`follow`), exactly where
+    /// it stood (a run begun anew, its clock at 0, asking the song that
+    /// plays).
+    pub fn rebase(&mut self, beats: f64, ahead: f64) {
+        self.base = self.position - (self.at_beat(beats) + ahead.max(0.0) * SAMPLE_RATE as f64 * self.ratio);
     }
 
     /// Where `at` samples of the song as written, played on and on, lie:
@@ -1485,7 +1493,7 @@ impl Player {
     /// what it no longer holds handed back, for the main thread to drop.
     pub fn pend(&mut self, swap: Option<Box<Swap>>) -> [Option<Box<Swap>>; 2] {
         let swap = swap.map(|mut s| {
-            s.due = self.at_beat(s.due);
+            s.due = self.at_beat(s.due) + self.base;
             s
         });
         [std::mem::replace(&mut self.pending, swap), self.spent.take()]

@@ -498,17 +498,11 @@ impl<G: Game> App<G> {
         let App { speaker, game, front, settings, prompt, now_playing, clock, .. } = self;
         let Some(speaker) = speaker else { return };
         game.music_ahead(clock.ticks.behind(clock.last.elapsed().as_secs_f32()));
-        let made = made_music(game, front, settings);
+        let made = made_music(game, front);
         let held = front.menu.is_open() || prompt.open;
         let Some(mut mixer) = speaker.lock() else { return };
         if hand_made(made, game, &mut mixer, held, settings) {
-            // The player's own choice numbered when there are several.
-            let choice = game.player_songs().len() > 1 && !game.steers_music();
-            *now_playing = match mixer.music_title() {
-                Some(t) if choice => format!(" | \u{266a} {}: {t}", game.song + 1),
-                Some(t) => format!(" | \u{266a} {t}"),
-                None => String::new(),
-            };
+            *now_playing = mixer.music_title().map_or(String::new(), |t| format!(" | \u{266a} {t}"));
             // A song begun now begins at the clock: the time before it (a
             // game read, a level built) is not owed to it.
             clock.ticks.settle();
@@ -875,8 +869,7 @@ impl<G: Game> App<G> {
 /// What a frame's music is made of, before the mixer is locked
 /// (`made_music`).
 enum Made {
-    /// A song of the front end's own (the engine's title, the settings'
-    /// preview), what is wanted having changed to it.
+    /// The engine's title's song, what is wanted having changed to it.
     Song(Option<crate::audio::music::Player>),
     /// The game's, as its session makes it.
     Game(crate::session::NewMusic),
@@ -886,23 +879,20 @@ enum Made {
 
 /// The window's music for this frame, from what the front end wants
 /// (`Front::wanted`) and what it had the mixer play (`Front::heard`): the
-/// one decision. The game's music is begun anew as it becomes what is
-/// wanted, and the player's song chosen in the settings is the session's.
-fn made_music<G: Game>(game: &mut Session<G>, front: &mut Front, settings: &Settings) -> Made {
-    let chosen = settings.song.min(game.player_songs().len().saturating_sub(1));
-    let wanted = front.wanted(chosen);
+/// one decision. The game's music is decided anew as it becomes what is
+/// wanted.
+fn made_music<G: Game>(game: &mut Session<G>, front: &mut Front) -> Made {
+    let wanted = front.wanted();
     let changed = front.heard.replace(wanted) != Some(wanted);
     match wanted {
         Wanted::Game => {
             if changed {
                 game.music_anew();
             }
-            game.select_song(chosen);
             Made::Game(game.new_music())
         }
         Wanted::Title if changed => Made::Song(game.title_music()),
-        Wanted::Preview(song) if changed => Made::Song(game.song_at(song)),
-        Wanted::Title | Wanted::Preview(_) => Made::Same,
+        Wanted::Title => Made::Same,
     }
 }
 
@@ -1124,7 +1114,7 @@ mod tests {
         let mut settings = Settings::default();
         assert_eq!(front.asked(&[Request::Open("settings")]), None);
         assert_eq!(front.menu.page(), Some(Page::Settings));
-        assert_eq!(front.menu.nav(Nav::Back, &mut settings, 0), Some(Command::Resume), "back from it, the game goes on");
+        assert_eq!(front.menu.nav(Nav::Back, &mut settings), Some(Command::Resume), "back from it, the game goes on");
         assert!(!front.menu.is_open());
         assert_eq!(front.asked(&[Request::Quit]), Some(Command::Quit), "QUIT ends the window");
         assert_eq!(front.asked(&[Request::ToTitle]), Some(Command::ToTitle), "back to the title as QUIT TO TITLE");
@@ -1133,8 +1123,8 @@ mod tests {
         game.step(&crate::input::Input::default());
         assert!(game.begun && !game.on_title(), "a run");
         let mut menu = pause_menu(&game, true);
-        menu.nav(Nav::Up, &mut settings, 0);
-        assert_eq!(menu.nav(Nav::Confirm, &mut settings, 0), Some(Command::ToTitle));
+        menu.nav(Nav::Up, &mut settings);
+        assert_eq!(menu.nav(Nav::Confirm, &mut settings), Some(Command::ToTitle));
         let mut fresh = Session::<crate::Voxcade>::load(&dir).unwrap();
         assert!(own_title(&mut fresh, &mut front).unwrap() && fresh.on_title(), "QUIT TO TITLE: its own title again");
         // A game without one has the engine's.

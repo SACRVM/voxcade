@@ -91,7 +91,6 @@ pub enum Item {
     Video,
     Music,
     Sound,
-    Song,
     Fullscreen,
     Shake,
     Flashes,
@@ -178,7 +177,7 @@ impl Page {
             Page::Title => vec![Item::Start, Item::Settings, Item::Quit],
             Page::Pause => vec![Item::Resume, Item::Settings, Item::Restart, Item::ToTitle],
             Page::Settings => vec![Item::Audio, Item::Video, Item::Controls, Item::Back],
-            Page::Audio => vec![Item::Music, Item::Sound, Item::Song, Item::Back],
+            Page::Audio => vec![Item::Music, Item::Sound, Item::Back],
             Page::Video => vec![Item::Fullscreen, Item::Shadows, Item::Fog, Item::FrameRate, Item::Blur, Item::Shake, Item::Flashes, Item::ShowFps, Item::Back],
             Page::Controls => actions.iter().map(|&a| Item::Bind(a)).chain([Item::Rumble, Item::Reset, Item::Back]).collect(),
             Page::Network => vec![Item::Host, Item::HostNet, Item::Join, Item::Back],
@@ -240,7 +239,6 @@ impl Item {
             Item::Video => "VIDEO",
             Item::Music => "MUSIC",
             Item::Sound => "SOUND",
-            Item::Song => "SOUNDTRACK",
             Item::Fullscreen => "FULLSCREEN",
             Item::Shake => "SCREEN SHAKE",
             Item::Flashes => "FLASHES",
@@ -297,8 +295,6 @@ pub enum Command {
     Changed,
     /// The window goes to or from fullscreen (and save).
     Fullscreen,
-    /// Another song was chosen (and save).
-    Song,
     /// The initials are in (`Menu::entry`): into the table with them.
     Entered,
     /// The player on this seat (2 and on) leaves it.
@@ -520,12 +516,6 @@ impl Menu {
         self.stack.last().map(|&(p, _)| p)
     }
 
-    /// The settings are open over the title: the chosen song plays then,
-    /// so the player hears what they choose.
-    pub fn previews_song(&self) -> bool {
-        self.stack.first().is_some_and(|&(p, _)| p == Page::Title) && self.stack.iter().any(|&(p, _)| p == Page::Settings)
-    }
-
     pub fn cursor(&self) -> usize {
         self.stack.last().map_or(0, |&(_, c)| c)
     }
@@ -567,9 +557,8 @@ impl Menu {
         self.opened = self.tick;
     }
 
-    /// Steers the menu; what the game must do then, if anything. `songs` is
-    /// how many songs the game has.
-    pub fn nav(&mut self, nav: Nav, settings: &mut Settings, songs: usize) -> Option<Command> {
+    /// Steers the menu; what the game must do then, if anything.
+    pub fn nav(&mut self, nav: Nav, settings: &mut Settings) -> Option<Command> {
         let (page, cursor) = *self.stack.last()?;
         if self.rebinding.is_some() {
             return None;
@@ -608,7 +597,7 @@ impl Menu {
                             Command::Changed
                         })
                     }
-                    _ => stepped(item, settings, songs, step).or_else(|| toggle(item, settings)),
+                    _ => stepped(item, settings, step).or_else(|| toggle(item, settings)),
                 }
             }
             Nav::Confirm => {
@@ -616,7 +605,7 @@ impl Menu {
                     self.open(page);
                     return None;
                 }
-                self.confirm(item, page, settings, songs)
+                self.confirm(item, page, settings)
             }
             Nav::Back => {
                 if self.stack.len() > 1 {
@@ -629,7 +618,7 @@ impl Menu {
                 }
             }
             Nav::Pause => match page {
-                Page::Title => self.nav(Nav::Confirm, settings, songs),
+                Page::Title => self.nav(Nav::Confirm, settings),
                 _ if matches!(self.stack[0].0, Page::Pause | Page::Settings) => self.closed(Command::Resume),
                 _ => None,
             },
@@ -655,7 +644,7 @@ impl Menu {
     }
 
     /// `item` chosen on `page` (one that opens no page of its own).
-    fn confirm(&mut self, item: Item, page: Page, settings: &mut Settings, songs: usize) -> Option<Command> {
+    fn confirm(&mut self, item: Item, page: Page, settings: &mut Settings) -> Option<Command> {
         match item {
             Item::Start => Some(Command::Start),
             Item::Quit => Some(Command::Quit),
@@ -704,8 +693,8 @@ impl Menu {
             Item::Slot(n) if self.slots.get(n).is_some_and(Option::is_some) => self.closed(Command::Load(n as u32 + 1)),
             Item::Slot(_) => None,
             // Confirm steps as right does; the shadows coarser, as left.
-            Item::Shadows | Item::Fog => stepped(item, settings, songs, -1),
-            Item::Song | Item::Language | Item::FrameRate | Item::SeatKeys(_) | Item::SeatPad(_) => stepped(item, settings, songs, 1),
+            Item::Shadows | Item::Fog => stepped(item, settings, -1),
+            Item::Language | Item::FrameRate | Item::SeatKeys(_) | Item::SeatPad(_) => stepped(item, settings, 1),
             Item::Music | Item::Sound => None,
             Item::Bind(action) => {
                 self.rebinding = Some(action);
@@ -886,12 +875,8 @@ fn edit_signs(text: &mut String, signs: &[char], most: usize, nav: Nav) -> bool 
 
 /// A choice stepped `step` places on, as right steps it (left: -1); the
 /// command to apply it, if `item` is such a choice.
-fn stepped(item: Item, settings: &mut Settings, songs: usize, step: i32) -> Option<Command> {
+fn stepped(item: Item, settings: &mut Settings, step: i32) -> Option<Command> {
     match item {
-        Item::Song if songs > 0 => {
-            settings.song = (settings.song as i32 + step).rem_euclid(songs as i32) as usize;
-            Some(Command::Song)
-        }
         Item::Language => {
             settings.step_language(step < 0);
             Some(Command::Changed)
@@ -941,37 +926,32 @@ mod tests {
         let mut s = Settings::default();
         let mut m = Menu::title();
         assert_eq!(m.selected(), Some(Item::Start));
-        m.nav(Nav::Down, &mut s, 4);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 4), None);
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None);
         assert_eq!(m.page(), Some(Page::Settings));
         assert_eq!(m.items(Page::Settings, &s), [Item::Audio, Item::Video, Item::Controls, Item::Back]);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 4), None);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None);
         assert_eq!(m.page(), Some(Page::Audio));
         let before = s.music;
-        assert_eq!(m.nav(Nav::Left, &mut s, 4), Some(Command::Changed));
+        assert_eq!(m.nav(Nav::Left, &mut s), Some(Command::Changed));
         assert_eq!(s.music, before - 1);
-        m.nav(Nav::Down, &mut s, 4);
-        m.nav(Nav::Down, &mut s, 4);
-        assert_eq!(m.nav(Nav::Right, &mut s, 4), Some(Command::Song));
-        assert_eq!(s.song, 1);
-        assert!(m.previews_song(), "the chosen song should play in the title's settings");
-        assert_eq!(m.nav(Nav::Back, &mut s, 4), None);
+        assert_eq!(m.items(Page::Audio, &s), [Item::Music, Item::Sound, Item::Back], "no song of the player's: the game's code plays its music");
+        assert_eq!(m.nav(Nav::Back, &mut s), None);
         assert_eq!(m.page(), Some(Page::Settings));
         assert_eq!(m.selected(), Some(Item::Audio), "back where it was");
-        m.nav(Nav::Down, &mut s, 4);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.page(), Some(Page::Video));
-        m.nav(Nav::Back, &mut s, 4);
-        m.nav(Nav::Down, &mut s, 4);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Back, &mut s);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.page(), Some(Page::Controls), "a game of one: its keys");
-        m.nav(Nav::Back, &mut s, 4);
-        assert_eq!(m.nav(Nav::Back, &mut s, 4), None);
+        m.nav(Nav::Back, &mut s);
+        assert_eq!(m.nav(Nav::Back, &mut s), None);
         assert_eq!(m.page(), Some(Page::Title));
-        assert!(!m.previews_song());
-        m.nav(Nav::Up, &mut s, 4);
+        m.nav(Nav::Up, &mut s);
         assert_eq!(m.selected(), Some(Item::Start));
-        assert_eq!(m.nav(Nav::Pause, &mut s, 4), Some(Command::Start));
+        assert_eq!(m.nav(Nav::Pause, &mut s), Some(Command::Start));
     }
 
     /// A game that speaks more than one language has LANGUAGE on the
@@ -986,7 +966,7 @@ mod tests {
         let at = items.iter().position(|&i| i == Item::Language).expect("LANGUAGE");
         assert_eq!((items[at - 1], items[at + 1]), (Item::Controls, Item::Back));
         let mut m = Menu { stack: vec![(Page::Title, 1), (Page::Settings, at)], ..Menu::title() };
-        assert_eq!(m.nav(Nav::Right, &mut s, 0), Some(Command::Changed));
+        assert_eq!(m.nav(Nav::Right, &mut s), Some(Command::Changed));
         assert_eq!(s.language(), "fr");
         assert_eq!(Item::Language.label_in("de"), "SPRACHE");
     }
@@ -999,11 +979,11 @@ mod tests {
         assert_eq!(Menu::title().items(Page::Title, &Settings::default()), [Item::Start, Item::Settings, Item::Quit]);
         let mut m = Menu::title().continuing(Some(2));
         assert_eq!(m.items(Page::Title, &Settings::default()), [Item::Continue, Item::Start, Item::Settings, Item::Quit]);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Load(2)));
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Load(2)));
         assert!(!m.is_open());
         let mut m = Menu::title().continuing(Some(2));
-        m.nav(Nav::Down, &mut s, 0);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Start), "START begins a new run");
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Start), "START begins a new run");
     }
 
     /// The pause page a player after the first opened offers LEAVE: its
@@ -1014,8 +994,8 @@ mod tests {
         let mut m = Menu::pause();
         m.leaving = Some(2);
         assert_eq!(m.items(Page::Pause, &s), [Item::Resume, Item::Leave, Item::Settings]);
-        m.nav(Nav::Down, &mut s, 0);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Leave(2)));
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Leave(2)));
         assert!(!m.is_open());
     }
 
@@ -1032,34 +1012,34 @@ mod tests {
         let mut m = Menu::title().with_seats(seats.clone());
         assert_eq!(m.items(Page::Title, &s), [Item::Start, Item::Settings, Item::Quit], "the title as in a game of one");
         assert_eq!(Menu::pause().with_seats(seats).items(Page::Pause, &s), Menu::pause().items(Page::Pause, &s));
-        m.nav(Nav::Down, &mut s, 1);
-        m.nav(Nav::Confirm, &mut s, 1);
-        m.nav(Nav::Down, &mut s, 1);
-        m.nav(Nav::Down, &mut s, 1);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 1), None);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None);
         assert_eq!(m.page(), Some(Page::Players));
         assert_eq!(m.items(Page::Players, &s)[6..], [Item::Swap, Item::Rumble, Item::Back]);
-        assert_eq!(m.nav(Nav::Right, &mut s, 1), Some(Command::SeatKeys(1, 1)));
-        m.nav(Nav::Down, &mut s, 1);
-        assert_eq!(m.nav(Nav::Left, &mut s, 1), Some(Command::SeatPad(1, -1)));
+        assert_eq!(m.nav(Nav::Right, &mut s), Some(Command::SeatKeys(1, 1)));
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Left, &mut s), Some(Command::SeatPad(1, -1)));
         for _ in 0..4 {
-            m.nav(Nav::Down, &mut s, 1);
+            m.nav(Nav::Down, &mut s);
         }
         assert_eq!(m.selected(), Some(Item::SeatControls(2)));
-        m.nav(Nav::Down, &mut s, 1);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 1), Some(Command::Swap));
-        m.nav(Nav::Up, &mut s, 1);
-        m.nav(Nav::Confirm, &mut s, 1);
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Swap));
+        m.nav(Nav::Up, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!((m.page(), m.selected()), (Some(Page::PlayerControls(2)), Some(Item::Bind("up"))), "a half's directions first");
-        m.nav(Nav::Confirm, &mut s, 1);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.bind(Device::Keyboard, "U", false, &mut s), Some(Command::Changed));
         assert_eq!((s.right_keys.get("up"), s.left_keys.get("up")), (&["U".to_string(), "Up".to_string()][..], &["W".to_string()][..]), "the right half's own");
         assert_eq!(s.keys.get("fire"), crate::shooter::keys().get("fire"), "the whole keyboard's as they were");
         for _ in 0..4 {
-            m.nav(Nav::Down, &mut s, 1);
+            m.nav(Nav::Down, &mut s);
         }
         assert_eq!(m.selected(), Some(Item::Bind("fire")));
-        m.nav(Nav::Confirm, &mut s, 1);
+        m.nav(Nav::Confirm, &mut s);
         m.bind(Device::Gamepad, "north", false, &mut s);
         assert_eq!((s.pad_of(2).get("fire").first(), s.pad_of(1).get("fire").first()), (Some(&"north".to_string()), s.pad.get("fire").first()), "its own pad's");
         assert_ne!(s.pad.get("fire").first(), Some(&"north".to_string()), "the first player's as they were");
@@ -1078,35 +1058,30 @@ mod tests {
         assert_eq!(m.slots[0].as_deref(), Some("1  HALL  1:02:03  2 H AGO"));
         assert_eq!(m.items(Page::Pause, &Settings::default()), [Item::Resume, Item::SaveGame, Item::LoadGame, Item::Settings, Item::Restart, Item::ToTitle]);
         assert_eq!(Menu::pause().items(Page::Pause, &Settings::default()).len(), 4, "no slots, no SAVE and LOAD");
-        m.nav(Nav::Down, &mut s, 1);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 1), None);
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None);
         assert_eq!(m.page(), Some(Page::Save));
-        m.nav(Nav::Down, &mut s, 1);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 1), Some(Command::Save(2)));
-        m.nav(Nav::Back, &mut s, 1);
-        m.nav(Nav::Down, &mut s, 1);
-        m.nav(Nav::Confirm, &mut s, 1);
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Save(2)));
+        m.nav(Nav::Back, &mut s);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.page(), Some(Page::Load));
-        m.nav(Nav::Down, &mut s, 1);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 1), None, "slot 2 is empty");
-        m.nav(Nav::Up, &mut s, 1);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 1), Some(Command::Load(1)));
+        m.nav(Nav::Down, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None, "slot 2 is empty");
+        m.nav(Nav::Up, &mut s);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Load(1)));
         assert!(!m.is_open());
     }
 
-    /// Volumes stop at their ends; songs go round.
+    /// Volumes stop at their ends.
     #[test]
-    fn sliders_stop_and_songs_go_round() {
+    fn sliders_stop_at_their_ends() {
         let mut s = Settings::default();
-        (s.music, s.song) = (VOLUME_STEPS, 3);
+        s.music = VOLUME_STEPS;
         let mut m = Menu { stack: vec![(Page::Audio, 0)], ..Menu::default() };
-        assert_eq!(m.nav(Nav::Right, &mut s, 4), None);
+        assert_eq!(m.nav(Nav::Right, &mut s), None);
         assert_eq!(s.music, VOLUME_STEPS);
-        m.stack[0].1 = 2;
-        m.nav(Nav::Right, &mut s, 4);
-        assert_eq!(s.song, 0);
-        m.nav(Nav::Left, &mut s, 4);
-        assert_eq!(s.song, 3);
     }
 
     /// SHOW FPS in the settings' VIDEO turns the frame counter on and off; it
@@ -1118,9 +1093,9 @@ mod tests {
         let mut m = Menu::title();
         let at = Page::Video.items(&[]).iter().position(|&i| i == Item::ShowFps).expect("no SHOW FPS in the settings");
         m.stack.push((Page::Video, at));
-        assert_eq!(m.nav(Nav::Right, &mut s, 4), Some(Command::Changed));
+        assert_eq!(m.nav(Nav::Right, &mut s), Some(Command::Changed));
         assert!(s.show_fps);
-        m.nav(Nav::Left, &mut s, 4);
+        m.nav(Nav::Left, &mut s);
         assert!(!s.show_fps);
     }
 
@@ -1134,14 +1109,14 @@ mod tests {
         let mut m = Menu::title();
         let at = Page::Video.items(&[]).iter().position(|&i| i == Item::FrameRate).expect("no FRAME RATE in the settings");
         m.stack.push((Page::Video, at));
-        assert_eq!(m.nav(Nav::Right, &mut s, 0), Some(Command::Changed));
+        assert_eq!(m.nav(Nav::Right, &mut s), Some(Command::Changed));
         assert_eq!(s.frame_rate, FrameRate::Vsync);
-        m.nav(Nav::Confirm, &mut s, 0);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(s.frame_rate, FrameRate::Fps60);
-        m.nav(Nav::Left, &mut s, 0);
-        m.nav(Nav::Left, &mut s, 0);
+        m.nav(Nav::Left, &mut s);
+        m.nav(Nav::Left, &mut s);
         assert_eq!(s.frame_rate, FrameRate::Unlimited);
-        m.nav(Nav::Left, &mut s, 0);
+        m.nav(Nav::Left, &mut s);
         assert_eq!(s.frame_rate, FrameRate::Fps30, "round the list");
         assert_eq!(FrameRate::Fps60.limit(), Some(60));
         assert_eq!(FrameRate::Vsync.limit(), None);
@@ -1158,14 +1133,14 @@ mod tests {
         let mut m = Menu::title();
         let at = Page::Video.items(&[]).iter().position(|&i| i == Item::Shadows).expect("no SHADOWS in the settings");
         m.stack.push((Page::Video, at));
-        assert_eq!(m.nav(Nav::Left, &mut s, 4), Some(Command::Changed));
+        assert_eq!(m.nav(Nav::Left, &mut s), Some(Command::Changed));
         assert_eq!(s.shadows, Shadows::Medium);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(s.shadows, Shadows::Low);
-        m.nav(Nav::Right, &mut s, 4);
+        m.nav(Nav::Right, &mut s);
         assert_eq!(s.shadows, Shadows::Medium);
-        m.nav(Nav::Left, &mut s, 4);
-        m.nav(Nav::Left, &mut s, 4);
+        m.nav(Nav::Left, &mut s);
+        m.nav(Nav::Left, &mut s);
         assert_eq!(s.shadows, Shadows::High, "the list goes round");
     }
 
@@ -1178,13 +1153,13 @@ mod tests {
         let mut m = Menu::title();
         let at = Page::Video.items(&[]).iter().position(|&i| i == Item::Fog).expect("no FOG in the settings");
         m.stack.push((Page::Video, at));
-        assert_eq!(m.nav(Nav::Left, &mut s, 4), Some(Command::Changed));
+        assert_eq!(m.nav(Nav::Left, &mut s), Some(Command::Changed));
         assert_eq!(s.fog, Fog::Low);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(s.fog, Fog::Off);
-        m.nav(Nav::Left, &mut s, 4);
+        m.nav(Nav::Left, &mut s);
         assert_eq!(s.fog, Fog::High, "the list goes round");
-        m.nav(Nav::Right, &mut s, 4);
+        m.nav(Nav::Right, &mut s);
         assert_eq!(s.fog, Fog::Off);
     }
 
@@ -1194,18 +1169,17 @@ mod tests {
     fn pause_resumes_and_backs_out() {
         let mut s = Settings::default();
         let mut m = Menu::pause();
-        m.nav(Nav::Down, &mut s, 4);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.page(), Some(Page::Settings));
-        assert!(!m.previews_song(), "while paused the game's song plays on");
-        assert_eq!(m.nav(Nav::Back, &mut s, 4), None);
+        assert_eq!(m.nav(Nav::Back, &mut s), None);
         assert_eq!(m.page(), Some(Page::Pause));
-        assert_eq!(m.nav(Nav::Pause, &mut s, 4), Some(Command::Resume));
+        assert_eq!(m.nav(Nav::Pause, &mut s), Some(Command::Resume));
         assert!(!m.is_open());
 
         let mut m = Menu::pause();
         m.stack[0].1 = 3;
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 4), Some(Command::ToTitle));
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::ToTitle));
     }
 
     /// Choosing an action waits for a key or button and binds it; cancel
@@ -1215,23 +1189,23 @@ mod tests {
         let mut s = Settings::default();
         s.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad());
         let mut m = Menu { stack: vec![(Page::Controls, 2)], ..Menu::default() };
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.rebinding, Some("jump"));
-        assert_eq!(m.nav(Nav::Down, &mut s, 4), None, "the menu moved while waiting");
+        assert_eq!(m.nav(Nav::Down, &mut s), None, "the menu moved while waiting");
         assert_eq!(m.bind(Device::Gamepad, "north", false, &mut s), Some(Command::Changed));
         assert_eq!(s.pad.get("jump")[0], "north");
 
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.bind(Device::Keyboard, "Escape", true, &mut s), None);
         assert_eq!(s.keys.get("jump")[0], "Space");
         assert_eq!(m.rebinding, None);
         // RUMBLE among the controls, then RESET: the game's again.
         m.stack.last_mut().unwrap().1 = 5;
         assert_eq!(m.items(Page::Controls, &s)[5], Item::Rumble);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Confirm, &mut s);
         assert!(!s.rumble);
-        m.nav(Nav::Down, &mut s, 4);
-        m.nav(Nav::Confirm, &mut s, 4);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(s.pad.get("jump")[0], "south");
     }
 
@@ -1244,15 +1218,15 @@ mod tests {
         let mut s = Settings::default();
         let mut m = Menu::initials(14_600, 2);
         assert_eq!(m.page(), Some(Page::Initials));
-        m.nav(Nav::Down, &mut s, 0);
+        m.nav(Nav::Down, &mut s);
         assert_eq!(m.entry.letters[0], '.', "down from A goes round");
-        m.nav(Nav::Up, &mut s, 0);
-        m.nav(Nav::Up, &mut s, 0);
-        assert_eq!(m.nav(Nav::Right, &mut s, 0), None);
+        m.nav(Nav::Up, &mut s);
+        m.nav(Nav::Up, &mut s);
+        assert_eq!(m.nav(Nav::Right, &mut s), None);
         assert_eq!(m.entry.at, 1);
         assert_eq!(m.type_letter('x'), None);
         assert_eq!(m.entry.at, 2);
-        m.nav(Nav::Left, &mut s, 0);
+        m.nav(Nav::Left, &mut s);
         assert_eq!(m.type_letter('y'), None);
         assert_eq!(m.type_letter('3'), None, "not a letter");
         assert_eq!(m.entry.at, 2);
@@ -1260,8 +1234,8 @@ mod tests {
         assert_eq!(m.entry.initials(), "BYZ");
 
         let mut m = Menu::high_scores(Some(4));
-        assert_eq!(m.nav(Nav::Down, &mut s, 0), None);
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Title));
+        assert_eq!(m.nav(Nav::Down, &mut s), None);
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Title));
     }
 
     /// Where our matchmaker is known, JOIN offers any game on the
@@ -1277,30 +1251,30 @@ mod tests {
         m.found = vec![FoundLine { line: "PULSAR  ANNA  1/2  DX67A3".into(), address: "DX67A3".into(), same: true }];
         assert_eq!(m.items(Page::Find, &s), [Item::Found(0), Item::AnyGame, Item::TypeCode, Item::TypeAddress, Item::PasteTicket, Item::Back]);
         let mut any = m.clone();
-        assert_eq!((any.nav(Nav::Confirm, &mut s, 0), any.page()), (Some(Command::JoinAny), Some(Page::Joining)), "any game with a free seat");
+        assert_eq!((any.nav(Nav::Confirm, &mut s), any.page()), (Some(Command::JoinAny), Some(Page::Joining)), "any game with a free seat");
         let mut listed = m.clone();
         listed.stack.last_mut().unwrap().1 = 0;
-        assert_eq!((listed.nav(Nav::Confirm, &mut s, 0), listed.address.as_str()), (Some(Command::Join), "DX67A3"), "a game on the internet joins by its code");
+        assert_eq!((listed.nav(Nav::Confirm, &mut s), listed.address.as_str()), (Some(Command::Join), "DX67A3"), "a game on the internet joins by its code");
         m.stack.last_mut().unwrap().1 = 2;
         m.code = "OLD".into();
-        m.nav(Nav::Confirm, &mut s, 0);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!((m.page(), m.code.as_str()), (Some(Page::Code), ""), "a code is typed afresh");
-        m.nav(Nav::Down, &mut s, 0);
+        m.nav(Nav::Down, &mut s);
         assert_eq!(m.code, "9", "down from the first sign goes round to the last");
-        m.nav(Nav::Up, &mut s, 0);
-        m.nav(Nav::Right, &mut s, 0);
+        m.nav(Nav::Up, &mut s);
+        m.nav(Nav::Right, &mut s);
         assert_eq!(m.code, "AA");
         for c in ['x', '0', 'o', '1', '-', '7', 'q'] {
             m.type_address(c);
         }
         assert_eq!(m.code, "AAX7Q", "a code's signs only, in capitals");
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), None, "five signs are no code");
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None, "five signs are no code");
         m.type_address('3');
         m.type_address('4');
         assert_eq!(m.code, "AAX7Q3", "six at most");
         m.backspace_address();
         m.type_address('k');
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::JoinCode));
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::JoinCode));
         assert_eq!((m.page(), m.code.as_str()), (Some(Page::Joining), "AAX7QK"));
         let mut host = Menu::pause();
         host.net = Some(NetView { hosting: true, ticket: true, ..NetView::default() });
@@ -1323,42 +1297,42 @@ mod tests {
         let mut m = Menu::title();
         m.network = true;
         assert_eq!(m.items(Page::Title, &s), [Item::Start, Item::Network, Item::Settings, Item::Quit]);
-        m.nav(Nav::Down, &mut s, 0);
-        m.nav(Nav::Confirm, &mut s, 0);
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.page(), Some(Page::Network));
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Host));
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Host));
         let mut across = Menu { stack: vec![(Page::Title, 1), (Page::Network, 1)], network: true, ..Menu::default() };
-        assert_eq!(across.nav(Nav::Confirm, &mut s, 0), Some(Command::HostNet), "hosting across the internet");
+        assert_eq!(across.nav(Nav::Confirm, &mut s), Some(Command::HostNet), "hosting across the internet");
         let mut m = Menu { stack: vec![(Page::Title, 1), (Page::Network, 2)], network: true, ..Menu::default() };
-        m.nav(Nav::Confirm, &mut s, 0);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.page(), Some(Page::Find));
         m.found = vec![FoundLine { line: "OTHER".into(), address: "10.0.0.9:26500".into(), same: false }, FoundLine { line: "PULSAR".into(), address: "10.0.0.8:26500".into(), same: true }];
         assert_eq!(m.items(Page::Find, &s), [Item::Found(0), Item::Found(1), Item::TypeAddress, Item::PasteTicket, Item::Back], "no matchmaker known: the LAN, an address, a ticket");
         let mut paste = m.clone();
         paste.stack.last_mut().unwrap().1 = 3;
-        assert_eq!(paste.nav(Nav::Confirm, &mut s, 0), Some(Command::PasteTicket), "joining by the ticket or code on the clipboard");
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), None, "another game's is grayed");
-        m.nav(Nav::Down, &mut s, 0);
+        assert_eq!(paste.nav(Nav::Confirm, &mut s), Some(Command::PasteTicket), "joining by the ticket or code on the clipboard");
+        assert_eq!(m.nav(Nav::Confirm, &mut s), None, "another game's is grayed");
+        m.nav(Nav::Down, &mut s);
         let mut found = m.clone();
-        assert_eq!((found.nav(Nav::Confirm, &mut s, 0), found.address.as_str(), found.page()), (Some(Command::Join), "10.0.0.8:26500", Some(Page::Joining)));
-        m.nav(Nav::Down, &mut s, 0);
-        m.nav(Nav::Confirm, &mut s, 0);
+        assert_eq!((found.nav(Nav::Confirm, &mut s), found.address.as_str(), found.page()), (Some(Command::Join), "10.0.0.8:26500", Some(Page::Joining)));
+        m.nav(Nav::Down, &mut s);
+        m.nav(Nav::Confirm, &mut s);
         assert_eq!((m.page(), m.address.as_str()), (Some(Page::Join), "10.0.0.7"), "the last address to start with");
-        m.nav(Nav::Left, &mut s, 0);
-        m.nav(Nav::Right, &mut s, 0);
-        m.nav(Nav::Up, &mut s, 0);
-        m.nav(Nav::Up, &mut s, 0);
+        m.nav(Nav::Left, &mut s);
+        m.nav(Nav::Right, &mut s);
+        m.nav(Nav::Up, &mut s);
+        m.nav(Nav::Up, &mut s);
         m.type_address('x');
         assert_eq!(m.address, "10.0.0.2x");
         m.backspace_address();
-        assert_eq!(m.nav(Nav::Confirm, &mut s, 0), Some(Command::Join));
+        assert_eq!(m.nav(Nav::Confirm, &mut s), Some(Command::Join));
         assert_eq!(m.page(), Some(Page::Joining));
-        assert_eq!(m.nav(Nav::Back, &mut s, 0), Some(Command::Disconnect));
+        assert_eq!(m.nav(Nav::Back, &mut s), Some(Command::Disconnect));
         assert_eq!(m.page(), Some(Page::Title));
         let mut guest = Menu::pause().with_slots(vec![None]);
         guest.net = Some(NetView { seated: true, ..NetView::default() });
         assert_eq!(guest.items(Page::Pause, &s), [Item::Resume, Item::Leave, Item::Settings, Item::ToTitle]);
-        assert_eq!(guest.nav(Nav::Down, &mut s, 0).or(guest.nav(Nav::Confirm, &mut s, 0)), Some(Command::Leave(1)), "its first player gives up its seat");
+        assert_eq!(guest.nav(Nav::Down, &mut s).or(guest.nav(Nav::Confirm, &mut s)), Some(Command::Leave(1)), "its first player gives up its seat");
         let mut host = Menu::pause().with_slots(vec![None]);
         host.net = Some(NetView { hosting: true, drops: vec![(3, "ben".into())], ..NetView::default() });
         assert_eq!(host.items(Page::Pause, &s), [Item::Resume, Item::Drop(3), Item::SaveGame, Item::LoadGame, Item::Settings, Item::Restart, Item::ToTitle]);
@@ -1367,6 +1341,6 @@ mod tests {
         let mut net = Menu::pause();
         net.net = Some(NetView { hosting: true, ticket: true, knocks: vec![(4, "BEN KQ7P".into())], ..NetView::default() });
         assert_eq!(net.items(Page::Pause, &s), [Item::Resume, Item::LetIn(4), Item::CopyTicket, Item::Settings, Item::Restart, Item::ToTitle]);
-        assert_eq!(net.nav(Nav::Down, &mut s, 0).or(net.nav(Nav::Confirm, &mut s, 0)), Some(Command::LetIn(4)));
+        assert_eq!(net.nav(Nav::Down, &mut s).or(net.nav(Nav::Confirm, &mut s)), Some(Command::LetIn(4)));
     }
 }

@@ -145,6 +145,11 @@ impl<K: Kit> LuaGame<K> {
             if m.next.as_ref().is_some_and(|a| a.stop) {
                 s.u64(0x7374_6f70);
             }
+            // A pause only once a game pauses its song (`music:pause`), so
+            // earlier checks hold.
+            if m.paused {
+                s.u64(0x7061_7573);
+            }
             // The tempo the game holds and the clock's units only once it
             // sets one (`music.tempo`), so earlier checks hold.
             if let Some(tempo) = m.tempo {

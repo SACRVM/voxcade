@@ -137,8 +137,12 @@ pub struct Mixer {
     spent: [Option<music::Player>; LEAVING],
     /// Each song's own samples while two crossfade.
     apart: (Vec<f32>, Vec<f32>),
-    /// The music held where it is (a game that reads its beats, paused).
+    /// The music held where it is (a game that reads its beats, paused;
+    /// `music:pause`), and how loud it is on its way there and back:
+    /// `ENDING` frames each way, the song advancing only while it sounds,
+    /// so it goes on from the very sample it held at.
     music_held: bool,
+    held_level: u64,
     /// The last stage: holds the mix under its ceiling (`limiter`; -1
     /// dBTP, or the game's `c.audio.ceiling`).
     limiter: limiter::Limiter,
@@ -237,6 +241,7 @@ impl Default for Mixer {
             spent: Default::default(),
             apart: (vec![0.0; MIX_BLOCK], vec![0.0; MIX_BLOCK]),
             music_held: false,
+            held_level: ENDING,
             limiter: limiter::Limiter::new(SAMPLE_RATE),
             tally: Tally::default(),
         }
@@ -321,10 +326,14 @@ impl Mixer {
         }
     }
 
-    /// Whether the song that plays is with a game's clock at `beats`
-    /// (`music::Player::keeps_with`).
-    pub fn music_keeps_with(&self, beats: f64, ahead: f64) -> bool {
-        self.music.as_ref().is_some_and(|m| m.keeps_with(beats, ahead))
+    /// The song that plays takes a game's clock at `beats`, going `ratio`
+    /// times as fast as its `#tempo`, as where it is now
+    /// (`music::Player::rebase`): it plays on, unbroken.
+    pub fn rebase_music(&mut self, beats: f64, ratio: f64, ahead: f64) {
+        if let Some(m) = &mut self.music {
+            m.set_ratio(ratio);
+            m.rebase(beats, ahead);
+        }
     }
 
     /// What song plays (`Player::identity`), if one does and is named.
@@ -519,8 +528,19 @@ impl Mixer {
     fn mix_block(&mut self, out: &mut [f32]) {
         self.tally.blocks += 1;
         out.fill(0.0);
-        if !self.music_held {
-            self.mix_music(out);
+        // Held, the music sounds only until its fade out ends.
+        let frames = out.len() / 2;
+        let sounding = if self.music_held { (self.held_level as usize).min(frames) } else { frames };
+        if sounding > 0 {
+            self.mix_music(&mut out[..sounding * 2]);
+            if self.music_held || self.held_level < ENDING {
+                for frame in out[..sounding * 2].as_chunks_mut::<2>().0 {
+                    self.held_level = if self.music_held { self.held_level.saturating_sub(1) } else { (self.held_level + 1).min(ENDING) };
+                    let gain = self.held_level as f32 / ENDING as f32;
+                    frame[0] *= gain;
+                    frame[1] *= gain;
+                }
+            }
         }
         for v in &mut self.voices {
             for frame in out.as_chunks_mut::<2>().0 {

@@ -257,11 +257,8 @@ pub struct Session<G: Game> {
     restart: bool,
     /// Seconds the time heard lies past the game's clock (`music_ahead`).
     music_ahead: f64,
-    /// Which of the songs a player hears plays (`player_songs`).
-    pub song: usize,
-    /// The titles of the songs a player hears (their `#title`, else the
-    /// file name), in order.
-    pub song_titles: Vec<String>,
+    /// The game's song was paused at the last feed (`music:pause`).
+    music_was_paused: bool,
     /// The beats of the files of `c.audio.music` (`song_timings`), as the
     /// game was told them.
     songs: Vec<audio::music::Timing>,

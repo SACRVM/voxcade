@@ -1103,6 +1103,10 @@ impl<K: Kit> Game for LuaGame<K> {
         self.stage.music.silent
     }
 
+    fn music_paused(&self) -> bool {
+        self.stage.music.paused
+    }
+
     /// A song gone from the list leaves the music to the player's choice,
     /// keeping what the game holds (its tension, mix and strips, tempo);
     /// channels laid over a studio that changed are read against it anew,

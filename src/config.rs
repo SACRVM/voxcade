@@ -486,11 +486,11 @@ impl Default for PlayerConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct TitleScreenConfig {
-    /// What plays on the title, a song of `c.audio.music`, named as `music:play` takes it (`"storm"`) or by its file (`"music/storm.mml"`). Unset: on the engine's title its first song, on a title level of the game's own the player's song, as in a run.
-    /// On a title level of the game's own (`c.title_screen.level`) it begins as the level does, as the game's own song (`music.song` says it), until your code plays another or stops it (`music:play`, `music:stop`, in `on_level_start` too), and again each time the title comes back.
+    /// What plays on the engine's title, a song of `c.audio.music`, named as `music:play` takes it (`"storm"`) or by its file (`"music/storm.mml"`). Unset: its first song.
+    /// A title level of the game's own (`c.title_screen.level`) plays its song from its code, as every level does (`music:play` in its `on_level_start`): set with it, this is a mistake.
     pub music: Option<String>,
-    /// The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro.
-    /// It goes round as the song says (`#loop`). On the engine's title and on a title level of the game's own alike (there as `music:play`'s `at`).
+    /// The bar the engine's title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro.
+    /// It goes round as the song says (`#loop`). A title level of the game's own says it in its code (`music:play`'s `at`).
     pub music_at: u32,
     /// The ground point the camera looks at (default: where the player starts).
     pub at: Option<[f32; 2]>,

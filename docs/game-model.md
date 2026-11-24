@@ -257,7 +257,14 @@ settings. Several players: `player` is seat 1, the others are in
   coming in time). `music:play(song, from)` plays a song of
   `c.audio.music` by its file's name from the next bar of the one playing
   (`"beat"`, `"now"`; at once when none of the game's plays), at its beat
-  0; without a song the player's own comes back (as the settings chose).
+  0. Music comes from the game's code alone (the owner, 2026-11-24):
+  what plays is the song asked last until the code asks another or
+  `music:stop`; nothing plays before it asks, a level that asks nothing
+  leaves what plays, and there is no song of the player's
+  (`music:play()` without a song is a mistake). `music:pause()` holds the
+  song and its clock (`music.paused`, no `on_beat`), `music:resume()`
+  goes on from the sample it held at (5 ms of fade each way); a play or a
+  stop while paused comes at once.
   `music.song`, `music.beat`, `music.bar` (`#meter` beats to a bar) read
   it; `on_beat(beat)` tells each beat, on and on as the song goes
   round: past its end, or round the bars its `#loop` names (`#loop 33
@@ -297,8 +304,7 @@ settings. Several players: `player` is seat 1, the others are in
   `{ from, fade = seconds }`) is silence in place of the game's song
   (stage 2a of `shots/reviews/music-stage2-draft.md` as its review cut
   it): `music.song`, `beat`, `bar`, `position` nil, no `on_beat`, the
-  clock gone, the player's own song not coming back (`music:play()`
-  brings it); a fade of 0 is still 5 ms, and a stop fades however young
+  clock gone, no other song in its place; a fade of 0 is still 5 ms, and a stop fades however young
   the song (the quarter second that turns a crossfade into a cut is for
   a song that comes). A play after it begins its song at beat 0, at
   once; a play asked while a stop is pending replaces it (one slot: the
@@ -902,18 +908,14 @@ Then:
   does. `world:go_to`, `world:win` and `world:lose` there are mistakes
   saying so; `world:new_game()` during a run is a mistake (from the title
   only), and so is going to the title level.
-- Its song is `c.title_screen.music` (a song of `c.audio.music`, from
-  `c.title_screen.music_at`'s bar), the game's own as if it had asked
-  for it before its handlers ran: `music.song` says it once
-  `on_level_start` is done, `music.beat` counts and `on_beat` hears it.
-  `music:play` or `music:stop` in the title's `on_level_start` win (the
-  title's song never begins), later on the title as anywhere; each
-  return to the title begins it again. A run begun from the title starts
-  without it, as every run (the player's song until its code plays one).
-  Without `c.title_screen.music` the title plays the player's song, as a
-  run does; a title song not in `c.audio.music` is a mistake at load
-  naming both settings. (Until 0.7 a title level of the game's own
-  ignored `c.title_screen.music` and played the player's song.)
+- Its song comes from its code, as every level's: `music:play` in its
+  `on_level_start`. `c.title_screen.music` and `music_at` are the
+  engine's title's (it has no code); set with `c.title_screen.level` they
+  are a mistake at load naming both and the call to make (the upgrade
+  step "music from the code" moves them where it can). A run begun from
+  the title whose first level asks the same song lets it play on,
+  unbroken: the run's clock begins at 0 where the song is (its beat 0 is
+  not on a beat heard); back on the title the same.
 - The level a run begins in is `c.start`'s, else the first of
   `world.levels` that is not the title (`Levels::first`); `world.levels`
   still lists it, and `level.next` passes it over.
@@ -1175,7 +1177,7 @@ The engine calls a handler if the script has it:
 | `on_world_end(result)` | the run ends: `"won"`, `"lost"` or `"quit"`; after `on_level_end`; the end cannot be undone here |
 | `on_level_start(how)` | a level was entered: `"start"`, `"go_to"`, `"restart"`, `"load"` or `"reload"`; its things in place, `level.state` fresh (or from the save), the player at its place |
 | `on_level_end(why)` | the level is about to be left: `"go_to"`, `"restart"`, `"load"`, `"reload"`, `"won"`, `"lost"`, `"quit"`; copy from `level.state` what should outlive the visit |
-| `on_beat(beat)` | a beat of the game's own song begins (`music:play`; from 0 at its start, on through its loops), before `on_tick`; none while the player's song plays |
+| `on_beat(beat)` | a beat of the game's own song begins (`music:play`; from 0 at its start, on through its loops), before `on_tick`; none while no song of the game's plays or it is paused |
 | `on_tick()` | every tick, after the engine's own rules |
 | `on_draw(frame)` | every picture (as often as the screen shows one, apart from the ticks); only looks, draws on `frame` |
 | `on_touch(a, b, where)` | two things begin to touch: once per pair, not every tick; the player is always `a`, else the thing that came first; `where` is the face of `b` that `a` met (`"top"`, `"bottom"`, `"side"`). What lasts while touched is asked in `on_tick` (`thing:touching`) |

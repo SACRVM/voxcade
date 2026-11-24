@@ -119,6 +119,16 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
             }),
         ),
         (
+            "music from the code",
+            game("step-music", &|d| {
+                put(d, "conf.lua", &conf("  c.audio.music = { \"music/kit.mml\", \"music/storm.mml\", \"music/calm.mml\" }\n  c.title_screen.level = \"title\"\n  c.title_screen.music = \"music/calm.mml\"\n  c.title_screen.music_at = 3\n"));
+                put(d, "music/kit.mml", "#tempo 120\n@k sine\n");
+                put(d, "music/storm.mml", "#tempo 120\n@a triangle\nA: c1 c1 c1 c1\n");
+                put(d, "music/calm.mml", "#tempo 90\n@a triangle\nA: c1 c1 c1 c1\n");
+                put(d, "main.lua", "function on_tick()\n  player:walk(input.dir, 40)\nend\n");
+            }),
+        ),
+        (
             "worlds and prefabs as text",
             game("step-worlds", &|d| {
                 put(d, "conf.lua", &conf("  c.world.file = \"world.vox\"\n"));
@@ -209,7 +219,7 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
         put(d, "main.lua", "function on_world_start() end\n");
     });
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code"]);
     assert!(steps[1].would.is_empty(), "no lamps to speak of");
     let e = opens(&dir).unwrap_err().to_string();
     assert!(e.contains("made for Voxcade 0.6.0"), "{e}");
@@ -219,4 +229,64 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
     assert_eq!(std::fs::read_to_string(dir.join("conf.lua")).unwrap(), format!("function conf(c)\n  c.voxcade = \"{}\"\n  c.things.ship = {{}}\nend\n", engine()));
     opens(&dir).unwrap();
     assert!(upgrade(&dir, false).unwrap().join("\n").contains("nothing to do"));
+}
+
+/// "music from the code" on games of each shape: without an
+/// `on_level_start` and asking no song, the call is added (on a title level
+/// of the game's own its song, `c.title_screen.music`'s lines taken out),
+/// the game played as before; with an `on_level_start`, a `music:play()`
+/// without a song, or a song asked already beside `c.title_screen.music`
+/// on its own title, it says the line to add and changes nothing.
+#[test]
+fn music_from_the_code_adds_the_call_where_it_safely_can() {
+    let songs = |d: &Path, rest: &str| {
+        put(d, "conf.lua", &format!("function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.audio.music = {{ \"music/storm.mml\", \"music/calm.mml\" }}\n{rest}end\n"));
+        put(d, "music/storm.mml", "#tempo 120\n@a triangle\nA: c1 c1 c1 c1\n");
+        put(d, "music/calm.mml", "#tempo 90\n@a triangle\nA: c1 c1 c1 c1\n");
+    };
+    // Added: the first song, and the call says so.
+    let plain = game("step-music-plain", &|d| {
+        songs(d, "");
+        put(d, "main.lua", "function on_tick()\nend\n");
+    });
+    upgrade(&plain, false).unwrap();
+    let main = std::fs::read_to_string(plain.join("main.lua")).unwrap();
+    assert!(main.ends_with("function on_tick()\nend\n\n-- Voxcade 0.7: music comes from the game's code alone (voxcade upgrade added this).\nfunction on_level_start(how)\n  music:play(\"storm\")\nend\n"), "{main}");
+    // A title of its own: its song on the title level, the first elsewhere,
+    // the setting gone.
+    let titled = game("step-music-title", &|d| {
+        songs(d, "  c.title_screen.level = \"title\"\n  c.title_screen.music = \"calm\"\n");
+        put(d, "main.lua", "");
+    });
+    upgrade(&titled, false).unwrap();
+    let main = std::fs::read_to_string(titled.join("main.lua")).unwrap();
+    assert!(main.contains("  if level.name == \"title\" then music:play(\"calm\") else music:play(\"storm\") end\n"), "{main}");
+    assert!(!std::fs::read_to_string(titled.join("conf.lua")).unwrap().contains("title_screen.music"));
+    // Its own handler: words only.
+    let own = game("step-music-own", &|d| {
+        songs(d, "");
+        put(d, "main.lua", "-- the level\nfunction on_level_start(how)\n  level.state.n = 0\nend\n");
+    });
+    let before = files(&own);
+    let said = upgrade(&own, false).unwrap().join("\n");
+    assert!(said.contains("main.lua:2: music comes from the game's code alone now: add music:play(\"storm\") to on_level_start"), "{said}");
+    assert_eq!(files(&own).get("main.lua"), before.get("main.lua"), "nothing changed in it");
+    // music:play() without a song, and a title setting beside a song asked.
+    let bare = game("step-music-bare", &|d| {
+        songs(d, "  c.title_screen.level = \"title\"\n  c.title_screen.music = \"calm\"\n");
+        put(d, "main.lua", "function on_level_start(how)\n  music:play(\"calm\")\nend\nfunction on_tick()\n  if world.tick == 9 then music:play() end\nend\n");
+    });
+    let before = files(&bare);
+    let said = upgrade(&bare, false).unwrap().join("\n");
+    assert!(said.contains("main.lua:5: music:play() without a song gave the music back to the player's song, which is no more: name the song, music:play(\"storm\")"), "{said}");
+    assert!(said.contains("conf.lua:5: c.title_screen.music is the engine's title's: play calm from the title level title's code"), "{said}");
+    assert_eq!((files(&bare).get("main.lua"), files(&bare).get("conf.lua").is_some_and(|c| String::from_utf8_lossy(c).contains("title_screen.music"))), (before.get("main.lua"), true));
+    // Songs asked only later (a boss's): silent until then, said.
+    let later = game("step-music-later", &|d| {
+        songs(d, "");
+        put(d, "main.lua", "function on_tick()\n  if world.tick == 600 then music:play(\"calm\") end\nend\n");
+    });
+    let said = upgrade(&later, false).unwrap().join("\n");
+    assert!(said.contains("main.lua: on_level_start: music comes from the game's code alone now, and the game asks its songs only later"), "{said}");
+    opens(&later).unwrap();
 }

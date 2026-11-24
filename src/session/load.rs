@@ -87,7 +87,6 @@ impl<G: Game> Session<G> {
         let game_mark = game.level_mark();
         let sounds = SoundBank::load(&files, &cfg.sounds, &G::sounds(&cfg))?;
         let actions = G::actions(&cfg);
-        let song_titles = song_titles(&files, &cfg, &songs);
         let cfg_ui = cfg.ui.clone();
         let seats = session_seats(&cfg);
         let mut session = Self {
@@ -99,13 +98,13 @@ impl<G: Game> Session<G> {
             piece_models,
             sounds,
             samples,
-            song_titles,
             songs,
             cue,
             audio_laid: None,
             music_changed: true,
             restart: false,
             music_ahead: 0.0,
+            music_was_paused: false,
             fade_clock: false,
             crossfade: None,
             fade_cut: false,
@@ -113,7 +112,6 @@ impl<G: Game> Session<G> {
             fade: None,
             flyby_from: 0.0,
             ticked: false,
-            song: 0,
             options: Options::default(),
             font: display_font(&files, &cfg_ui),
             bank: Default::default(),

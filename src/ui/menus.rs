@@ -17,13 +17,12 @@ pub(super) const TITLE_ROWS_LIGHT: ([u8; 4], [u8; 4], [u8; 4]) = (TEXT, [214, 34
 pub(super) const DRIP: [u8; 4] = [150, 14, 16, 255];
 
 /// What the menus show besides their pages: the logo (lines and colours,
-/// the one that drips), the songs' titles, the high score.
+/// the one that drips), the high score.
 pub struct MenuView<'a> {
     pub menu: &'a Menu,
     pub settings: &'a Settings,
     pub logo: &'a [(String, [u8; 4])],
     pub drip: Option<usize>,
-    pub songs: &'a [String],
     /// The game keeps a score (and so a high score).
     pub scored: bool,
     /// The big letters' font, and the logo lines' heights in voxels.
@@ -649,10 +648,6 @@ pub(super) fn setting(out: &mut Vec<Instance>, view: &MenuView, item: Item, x: f
                     }
                 }
             }
-        }
-        Item::Song => {
-            let name = view.songs.get(s.song).map(String::as_str).unwrap_or("-");
-            text(out, &chosen(&name.to_uppercase(), selected), x, y, 1, color, depth);
         }
         Item::Fullscreen => text(out, flag(s.fullscreen), x, y, 1, color, depth),
         Item::Shake => text(out, flag(s.shake), x, y, 1, color, depth),

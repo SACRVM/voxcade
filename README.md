@@ -65,9 +65,8 @@ Everywhere:
 | `^` (left of 1; `` ` `` on a US keyboard) | the console (below) |
 
 The maker's keys are not a player's: `voxcade run <game> --maker` (and
-the IDE's PLAY, always) brings F5 (start again on the files as they are),
-F9 (keep the run being played as a replay in the game's `replays/`) and
-1 .. 9 (the game's songs).
+the IDE's PLAY, always) brings F5 (start again on the files as they are)
+and F9 (keep the run being played as a replay in the game's `replays/`).
 
 `voxcade pads --seconds 15` shows what SDL sees of a controller that does
 nothing. Settings, high scores and save games are the player's, in the
@@ -271,8 +270,8 @@ claude mcp add voxcade -- /path/to/voxcade mcp
   note, cut, looped, reversed), played anew on every save. Songs
   from chord progressions with `tools/compose.py` (the library in
   `music/`), MIDI and Suno stems through `tools/midi2mml.py` and
-  `tools/audio2midi.py`; a game picks its song and goes with its beats
-  (`music:play`, `on_beat`). `voxcade music <game>` writes a WAV.
+  `tools/audio2midi.py`; a game's code plays its songs and goes with
+  their beats (`music:play`, `on_beat`, `music:pause`). `voxcade music <game>` writes a WAV.
 
 ## The look
 

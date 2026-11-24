@@ -110,6 +110,8 @@ end
 -- the score and the gems taken then. The slabs and lifts that have a
 -- lever wait for it, the hatches are shut.
 function on_level_start(how)
+  -- The castle's song, asked in every room: it plays on from room to room.
+  music:play("under_the_dunes")
   level.state.began = world.tick
   if how == "start" or how == "go_to" then
     world.state.entered = { score = player.state.score, taken = player.state.taken }

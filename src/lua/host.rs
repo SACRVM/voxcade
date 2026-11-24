@@ -717,9 +717,12 @@ pub enum When {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Music {
     pub song: Option<usize>,
-    /// Stopped (`music:stop`): silence in place of the game's song, the
-    /// player's own not coming back (`song` None, no clock).
+    /// Stopped (`music:stop`): silence in place of the game's song (`song`
+    /// None, no clock).
     pub silent: bool,
+    /// Paused (`music:pause`): the song holds where it is, its clock too
+    /// (no `on_beat`), until `music:resume`, `music:play` or `music:stop`.
+    pub paused: bool,
     /// The bar of its song its beat 0 lies at (`music:play`'s `at`, from
     /// 1: its start).
     pub at: u32,
@@ -788,7 +791,7 @@ pub struct SongAsk {
 
 impl Default for Music {
     fn default() -> Self {
-        Self { song: None, silent: false, at: 1, steps: 0, next: None, told: None, laid: None, crossed: None, intensity: 1.0, mix: Default::default(), tempo: None, units: None }
+        Self { song: None, silent: false, paused: false, at: 1, steps: 0, next: None, told: None, laid: None, crossed: None, intensity: 1.0, mix: Default::default(), tempo: None, units: None }
     }
 }
 
@@ -833,6 +836,13 @@ impl Music {
     /// step then read from the same.
     pub fn step(&mut self, songs: &[crate::audio::music::Timing]) {
         self.mix.step();
+        // Paused, the clock holds; a song or a stop asked meanwhile comes
+        // at once, and the pause is over.
+        let paused = std::mem::take(&mut self.paused);
+        if paused && self.next.is_none() {
+            self.paused = true;
+            return;
+        }
         if self.units.is_none() && self.tempo.is_some() && let Some(t) = self.song.and_then(|s| songs.get(s)) {
             self.units = Some(self.steps * u64::from(milli(f64::from(t.tempo))));
         }
@@ -846,6 +856,7 @@ impl Music {
         }
         let Some(ask) = &self.next else { return };
         let due = match (before, self.clock(songs), ask.when) {
+            _ if paused => true,
             (Some(a), Some(b), When::Beat) => b.beat > a.beat,
             (Some(a), Some(b), When::Bar) => b.bar > a.bar,
             _ => true,

@@ -23,7 +23,7 @@ impl<K: Kit> LuaGame<K> {
         check_facings(&levels, &kinds)?;
         check_yaws(&levels, with::<K>(cfg) && K::sees_from_the_side(cfg))?;
         check_names(&levels, &kinds)?;
-        let title_song = Self::title_song(cfg, &levels)?;
+        Self::check_title_song(cfg, &levels)?;
         let host: Box<dyn Host> = if with::<K>(cfg) {
             Box::new(K::load(setup)?)
         } else {
@@ -163,15 +163,6 @@ impl<K: Kit> LuaGame<K> {
             game.code.env = Some(env);
         }
         game.built();
-        // The game's own title plays its song (`c.title_screen.music`, from
-        // `music_at`'s bar) as if the game had asked for it before its
-        // handlers ran, unless they asked for a song or silence themselves.
-        let on_title = game.stage.on_title();
-        let m = &mut game.stage.music;
-        if let Some(song) = title_song.filter(|_| on_title && m.song.is_none() && m.next.is_none() && !m.silent) {
-            (m.song, m.at, m.steps, m.told, m.laid) = (Some(song), cfg.title_screen.music_at.max(1), 0, None, None);
-            m.units = m.tempo.map(|_| 0);
-        }
         if let Some(b) = game.focus_body() {
             let target = b.pos + Vec3::Z * b.height * 0.5;
             let sim = game.stage.host.sim_mut();
@@ -415,21 +406,25 @@ impl<K: Kit> LuaGame<K> {
         Ok(())
     }
 
-    /// The song a title level of the game's own (`c.title_screen.level`)
-    /// begins with: `c.title_screen.music`, by its place in
-    /// `c.audio.music` (it plays as the game's own song, `music.song`);
-    /// none without either. A title song not in that list is a mistake
-    /// naming both.
-    fn title_song(cfg: &GameConfig, levels: &crate::levels::Levels) -> Result<Option<usize>> {
-        let (Some(_), Some(file)) = (levels.title, cfg.title_screen.music.as_deref()) else { return Ok(None) };
-        let files = cfg.audio.music.files();
-        match cfg.audio.music.file_of(file).and_then(|found| files.iter().position(|f| *f == found)) {
-            Some(song) => Ok(Some(song)),
-            None => anyhow::bail!(
-                "c.title_screen.music = \"{file}\": a title level of the game's own (c.title_screen.level) plays a song of c.audio.music, named as music:play takes it (\"NAME\") or by its file (\"music/NAME.mml\"), and it is not there (its songs: {})",
-                if files.is_empty() { "none".to_string() } else { files.join(", ") }
-            ),
+    /// A title level of the game's own (`c.title_screen.level`) asks its
+    /// song in its code, as every level does: `c.title_screen.music` and
+    /// `music_at` are the engine's title's (it has no code), and set with a
+    /// title level of the game's own they are a mistake saying where the
+    /// song is asked.
+    fn check_title_song(cfg: &GameConfig, levels: &crate::levels::Levels) -> Result<()> {
+        if levels.title.is_none() {
+            return Ok(());
         }
+        let set: Vec<&str> = [(cfg.title_screen.music.is_some(), "c.title_screen.music"), (cfg.title_screen.music_at > 1, "c.title_screen.music_at")].into_iter().filter(|(on, _)| *on).map(|(_, key)| key).collect();
+        if set.is_empty() {
+            return Ok(());
+        }
+        let song = cfg.title_screen.music.as_deref().map_or("NAME".to_string(), |s| std::path::Path::new(s).file_stem().map_or(s.to_string(), |n| n.to_string_lossy().into_owned()));
+        let at = if cfg.title_screen.music_at > 1 { format!(", {{ at = {} }}", cfg.title_screen.music_at) } else { String::new() };
+        anyhow::bail!(
+            "{}: the engine's title's song; a title level of the game's own (c.title_screen.level) plays its song from its code, as every level does: music:play(\"{song}\"{at}) in the title's on_level_start (voxcade upgrade moves it there)",
+            set.join(" and ")
+        )
     }
 
     /// The seats (`c.players`) and the hold (`c.camera.hold`) are of a size

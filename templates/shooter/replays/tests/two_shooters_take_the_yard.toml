@@ -1,18 +1,19 @@
 # Voxcade replay: My Game, 400 ticks, quit, score 300
 version = 1
 game = "My Game"
-fingerprint = "b0d010c3ef26b5ae"
+fingerprint = "7df93ff0f53eba1c"
 ticks = 400
 outcome = "quit"
 score = 300
 input = "up+fire:200;right+grenade:20;none:180"
-checks = ["5b96749e54eb6541", "32fef0bd9449d511", "916bed577f10d605", "8b11368e553a99d9", "b130da12f9787b08", "c9bc1891223b28d1"]
-final_state = "c34d6a1f8130d5e7"
+checks = ["ea6b78b26a43f84b", "db4e7e5dfcb8dfcc", "d7d01734181342ef", "26e268ce90f87168", "c84548ed01d58eae", "d69cafdfd731009d"]
+final_state = "0bce1ffc352fabd2"
 
 [fingerprint_parts]
 "conf.lua" = "633c47078efbaaca"
 "enemy.vvx" = "6d44cfbf00f46a12"
-"main.lua" = "cf322ad9d92ed698"
+"main.lua" = "cc20079d5828ec10"
+music = "9cdd9183d5f2f910"
 "player.vvx" = "560fe3e5a4f71cad"
 "player2.vvx" = "945d3a1ed1af1220"
 

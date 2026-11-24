@@ -24,10 +24,11 @@ fn sampled(name: &str, main: &str, song: &str) -> crate::scratch::Scratch {
     dir
 }
 
-/// How fast the music `g` would play now goes round over its first half
-/// second, by its rising crossings of zero; None without music.
+/// How fast the music `g` plays (else its song `music/s.mml`) goes round over
+/// its first half second, by its rising crossings of zero; None without
+/// music.
 fn pitch(g: &Session<LuaGame>) -> Option<f32> {
-    let s: Vec<f32> = g.music()?.render(Some(0.5)).into_iter().step_by(2).collect();
+    let s: Vec<f32> = g.music().or_else(|| g.song("music/s.mml"))?.render(Some(0.5)).into_iter().step_by(2).collect();
     let ups: Vec<usize> = (1..s.len()).filter(|&i| s[i - 1] < 0.0 && s[i] >= 0.0).collect();
     (ups.len() > 2).then(|| (ups.len() - 1) as f32 * 44_100.0 / (ups[ups.len() - 1] - ups[0]) as f32)
 }

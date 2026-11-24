@@ -48,7 +48,7 @@ impl Heard {
     /// A frame's music, as `App::music` hands it (`held`: a menu over the
     /// game); whether a song of the game's began.
     pub fn music<G: Game>(&mut self, game: &mut Session<G>, held: bool) -> bool {
-        let made = made_music(game, &mut self.front, &self.settings);
+        let made = made_music(game, &mut self.front);
         hand_made(made, game, &mut self.mixer, held, &self.settings)
     }
 
@@ -134,7 +134,7 @@ mod tests {
         let mut most = 0;
         for _ in 0..frames {
             heard.music(game, held);
-            if !held {
+            if !held && heard.front.playing {
                 game.step(&Input::default());
                 heard.sounds(game);
             }
@@ -152,101 +152,100 @@ mod tests {
         levels.into_iter().filter(|&(_, l)| loudest > 0.01 && l > loudest * 0.5).map(|(n, _)| n).collect()
     }
 
-    /// A title level of the game's own gets its song once, from the window
-    /// opening to a steady title: one song handed, nothing before the
-    /// level begins, nothing crossfaded (a crossfade set for every change),
-    /// one song sounding; asked in its `on_level_start` too (`music:play`
-    /// of the title's song, the build in between), still once.
-    #[test]
-    fn a_title_of_the_games_own_hands_one_song() {
-        for main in ["", "function on_level_start() music:play(\"three\", \"now\") end\n"] {
-            let (_dir, mut g) = game("heard-own-title", main, "  c.title_screen.music = \"three\"\n  c.audio.crossfade = 2\n");
-            let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
-            assert_eq!(heard.mixer.tally.songs, 0, "{main}: nothing before the first frame");
-            let most = frames(&mut heard, &mut g, 240, false);
-            let t = heard.mixer.tally;
-            assert_eq!((t.songs, t.crossfades, t.jumps, most), (1, 0, 0, 1), "{main}: {t:?}");
-            assert_eq!(heard_now(&heard), ["three"]);
-        }
+    /// The title's level asks `SONG` (`main` the rest), the run's first
+    /// level `RUN` (nothing where empty): `on_level_start` as a game writes it.
+    fn asking(title: &str, run: &str, more: &str) -> String {
+        let run = if run.is_empty() { String::new() } else { format!("music:play(\"{run}\")") };
+        format!("function on_level_start() if level.name == \"title\" then music:play(\"{title}\") else {run} end end\n{more}")
     }
 
-    /// The engine's title, its settings' preview, a run, a pause and the
-    /// way back: each change hands the mixer once, the same song plays on
-    /// (the title's and the player's are one file), at most one song
-    /// sounds but while a fade asked for runs, and never two copies of
-    /// one; a song chosen in the settings plays at once in the run.
+    /// Goes to a new game from the title, as the title's code would.
+    const GO: &str = "function on_tick() if world.state.go then world:new_game() end end\n";
+
+    /// A title level of the game's own gets its song once, from its code,
+    /// from the window opening to a steady title: nothing before the level
+    /// begins, nothing crossfaded (a crossfade set for every change), one
+    /// song sounding.
+    #[test]
+    fn a_title_of_the_games_own_hands_one_song() {
+        let (_dir, mut g) = game("heard-own-title", &asking("three", "", ""), "  c.audio.crossfade = 2\n");
+        let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
+        assert_eq!(heard.mixer.tally.songs, 0, "nothing before the first frame");
+        let most = frames(&mut heard, &mut g, 240, false);
+        let t = heard.mixer.tally;
+        assert_eq!((t.songs, t.crossfades, t.jumps, most), (1, 0, 0, 1), "{t:?}");
+        assert_eq!(heard_now(&heard), ["three"]);
+    }
+
+    /// The engine's title, a run and the way back: the title's song from
+    /// the first frame; a run whose code asks nothing lets it play on
+    /// (music comes from the code alone, and a scene that asks nothing
+    /// changes nothing); a run that asks a song gets it, once; a pause over
+    /// the run leaves a song the game asked held, nothing else; the run's
+    /// end brings the title's song again.
     #[test]
     fn the_engine_title_and_a_run_hand_the_mixer_once_a_change() {
-        let (_dir, mut g) = game("heard-engine-title", "", "  c.title_screen.level = nil\n");
+        let (_dir, mut g) = game("heard-engine-title", "function on_tick() if world.tick == 60 then music:play(\"two\", \"now\") end end\n", "  c.title_screen.level = nil\n");
         let mut heard = Heard::open(&mut g, Opening::EngineTitle, false).unwrap();
         assert_eq!(frames(&mut heard, &mut g, 60, false), 1);
         assert_eq!((heard.mixer.tally.songs, heard_now(&heard)), (1, vec!["one"]), "the title's song from the first frame");
-        // SETTINGS over the title: the song chosen there, then back.
-        heard.settings.song = 1;
-        heard.menu(Menu { stack: vec![(Page::Title, 1), (Page::Settings, 0)], ..Menu::title() });
-        frames(&mut heard, &mut g, 30, false);
-        assert_eq!((heard.mixer.tally.songs, heard_now(&heard)), (2, vec!["two"]), "the preview");
-        heard.settings.song = 0;
-        frames(&mut heard, &mut g, 30, false);
-        heard.menu(Menu::title());
-        frames(&mut heard, &mut g, 30, false);
-        let t = heard.mixer.tally;
-        assert_eq!((t.songs, t.played_on, heard_now(&heard)), (3, 1, vec!["one"]), "the first chosen again, the title the same song: {t:?}");
-        // START: the player's song is the title's: it plays on.
         heard.start();
-        let most = frames(&mut heard, &mut g, 60, false);
+        let most = frames(&mut heard, &mut g, 30, false);
         let t = heard.mixer.tally;
-        assert_eq!((t.songs, t.played_on, most), (3, 2, 1), "into the run, the same song: {t:?}");
-        // Paused: the player's song goes on (only the game's own holds).
+        assert_eq!((t.songs, most, heard_now(&heard)), (1, 1, vec!["one"]), "into the run, nothing asked yet: it plays on: {t:?}");
+        frames(&mut heard, &mut g, 60, false);
+        assert_eq!((heard.mixer.tally.songs, heard_now(&heard)), (2, vec!["two"]), "the run's code asks a song");
         heard.menu(Menu::pause());
+        let before = heard.samples.len();
         frames(&mut heard, &mut g, 30, true);
+        let held = &heard.samples[before + 2 * 441..];
+        assert!(held.iter().all(|v| *v == 0.0), "paused by the engine's menu: the game's song holds");
         heard.menu(Menu::default());
-        // A song chosen in the settings over the run plays at once.
-        heard.settings.song = 2;
         frames(&mut heard, &mut g, 30, false);
-        assert_eq!((heard.mixer.tally.songs, heard_now(&heard)), (4, vec!["three"]));
-        // The run's end: the engine's title, its song again.
+        assert_eq!(heard_now(&heard), ["two"]);
         heard.to_title(&mut g).unwrap();
         let most = frames(&mut heard, &mut g, 30, false);
-        assert_eq!((heard.mixer.tally.songs, most, heard_now(&heard)), (5, 1, vec!["one"]));
+        assert_eq!((heard.mixer.tally.songs, most, heard_now(&heard)), (3, 1, vec!["one"]));
         assert_eq!(heard.mixer.tally.crossfades, 0, "none asked");
     }
 
-    /// A game's own title, a run begun from it and back: a run that plays
-    /// the player's song, the title's file, lets it play on; a run whose
-    /// code asks the title's song begins it on its own clock (its beat 0),
-    /// cleanly, never crossfaded into itself; QUIT TO TITLE begins the
-    /// title's anew; F5 begins it again from its start.
+    /// The song of a title level of the game's own asked again by the
+    /// run's first level plays on into the run, one song: no restart, no
+    /// jump, nothing crossfaded, the run's clock at its beat 0 taken as
+    /// where the song is (`Player::rebase`); the same back to the title. A
+    /// run asking another song gets it once. F5 begins the title's anew.
     #[test]
-    fn a_run_from_the_games_own_title_and_back() {
-        let main = "function on_tick() if world.state.go then world:new_game() end end\n";
-        let (_dir, mut g) = game("heard-own-run", main, "  c.title_screen.music = \"one\"\n  c.audio.crossfade = 2\n");
+    fn the_same_song_plays_on_from_the_title_into_the_run_and_back() {
+        let (_dir, mut g) = game("heard-own-run", &asking("one", "one", GO), "  c.audio.crossfade = 2\n");
         let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
-        frames(&mut heard, &mut g, 60, false);
+        frames(&mut heard, &mut g, 90, false);
         g.eval("world.state.go = true").unwrap();
+        let at = heard.samples.len();
         let most = frames(&mut heard, &mut g, 120, false);
         let t = heard.mixer.tally;
-        assert!(!g.on_title(), "a run");
-        assert_eq!((t.songs, t.crossfades, t.played_on, most, heard_now(&heard)), (1, 0, 1, 1, vec!["one"]), "the player's song is the title's: it plays on: {t:?}");
+        assert!(!g.on_title() && g.steers_music(), "a run that plays the song as its own");
+        assert_eq!(g.game.music().map(|c| c.beats < 4.5), Some(true), "the run's clock from its beat 0 (4 beats in 2 s)");
+        assert_eq!((t.songs, t.crossfades, t.jumps, t.played_on, most, heard_now(&heard)), (1, 0, 0, 1, 1, vec!["one"]), "one song, played on: {t:?}");
+        // Unbroken: the samples go on as one sine (no step past its own).
+        let s: Vec<f32> = heard.samples[at - 2000..at + 20_000].iter().step_by(2).copied().collect();
+        let steepest = s.windows(2).fold(0.0f32, |m, w| m.max((w[1] - w[0]).abs()));
+        let own = 2.0 * std::f32::consts::PI * 220.0 / SAMPLE_RATE as f32 * s.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        assert!(steepest <= own * 1.05, "a step of {steepest} where the sine's own is {own}");
         heard.to_title(&mut g).unwrap();
-        let most = frames(&mut heard, &mut g, 60, false);
+        let most = frames(&mut heard, &mut g, 120, false);
         let t = heard.mixer.tally;
-        assert_eq!((t.songs, t.crossfades, most), (2, 0, 1), "the title's clock at its beat 0: begun anew, the one before ended within 5 ms: {t:?}");
-        assert_eq!(heard.mixer.songs_sounding(), 1);
-        // F5 on the title: begun again from its start, the same song.
+        assert_eq!((t.songs, t.jumps, t.played_on, most), (1, 0, 2, 1), "back on the title, still the one song: {t:?}");
         g.restart_music();
         frames(&mut heard, &mut g, 30, false);
-        assert_eq!((heard.mixer.tally.songs, heard.mixer.tally.crossfades), (3, 0), "F5");
-        // A run whose code asks for the title's song: on its own clock.
-        let main = "function on_level_start() if level.name ~= \"title\" then music:play(\"one\", \"now\") end end\n\
-            function on_tick() if world.state.go then world:new_game() end end\n";
-        let (_dir, mut g) = game("heard-own-run-asks", main, "  c.title_screen.music = \"one\"\n  c.audio.crossfade = 2\n");
+        assert_eq!((heard.mixer.tally.songs, heard.mixer.tally.crossfades), (2, 0), "F5 begins it anew, never crossfaded into itself");
+        // A run asking another song: that one, crossfaded as asked.
+        let (_dir, mut g) = game("heard-own-run-other", &asking("one", "two", GO), "  c.audio.crossfade = 2\n");
         let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
-        frames(&mut heard, &mut g, 60, false);
+        frames(&mut heard, &mut g, 90, false);
         g.eval("world.state.go = true").unwrap();
-        let most = frames(&mut heard, &mut g, 120, false);
+        let most = frames(&mut heard, &mut g, 240, false);
         let t = heard.mixer.tally;
-        assert_eq!((t.songs, t.crossfades, most, heard_now(&heard)), (2, 0, 1, vec!["one"]), "begun anew on the run's clock, not crossfaded into itself: {t:?}");
+        assert_eq!((t.songs, t.crossfades, most, heard_now(&heard)), (2, 1, 2, vec!["two"]), "{t:?}");
         assert_eq!(heard.mixer.songs_sounding(), 1);
     }
 
@@ -254,7 +253,7 @@ mod tests {
     /// song now): handed at once, never crossfaded into what it was.
     #[test]
     fn a_song_saved_while_it_plays_is_handed_once() {
-        let (dir, mut g) = game("heard-saved", "", "  c.title_screen.music = \"one\"\n  c.audio.crossfade = 2\n");
+        let (dir, mut g) = game("heard-saved", &asking("one", "", ""), "  c.audio.crossfade = 2\n");
         let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
         frames(&mut heard, &mut g, 30, false);
         let path = dir.join("music/one.mml");
@@ -264,6 +263,75 @@ mod tests {
         let t = heard.mixer.tally;
         assert_eq!((t.songs, t.crossfades, most, heard_now(&heard)), (2, 0, 1, vec!["two"]), "{t:?}");
         assert_eq!(heard.mixer.songs_sounding(), 1);
+    }
+
+    /// The owner's car radio: a key steps through the game's songs with
+    /// `music:play`, at once or crossfaded; one song sounds but while the
+    /// fade asked runs, and the same song asked again plays on.
+    #[test]
+    fn a_car_radio_steps_through_the_songs() {
+        let main = "local SONGS = { \"one\", \"two\", \"three\" }\n\
+            function on_world_start() world.state.station = 1 end\n\
+            function on_level_start() music:play(SONGS[world.state.station], \"now\") end\n\
+            function on_tick()\n  local s = world.state\n  if s.next then\n    s.next = nil\n    s.station = s.station % #SONGS + 1\n    music:play(SONGS[s.station], { from = \"now\", crossfade = s.fade or 0 })\n  end\n  if s.again then s.again = nil; music:play(SONGS[s.station], \"now\") end\nend\n";
+        let (_dir, mut g) = game("heard-radio", main, "  c.title_screen.level = nil\n");
+        let mut heard = Heard::open(&mut g, Opening::Run, false).unwrap();
+        frames(&mut heard, &mut g, 60, false);
+        assert_eq!(heard_now(&heard), ["one"]);
+        let mut most = 0;
+        for (want, fade) in [("two", 0.0), ("three", 0.0), ("one", 1.0), ("two", 0.5)] {
+            g.eval(&format!("world.state.next = true; world.state.fade = {fade}")).unwrap();
+            let during = frames(&mut heard, &mut g, 90, false);
+            most = most.max(during);
+            assert!(during <= if fade > 0.0 { 2 } else { 1 }, "{want}: {during} songs at once");
+            assert_eq!(heard_now(&heard), [want]);
+        }
+        let t = heard.mixer.tally;
+        assert_eq!((t.songs, t.crossfades, most), (5, 2, 2), "{t:?}");
+        g.eval("world.state.again = true").unwrap();
+        frames(&mut heard, &mut g, 30, false);
+        assert_eq!((heard.mixer.tally.songs, heard_now(&heard)), (5, vec!["two"]), "the same station again plays on");
+    }
+
+    /// `music:pause()` holds the song where it is, its clock too, and
+    /// `music:resume()` goes on from the very sample it held at, faded out
+    /// and in over 5 ms: the samples heard are the song's own, with the
+    /// silence between.
+    #[test]
+    fn a_paused_song_resumes_where_it_held() {
+        let main = "function on_level_start() music:play(\"one\", \"now\") end\n\
+            function on_tick()\n  if world.tick == 61 then music:pause() end\n  if world.tick == 121 then music:resume() end\n  world.state.beat = music.position\n  world.state.paused = music.paused\nend\n";
+        let (_dir, mut g) = game("heard-pause", main, "  c.title_screen.level = nil\n");
+        let mut heard = Heard::open(&mut g, Opening::Run, false).unwrap();
+        frames(&mut heard, &mut g, 90, false);
+        assert!(g.game.music_paused());
+        let held_at = g.game.music().map(|c| c.beats).unwrap();
+        frames(&mut heard, &mut g, 20, false);
+        assert_eq!(g.game.music().map(|c| c.beats), Some(held_at), "the clock holds");
+        let quiet = heard.samples[heard.samples.len() - 20 * 1470..].iter().all(|v| *v == 0.0);
+        assert!(quiet, "silent while paused");
+        frames(&mut heard, &mut g, 60, false);
+        assert!(!g.game.music_paused() && g.game.music().map(|c| c.beats).unwrap() > held_at, "on again");
+        assert_eq!(heard_now(&heard), ["one"]);
+        let t = heard.mixer.tally;
+        assert_eq!((t.songs, t.jumps), (1, 0), "{t:?}");
+        // The song unpaused is the song never paused, but for the silence
+        // and its two fades.
+        let (_dir, mut plain) = game("heard-pause-plain", "function on_level_start() music:play(\"one\", \"now\") end\n", "  c.title_screen.level = nil\n");
+        let mut whole = Heard::open(&mut plain, Opening::Run, false).unwrap();
+        frames(&mut whole, &mut plain, 150, false);
+        let fade = 2 * 220;
+        let frame = 1470;
+        let (paused, at_once) = (&heard.samples, &whole.samples);
+        // Where it fell silent and where it sounded again; the song goes on
+        // from the sample after the last it made (that one silent).
+        let stop = (0..paused.len() / 2).find(|&i| i > 61 * frame / 2 && paused[2 * i] == 0.0 && paused[2 * i + 1] == 0.0 && paused[2 * i + 2..2 * i + 40].iter().all(|v| *v == 0.0)).unwrap();
+        let go = (stop..paused.len() / 2).find(|&i| paused[2 * i] != 0.0).unwrap();
+        assert_eq!(&paused[..2 * stop - fade], &at_once[..2 * stop - fade], "the same until the fade out");
+        let after = &paused[2 * go + fade..2 * go + fade + 4000];
+        let then = &at_once[2 * stop + 2 + fade..2 * stop + 2 + fade + 4000];
+        let worst = after.iter().zip(then).fold(0.0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(worst < 1e-4, "resumed from the very sample it held at: {worst}");
     }
 
     /// A window held up (a model read, a shader made, the system) while
@@ -276,7 +344,7 @@ mod tests {
     #[test]
     fn a_window_held_up_never_jumps_the_games_song() {
         let run = |keep: bool| {
-            let (_dir, mut g) = game("heard-held-up", "", "  c.title_screen.music = \"three\"\n");
+            let (_dir, mut g) = game("heard-held-up", &asking("three", "", ""), "");
             let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
             let mut clock = TickClock::default();
             let (mut wall, mut device, mut since) = (0.0f64, 0.0f64, 0.0f32);

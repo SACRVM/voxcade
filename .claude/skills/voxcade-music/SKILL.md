@@ -232,24 +232,32 @@ The user makes songs in Suno (Pro) and exports MIDI or audio stems.
 ## Into a game
 
 ```lua
-c.audio.music = { "music/sunny_hills.mml" }   -- one or more: keys 1..9 switch while playing
+c.audio.music = { "music/sunny_hills.mml" }   -- the game's songs; its code plays them (music:play)
 c.audio.music_volume = 0.4
 c.audio.drive = 0          -- how hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense (0 to 12)
 c.audio.ceiling = -1       -- the loudest it may get, in dB true peak, after the drive (-6 to 0; -1 unless set)
-c.title_screen.music = "music/storm.mml"      -- the title's own (default: the first song)
-c.title_screen.music_at = 33                  -- the bar the title's song begins at (1 unless set): past an intro
+c.title_screen.music = "music/storm.mml"      -- the engine's title's song (default: the first song)
+c.title_screen.music_at = 33                  -- the bar the engine title's song begins at (1 unless set): past an intro
 ```
 
 A song begun at a bar: `music:play("storm", { at = 33 })` (counted from
 1) begins it there, its beat 0 there, going round its `#loop` as
 written; a bar past its end or after its loop is a mistake.
 
-Which song plays when is the game's code, never a kit's: More Blood's
-`main.lua` plays `end_boss` while its gunship flies (`music:play`) and
-gives the player's song back after (`music:play()`).
+Music in a game comes from its code alone (the owner, 2026-11-24):
+what plays is the song the code asked last with `music:play`, until it
+asks another or `music:stop`; nothing plays before it asks (ask in
+`on_level_start`), a level that asks nothing leaves what plays, and
+there is no song of the player's to fall back to. Never a kit's: More
+Blood's `main.lua` plays `move_on` in `on_level_start` and `end_boss`
+while its gunship flies. A title level of the game's own asks its song
+in its `on_level_start` too (`c.title_screen.music` is only the engine's
+title's); a run asking the same song lets it play on, unbroken. A radio
+(HELP's A CAR RADIO): `music:play` of the next song at once or
+crossfaded; `music:pause()` and `music:resume()` hold it and go on.
 
 Songs live in the game's own folder (copy them; a recipe's `out` can
-write the copy). The title's settings page plays the chosen song.
+write the copy).
 
 The game's code picks a song of its own (`music:play("storm", "bar")`:
 from the next bar, `"beat"`, `"now"`) and can go with its beats
@@ -264,14 +272,13 @@ a level's fade silent, a short pause), unless it crossfades:
 `c.audio.crossfade = 3` for every change fade the old out as the new
 comes in, equal in power; the clock is the new song's from then.
 Silence: `music:stop()` (at once, `"beat"`, `"bar"`, or `{ from = "bar",
-fade = 2 }`): no song of the game's, no beats, and the player's own does
-not come back (`music:play()` brings it); a play after it begins its song
-from beat 0; a play asked while a stop is pending replaces it.
+fade = 2 }`): no song of the game's, no beats; a play after it begins its
+song from beat 0; a play asked while a stop is pending replaces it.
 
 Music the game writes itself (a drum machine, a rhythm game's patterns,
 a seeded score): a file of `c.audio.music` with only `@instruments` and
-`#settings` and no channel is a studio, no song a player picks (keys,
-SETTINGS, the title and `voxcade music GAME` skip it; one that does not
+`#settings` and no channel is a studio, no song of its own (the engine's
+title and `voxcade music GAME` skip it; one that does not
 read, or has a `#loop`, is a mistake as the game loads). The game lays
 channels over it: `music:play("kit", { channels = { K = "@kick o4 l16 c
 r r r c r r r c r r r c r r r", H = "..." }, from = "bar" })`, the whole

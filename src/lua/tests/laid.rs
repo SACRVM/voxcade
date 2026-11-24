@@ -142,7 +142,7 @@ fn a_mistake_in_laid_channels_halts_at_the_line() {
         ("music:play('drums', { channels = {} })", "music:play: channels lays one channel at least"),
         ("music:play('drums', { channels = 'c1' })", "music:play: channels is a table of a letter and its notes"),
         ("music:play('song', { channels = { K = 'c1' } })", "music:play: song has channels of its own"),
-        ("music:play(nil, { channels = { K = 'c1' } })", "music:play: channels are laid over a file of instruments"),
+        ("music:play(nil, { channels = { K = 'c1' } })", "music:play: which song?"),
         ("music:play('drums')", "music:play: drums is a file of instruments: lay channels over it"),
         ("if world.tick == 1 then music:play('drums', { from = 'now', channels = { K = 'c1' } }) else music:play('drums', { at = 2, channels = { K = 'c2 c2' } }) end", "music:play: at is for a song that begins; drums plays"),
         ("if world.tick == 1 then music:play('drums', { from = 'now', channels = { K = 'c1' } }) else music:play('drums', { crossfade = 1, channels = { K = 'c2 c2' } }) end", "music:play: crossfade is for a song that begins"),
@@ -175,8 +175,6 @@ fn a_studio_is_no_song_a_player_picks_and_counts_whole_for_replays() {
     let dir = drums("laid-studio", "");
     let mut g = game_in(&dir);
     assert_eq!(g.player_songs(), vec!["music/song.mml"]);
-    assert_eq!(g.song_titles, vec!["song".to_string()]);
-    assert_eq!(g.song_file(), Some("music/song.mml"));
     let mut mixer = crate::audio::Mixer::default();
     for _ in 0..10 {
         tick(&mut g, &mut mixer);
