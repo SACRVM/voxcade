@@ -188,7 +188,7 @@ end
 
     /// A list over several lines goes to its closing brace; the comment
     /// over a block that goes on stays, one over the list alone goes; a
-    /// loop on one line filling it goes (UNTZ's chapter 0); a line that
+    /// loop on one line filling it goes (a game's own way of filling it); a line that
     /// only reads it is said and left.
     #[test]
     fn a_list_goes_to_its_closing_brace() {

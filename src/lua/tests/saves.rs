@@ -224,7 +224,7 @@ function on_tick()
   local c = world.state.cmd
   world.state.cmd = nil
   if c == "save1" then world:save(1) elseif c == "save2" then world:save(2)
-  elseif c == "label1" then world:save(1, { label = "Chapter 0 – Station" })
+  elseif c == "label1" then world:save(1, { label = "Chapter 3 – Harbor" })
   elseif c == "del1" then world:delete_save(1) elseif c == "del2" then world:delete_save(2) end
 end
 "#;
@@ -246,17 +246,17 @@ fn a_label_is_kept_with_the_save() {
     assert_eq!(said(&mut g, "world.saves[2].label"), "nil", "none given, none shown");
     does(&mut g, "label1");
     assert_eq!(halted(&g), "");
-    assert_eq!(said(&mut g, "world.saves[1].label"), "\"Chapter 0 – Station\"");
-    assert_eq!(g.slots.info(1).and_then(|i| i.label).as_deref(), Some("Chapter 0 – Station"), "the engine's pages read it");
+    assert_eq!(said(&mut g, "world.saves[1].label"), "\"Chapter 3 – Harbor\"");
+    assert_eq!(g.slots.info(1).and_then(|i| i.label).as_deref(), Some("Chapter 3 – Harbor"), "the engine's pages read it");
     let (text, plain) = (g.slots.read(1).unwrap().to_string(), g.slots.read(2).unwrap().to_string());
     assert!(text.contains("label = "), "kept in the save file");
     assert!(!plain.contains("label"), "a save without one writes none");
     let slots = |one: &str| crate::saves::Slots::holding([(1, one.to_string())].into());
     let mut fresh = Session::<LuaGame>::load_with(&dir, slots(&text)).unwrap();
-    assert_eq!(said(&mut fresh, "world.saves[1].label"), "\"Chapter 0 – Station\"", "a fresh session reads the slots");
+    assert_eq!(said(&mut fresh, "world.saves[1].label"), "\"Chapter 3 – Harbor\"", "a fresh session reads the slots");
     fresh.start_from(&text).unwrap();
     assert_eq!(halted(&fresh), "");
-    assert_eq!(said(&mut fresh, "world.saves[1].label"), "\"Chapter 0 – Station\"", "and goes on from it");
+    assert_eq!(said(&mut fresh, "world.saves[1].label"), "\"Chapter 3 – Harbor\"", "and goes on from it");
     // An older save has no such line.
     let old: String = text.lines().filter(|l| !l.starts_with("label")).collect::<Vec<_>>().join("\n") + "\n";
     let mut older = Session::<LuaGame>::load_with(&dir, slots(&old)).unwrap();
