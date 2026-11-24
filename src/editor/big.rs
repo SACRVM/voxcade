@@ -923,7 +923,8 @@ fn a_figures_parts_round_the_chosen_one_are_joined_once() {
 /// in a box of 59 by 130 by 50, was sluggish): a frame with a part chosen,
 /// and the clones following a stroke on their source or on a clone, at
 /// every voxel. Bounds far above what they cost (0.9, 0.7 and 4 ms here;
-/// they were 9, 8 and 27), for slower machines.
+/// they were 9, 8 and 27), for slower machines: the frame took 6.3 ms on
+/// GitHub's runner once, so its bound is 12.
 #[test]
 fn a_big_figure_with_clones_is_quick_to_shape() {
     let (mut win, _dir) = car_window("quick");
@@ -931,7 +932,7 @@ fn a_big_figure_with_clones_is_quick_to_shape() {
     act(&mut win, view::Action::Part(p));
     win.draw().unwrap();
     let frame = idle_frame(&mut win);
-    assert!(frame < 6.0, "a frame with a part chosen: {frame:.1} ms");
+    assert!(frame < 12.0, "a frame with a part chosen: {frame:.1} ms");
     let model = win.ed.model.clone().unwrap();
     let synced = model.shaped();
     let changed_in = |name: &str| {
