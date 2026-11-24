@@ -545,7 +545,7 @@ mod tests {
         println!("{rays} rays in all, every one answered alike");
     }
 
-    /// What a pointer costs on Studio, a machine of 226 parts in fine
+    /// What a pointer costs on Studio, a machine of 230 parts in fine
     /// voxels (512 by 310, 358,000 voxels drawn) on the level's land: a
     /// grid of 64 by 36 pointers over the picture, the things met by the
     /// walk and by trying every voxel, and whole answers (`point`); said,

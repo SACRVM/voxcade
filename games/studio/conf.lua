@@ -27,14 +27,15 @@ function conf(c)
   -- The mouse plays the machine's parts; the keys and the pad still work:
   -- the arrows move the cursor along the steps (up and down turn the
   -- voice selector), TOGGLE sets or clears a step, PATTERN switches at
-  -- the next bar, START starts and stops.
+  -- the next bar, START starts and stops, SOLO (S, the pad's east) lets
+  -- only the voice the selector names sound.
   c.pointer = "system"
-  c.actions = { "click", "toggle", "pattern", "start", "turn_up", "turn_down" }
+  c.actions = { "click", "toggle", "pattern", "start", "solo", "turn_up", "turn_down" }
   c.keys = {
     click = { "mouse_left" }, toggle = { "Space", "Z" }, pattern = { "Tab", "X" },
-    start = { "Return", "C" }, turn_up = { "wheel_up" }, turn_down = { "wheel_down" },
+    start = { "Return", "C" }, solo = { "S" }, turn_up = { "wheel_up" }, turn_down = { "wheel_down" },
   }
-  c.pad = { toggle = { "south" }, pattern = { "north" }, start = { "west" } }
+  c.pad = { toggle = { "south" }, pattern = { "north" }, start = { "west" }, solo = { "east" } }
 
   c.title_screen.logo = { "STUDIO" }
   c.title_screen.attract_after = 0

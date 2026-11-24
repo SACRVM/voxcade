@@ -22,7 +22,8 @@
 -- louder an accented step is), BPM (the tempo, its display beside the
 -- knob), VOL. The voice selector chooses whose sixteen steps the keys show
 -- and edit, its ring's lamp showing which; its first position is ACC, a
--- row of steps on which every voice plays louder. The voices are the
+-- row of steps on which every voice plays louder. SOLO under it mutes
+-- every other voice (music:mix's mute) while it is on. The voices are the
 -- instruments of music/rg80.mml (the library's kit), each row of steps a
 -- channel of MML laid over them.
 
@@ -98,6 +99,7 @@ function on_world_start()
   world.state.step = 1       -- the keys' cursor
   world.state.running = true
   world.state.other = {}     -- the switches flipped, by the voice's code
+  world.state.solo = false   -- only the voice the selector names sounds
   -- The knobs by their parts' names, 0 to 1.
   local knobs = { ac_level = 0.6, bd_tone = 0.25, bd_decay = 0.5, sd_tone = 0.5, sd_snappy = 0.7,
     lt_tuning = 0.5, mt_tuning = 0.5, ht_tuning = 0.5, cy_tone = 0.5, cy_decay = 0.5, oh_decay = 0.5,
@@ -215,9 +217,22 @@ function start_stop()
   end
 end
 
+-- SOLO (a global, for the scenarios): while it is on, every voice but the
+-- one the selector names is muted, all of its channels; on ACC (no voice)
+-- nothing is. It follows the selector, so it is applied again whenever
+-- either changes. A mute fades over 20 ms: no click.
+function apply_solo()
+  local s = world.state
+  for r = 2, #VOICES do
+    local muted = s.solo and s.row > 1 and r ~= s.row
+    for letter in pairs(VOICES[r].plays) do music:mix(letter, { mute = muted }, 0.02) end
+  end
+end
+
 function on_level_start(how)
   world.state.playing = world.state.shown
   apply_knobs(0)
+  apply_solo()
   if world.state.running then lay_pattern() else music:stop() end
 end
 
@@ -237,7 +252,10 @@ end
 
 -- The selector turned to a position (clicked, dragged round or wheeled).
 local function select(row)
-  world.state.row = math.max(1, math.min(#VOICES, row))
+  row = math.max(1, math.min(#VOICES, row))
+  if row == world.state.row then return end
+  world.state.row = row
+  if world.state.solo then apply_solo() end
 end
 
 -- The selector's position nearest where the pointer is round its dial
@@ -268,6 +286,9 @@ local function press(part)
     lay_pattern()
   elseif part == "start" then
     start_stop()
+  elseif part == "solo" then
+    s.solo = not s.solo
+    apply_solo()
   end
 end
 
@@ -349,6 +370,7 @@ local function lamps()
     lamp("led_" .. name, p == s.shown or (p == s.playing and blink))
   end
   lamp("led_start", s.running)
+  lamp("led_solo", s.solo)
   return parts
 end
 
@@ -356,7 +378,7 @@ end
 -- sign on START is START, a knob's pointer line and the flush plate round
 -- a knob or a switch are the knob's or the switch's.
 local LAMPS = { led_a = "pattern_a", led_b = "pattern_b", led_start = "start",
-  start_play = "start", start_stop = "start" }
+  start_play = "start", start_stop = "start", led_solo = "solo" }
 local function control(p)
   if p and p.hud == "selector" then return "selector" end
   local part = p and p.thing and p.thing.name == "machine" and p.part
@@ -367,13 +389,13 @@ local function control(p)
     or part:match("^(.+)_plate$") or part:match("^(.+)_mount$")
   if owner then
     if world.state.knobs[owner] or owner == "selector" or owner:match("^step_")
-      or owner:match("^pattern_") or owner == "start" then return owner end
+      or owner:match("^pattern_") or owner == "start" or owner == "solo" then return owner end
     return owner .. "_switch"
   end
   if part:match("^sel_%d+$") then return "selector" end
   if part == "display" or part:match("^seg_%d_%a$") or part:match("^lit_%d_%a$") then return "display" end
   if LAMPS[part] or world.state.knobs[part] or part == "selector" or part:match("_switch$")
-    or part:match("^step_") or part:match("^pattern_") or part == "start" then
+    or part:match("^step_") or part:match("^pattern_") or part == "start" or part == "solo" then
     return LAMPS[part] or part
   end
 end
@@ -430,6 +452,7 @@ function on_tick()
   end
   if input:pressed("pattern") then press(s.shown == 1 and "pattern_b" or "pattern_a") end
   if input:pressed("start") then press("start") end
+  if input:pressed("solo") then press("solo") end
 
   level:thing("machine").state.parts = pose()
 end
@@ -500,6 +523,10 @@ local function describe(part)
   if part == "tempo" or part == "display" then return "TEMPO", string.format("%d BPM", tempo_of(k.tempo) // 1), "#tempo" end
   if part == "volume" then return "VOLUME", string.format("%.2f", k.volume), "" end
   if part == "ac_level" then return "ACCENT LEVEL", "v" .. loud(), "v" end
+  if part == "solo" then
+    if not s.solo then return "SOLO", "OFF", "mute" end
+    return "SOLO", s.row > 1 and voice_name(VOICES[s.row]) or "EVERY VOICE", "mute"
+  end
   if part == "start" then return "START / STOP", s.running and "PLAYING" or "STOPPED", "" end
   if part == "pattern_a" or part == "pattern_b" then
     local p = part == "pattern_a" and 1 or 2

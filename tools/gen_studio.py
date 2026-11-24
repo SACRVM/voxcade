@@ -28,7 +28,9 @@ knob's pointer line, lit under the pointer) and `NAME_base` (the flush
 plate round a knob, a drag on it turning the knob); `XX_mount` and
 `XX_plate` (a toggle's round base, and the flush plate round it a click
 takes too); `XX_head` (a column's name and lamp, for the bottom line);
-`sel_1` .. `sel_12` (the selector's lamps); `NAME_mark` (a key's cursor
+`sel_1` .. `sel_12` (the selector's lamps); `solo`, `led_solo`,
+`solo_plate` and `solo_mark` (SOLO under the selector: only the voice the
+selector names sounds); `NAME_mark` (a key's cursor
 mark, a white bar in front of it, hidden until posed); `display`,
 `seg_1_a` .. `seg_3_g` and `lit_1_a` .. `lit_3_g` (the tempo's display:
 its window, each segment faint and lit). Lamps and segments are parts lit
@@ -149,6 +151,7 @@ KEY_GAP, GROUP_GAP = 4, 21    # between keys of a group; between groups
 LAMP_GAP = 4                  # between a key and its lamp behind it
 LAMP_R = 2.6                  # a key's lamp, 5 across
 PAIR_GAP = 3                  # between a switch's two signs
+SOLO_D = 14                   # the SOLO key's depth (as wide as a step's)
 MOUNT_R = 5.5                 # a toggle's round base, 11 across
 LEVER_W, LEVER_L = 4, 10      # its lever: thick, long (a thicker tip on it)
 TOP = 8                       # the top plate's surface (z)
@@ -313,27 +316,28 @@ def lamp(case, name, cx, cy, r=LAMP_R):
     return (name, led)
 
 
-def key(case, name, x0, color, sign=None):
+def key(case, name, x0, color, sign=None, y0=KEY_Y, d=KEY_D):
     """A slim key standing in its well, three voxels over the top, its
-    edges beveled a voxel; `sign` (rows) painted on its top."""
+    edges beveled a voxel; `sign` (rows) painted on its top. A step's key
+    in the band unless `y0` and `d` say otherwise."""
     for x in range(x0, x0 + KEY_W):
-        for y in range(KEY_Y, KEY_Y + KEY_D):
+        for y in range(y0, y0 + d):
             case.v.pop((x, y, TOP), None)
     b = Fig((W, D, Z))
-    b.rbox((x0, KEY_Y, TOP), (x0 + KEY_W - 1, KEY_Y + KEY_D - 1, TOP + 3), color, bevel=1)
+    b.rbox((x0, y0, TOP), (x0 + KEY_W - 1, y0 + d - 1, TOP + 3), color, bevel=1)
     if sign:
         sw, sh = len(sign[0]), len(sign)
-        paint_rows(b, sign, x0 + (KEY_W - sw) // 2, KEY_Y + (KEY_D + sh) // 2 - 1, PAINT, z=TOP + 3)
+        paint_rows(b, sign, x0 + (KEY_W - sw) // 2, y0 + (d + sh) // 2 - 1, PAINT, z=TOP + 3)
     return (name, b)
 
 
-def underline(name, x0):
-    """A white bar on the band in front of a key, the cursor's mark: kept
-    inside the case (hidden) until a pose lifts it four voxels onto the
-    band (`NAME_mark`)."""
+def underline(name, x0, y0=KEY_Y):
+    """A white bar in front of a key, the cursor's mark: kept inside the
+    case (hidden) until a pose lifts it four voxels onto the top
+    (`NAME_mark`)."""
     bar = Fig((W, D, Z))
     for x in range(x0 + 3, x0 + KEY_W - 3):
-        for y in (KEY_Y - 4, KEY_Y - 3):
+        for y in (y0 - 4, y0 - 3):
             bar.put((x, y, TOP - 3), MARK)
     return (name + "_mark", bar)
 
@@ -513,6 +517,27 @@ def display(case, x0, cy):
     return parts
 
 
+def solo(case, y0):
+    """SOLO under the selector: its sign, the key (`solo`, as wide as a
+    step's, SOLO_D deep) and its lamp (`led_solo`, lit while solo is on) in
+    a row centred in the left panel, the sign and the lamp on the key's
+    middle line; a flush plate round them (`solo_plate`) takes a click too,
+    and the cursor's bar (`solo_mark`) waits in front of the key."""
+    sign = "SOLO"
+    reach_lamp = math.ceil(LAMP_R + 1.1)                       # the lamp with its bezel
+    width = text_width(sign) + SIDE_GAP + KEY_W + SIDE_GAP + 2 * reach_lamp
+    left = round(PANEL_MID - width / 2)
+    cy = y0 + SOLO_D // 2
+    paint(case, sign, None, cy + LETTER // 2, left=left)
+    x0 = left + text_width(sign) + SIDE_GAP
+    lamp_x = x0 + KEY_W + SIDE_GAP + reach_lamp
+    parts = [lamp(case, "led_solo", lamp_x, cy), key(case, "solo", x0, PATTERN, y0=y0, d=SOLO_D)]
+    parts.append(flush(case, "solo_plate", [(x, y) for x in range(left - 2, left + width + 2)
+                                            for y in range(y0 - 2, y0 + SOLO_D + 2)]))
+    parts.append(underline("solo", x0, y0))
+    return parts
+
+
 def heading(case, code, left):
     """The column's heading (its lamp and name) as a flush part of its own
     (`CODE_head`, every cell of it as painted): the pointer over the name
@@ -559,23 +584,31 @@ def machine():
             paint(case, name, None, label_top(cy), left=x)
             paint(case, other, None, label_top(cy), left=x + text_width(name) + PAIR_GAP)
             parts.extend(switch(case, f"{code}_switch", middle, cy))
-    # The left panel holds the selector alone, centred: across between the
-    # margin and the first groove's padding, deep between the band's groove
-    # and the columns' names' top line, the space before and behind it
-    # looking equal (the one behind wider in voxels, by the perspective).
+    # The left panel holds the selector and under it SOLO, one group,
+    # centred: across between the margin and the first groove's padding,
+    # deep between the band's groove and the columns' names' top line, the
+    # three gaps (the band to SOLO, SOLO to the ring's signs, the ring to
+    # the names' line) looking equal (wider in voxels the further back, by
+    # the perspective).
     lo_x, hi_x, lo_y, hi_y = ring_extent()
     sel_x = round(PANEL_MID - (lo_x + hi_x + 1) / 2)
     free = (BAND + 1, HEAD)
-    room = free[1] - free[0] + 1 - (hi_y - lo_y + 1)
-    before = room / 2
-    for _ in range(4):
-        after = room - before
-        behind = 1 + PERSPECTIVE * (free[1] - after / 2)
-        ahead = 1 + PERSPECTIVE * (free[0] + before / 2)
-        before = room * ahead / (ahead + behind)
+    blocks = [SOLO_D, hi_y - lo_y + 1]
+    room = free[1] - free[0] + 1 - sum(blocks)
+    looks = [1.0] * 3
+    for _ in range(4):                                         # the gaps' depths settle
+        unit = room / sum(looks)
+        y, looks = free[0], []
+        for b in blocks + [0]:
+            looks.append(1 + PERSPECTIVE * (y + unit / 2))
+            y += unit * looks[-1] + b
+    gaps = [round(unit * f) for f in looks]
+    gaps[-1] = room - sum(gaps[:-1])
     global PANEL_GAPS
-    PANEL_GAPS = [round(before), room - round(before)]
-    sel_y = free[0] + round(before) - lo_y
+    PANEL_GAPS = gaps
+    solo_y = free[0] + gaps[0]
+    sel_y = solo_y + SOLO_D + gaps[1] - lo_y
+    parts.extend(solo(case, solo_y))
     # The top strip: the nameplate flush left on the margin; ACCENT, TEMPO
     # and VOLUME flush right on it, each its sign left of it, a margin
     # between each two.
@@ -649,7 +682,7 @@ def margins(case, parts):
         gaps.append(ROW_Y[k + 1] - front(KNOB_R) - label_top(ROW_Y[k]) - 1)
     gaps += [HEAD - LETTER + 1 - label_top(ROW_Y[2]) - 1, STRIP_Y - HEAD - 1]
     print(f"voices' gaps (band to row 1, row to row, row to row, LVL to names, names to the top strip): {gaps}")
-    print(f"left panel's gaps (band's groove to the ring, the ring to the names' line): {PANEL_GAPS}")
+    print(f"left panel's gaps (band's groove to SOLO, SOLO to the ring, the ring to the names' line): {PANEL_GAPS}")
     print(f"top strip: rows {STRIP_Y}..{STRIP_Y + STRIP - 1} ({STRIP} deep: nameplate {2 * LETTER}, masters {MASTER}); "
           f"back margin {M_BACK}")
     print(f"rows at y {ROW_Y}; band's groove y {BAND}; names' top {HEAD}; "

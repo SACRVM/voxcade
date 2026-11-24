@@ -653,7 +653,7 @@ nearest; its replay `tests/two_ships`);
   `GAMES_OF_VOXCADE` names it), the HARALD RG-80 (the owner's invented
   maker and its Rhythmus-Gerät), a drum machine after the analog one of
   1980 in function (never its name, maker or lettering), as a level's
-  piece, `machine.vvx`, a figure of 226 parts, 512 by 310 voxels, on a
+  piece, `machine.vvx`, a figure of 230 parts, 512 by 310 voxels, on a
   table that is the level's own land (a `[terrain]` of one height:
   cheaper to draw than a model of one voxel a cell). The owner's rules
   for a device (2026-11-24): it fits the screen whole at 1280 by 720
@@ -693,7 +693,14 @@ nearest; its replay `tests/two_ships`);
   voice the sixteen `step_N` keys edit, clicked, dragged round or wheeled
   through a HUD panel over its dial (`frame:hud` placed by
   `frame:to_screen` of its part: the pointer names a part but not where
-  on it). The band: `start` (its signs `start_play`/`start_stop`),
+  on it). Under it SOLO (the owner's, 2026-11-24: `solo`, its lamp
+  `led_solo`, `solo_plate`, `solo_mark`; the key S, the pad's east; the
+  dial, its ring and SOLO one group, the three gaps the band's groove to
+  SOLO to the ring to the names' line equal as they look): while on,
+  every voice but the selector's is muted, all its channels (`music:mix`'s
+  `mute`, 20 ms; `apply_solo`, again as the selector turns; on ACC none),
+  the column lamps still showing every voice's hits. The band: `start`
+  (its signs `start_play`/`start_stop`),
   `pattern_a`/`_b`, the steps in four colors by fours, a lamp `led_*`
   behind each; the keys' cursor a white bar in front of a key
   (`<name>_mark`), shown once the keys moved it. Signs are painted into
@@ -710,7 +717,9 @@ nearest; its replay `tests/two_ships`);
   case between two controls, turns the selector by click and keys, drags
   and wheels a voice's knob and the three masters, wheels over the
   display, flips a switch by its lever and its plate, rests on a column's
-  heading, stops and starts, switches the pattern and sets steps by keys.
+  heading, stops and starts, switches the pattern, sets steps by keys,
+  and switches SOLO on, turns the selector under it by keys and a click,
+  and off and on and off again by its key and a click.
 - A part lit or out, a pose for one picture (the owner's yes,
   2026-11-22, to `shots/reviews/machines-as-models-draft.md` as its
   review narrowed it): a pose entry (one type, `PoseEntry`, in
