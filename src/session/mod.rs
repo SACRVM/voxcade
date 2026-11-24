@@ -236,9 +236,6 @@ pub struct Session<G: Game> {
     /// The song changed by the game's code: over how many seconds the
     /// next one crossfades in (0: the old ends, the new begins).
     crossfade: Option<f32>,
-    /// A song changed without a crossfade during the fade being shown:
-    /// the music is silent until it is over (the pause between songs).
-    fade_cut: bool,
     /// The title's time its flybys count from: the window holds it at the
     /// title's time while a run's initials are picked and the high score
     /// table shows, so nothing flies over then (the rotor was loud over the

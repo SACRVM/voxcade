@@ -135,6 +135,8 @@ mod tests {
         for _ in 0..frames {
             heard.music(game, held);
             if !held && heard.front.playing {
+                // Level changes fade, as in a window.
+                game.fades = true;
                 game.step(&Input::default());
                 heard.sounds(game);
             }
@@ -175,6 +177,77 @@ mod tests {
         let t = heard.mixer.tally;
         assert_eq!((t.songs, t.crossfades, t.jumps, most), (1, 0, 0, 1), "{t:?}");
         assert_eq!(heard_now(&heard), ["three"]);
+    }
+
+    /// The loudness of the left side in windows of 20 ms.
+    fn levels(s: &[f32]) -> Vec<f32> {
+        s.iter().step_by(2).copied().collect::<Vec<_>>().chunks(882).map(|w| (w.iter().map(|v| v * v).sum::<f32>() / w.len() as f32).sqrt()).collect()
+    }
+
+    /// How far, at most, the loudness of `heard` strays from `alone`'s in
+    /// windows of 20 ms (a part of `alone`'s), from `from` seconds on.
+    fn strays(heard: &[f32], alone: &[f32], from: f64) -> f32 {
+        let (a, b) = (levels(heard), levels(alone));
+        let first = (from / 0.02) as usize;
+        a.iter().zip(&b).skip(first).fold(0.0f32, |m, (x, y)| m.max((x - y).abs() / y.max(1e-4)))
+    }
+
+    /// A change of scene faded in a window (`c.transition`, an ask's fade):
+    /// the same song asked on both sides plays on unbroken through it, at
+    /// its level, as if no scene had changed (a fade of the picture is no
+    /// fade of the music): from a title of the game's own into a run begun
+    /// with `world:new_game { fade = 1.2 }`, and from level to level with
+    /// `world:go_to(..., { fade = 1 })`. A level asking nothing lets it play
+    /// on too. It held the song silent for the fade's second half before:
+    /// the new run's song counted as a change without a crossfade.
+    #[test]
+    fn the_same_song_plays_on_through_a_faded_change_of_scene() {
+        let go = "function on_tick() if world.state.go and level.name == \"title\" then world:new_game { fade = 1.2 } end end\n";
+        let (_dir, mut g) = game("heard-fade-new-game", &asking("one", "one", go), "");
+        let mut heard = Heard::open(&mut g, Opening::OwnTitle, false).unwrap();
+        frames(&mut heard, &mut g, 60, false);
+        g.eval("world.state.go = true").unwrap();
+        frames(&mut heard, &mut g, 240, false);
+        assert!(!g.on_title(), "the run");
+        let (_dir, mut still) = game("heard-fade-alone", &asking("one", "one", ""), "");
+        let mut alone = Heard::open(&mut still, Opening::OwnTitle, false).unwrap();
+        frames(&mut alone, &mut still, 300, false);
+        let t = heard.mixer.tally;
+        let off = strays(&heard.samples, &alone.samples, 0.5);
+        eprintln!("title to a faded new game: {t:?}, the loudness off the song alone by {:.1} % at most", off * 100.0);
+        assert_eq!((t.songs, t.crossfades, t.jumps, t.silences), (1, 0, 0, 0), "{t:?}");
+        assert!(off < 0.02, "the song's level strayed by {:.1} % from the song alone", off * 100.0);
+        // From level to level, faded, the same song; and a level asking none.
+        for (name, zone_2) in [("heard-fade-go-to", "one"), ("heard-fade-go-to-none", "")] {
+            let main = format!("function on_level_start() if level.name ~= \"zone_2\" then music:play(\"one\") else {} end end\nfunction on_tick() if world.tick == 60 and level.name ~= \"zone_2\" then world:go_to(\"zone_2\", {{ fade = 1 }}) end end\n", if zone_2.is_empty() { String::new() } else { format!("music:play(\"{zone_2}\")") });
+            let (_dir, mut g) = game(name, &main, "  c.title_screen.level = nil\n");
+            let mut heard = Heard::open(&mut g, Opening::Run, false).unwrap();
+            frames(&mut heard, &mut g, 300, false);
+            assert_eq!(g.game.inspect()["at"]["name"], "zone_2", "{name}: gone to the next level");
+            let (_dir, mut still) = game(&format!("{name}-alone"), "function on_level_start() music:play(\"one\") end\n", "  c.title_screen.level = nil\n");
+            let mut alone = Heard::open(&mut still, Opening::Run, false).unwrap();
+            frames(&mut alone, &mut still, 300, false);
+            let t = heard.mixer.tally;
+            let off = strays(&heard.samples, &alone.samples, 0.1);
+            assert_eq!((t.songs, t.jumps, t.silences), (1, 0, 0), "{name}: {t:?}");
+            assert!(off < 0.02, "{name}: the song's level strayed by {:.1} %", off * 100.0);
+        }
+    }
+
+    /// A different song on the far side of a faded change of scene changes
+    /// as asked: crossfaded where the ask says, never a silence between.
+    #[test]
+    fn another_song_through_a_faded_change_crossfades_as_asked() {
+        let main = "function on_level_start() if level.name == \"zone_2\" then music:play(\"two\", { from = \"now\", crossfade = 1 }) else music:play(\"one\") end end\nfunction on_tick() if world.tick == 60 and level.name ~= \"zone_2\" then world:go_to(\"zone_2\", { fade = 1 }) end end\n";
+        let (_dir, mut g) = game("heard-fade-other", main, "  c.title_screen.level = nil\n");
+        let mut heard = Heard::open(&mut g, Opening::Run, false).unwrap();
+        frames(&mut heard, &mut g, 300, false);
+        assert_eq!(g.game.inspect()["at"]["name"], "zone_2");
+        let t = heard.mixer.tally;
+        assert_eq!((t.songs, t.crossfades, t.silences), (2, 1, 0), "{t:?}");
+        assert_eq!(heard_now(&heard), ["two"]);
+        let quiet = levels(&heard.samples).iter().skip(10).filter(|l| **l < 0.01).count();
+        assert_eq!(quiet, 0, "{quiet} windows of 20 ms silent through the change");
     }
 
     /// The engine's title, a run and the way back: the title's song from

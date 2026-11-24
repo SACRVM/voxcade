@@ -304,7 +304,7 @@ pub(super) const COMMANDS: &[Command] = &[
             opt("--input", "SCRIPT", "the player's keys (INPUT SCRIPT below)"),
             opt("--replay", "FILE", "a replay played instead of --input; says whether it runs as recorded"),
             opt("--record", "FILE", "the run written as a replay"),
-            opt("--sound", "FILE", "the sound of the ticks played written as a WAV, music and sounds as the window hands them to its mixer (with --screen title the title's, a title level of the game's own too), and what the mixer did in a line"),
+            opt("--sound", "FILE", "the sound written as a WAV, music and sounds as the window hands them to its mixer, a level change's fade played as a window plays it (its frames no ticks; with --screen title the title's, a title level of the game's own too), and what the mixer did in a line"),
             opt("--scenario", "NAME", "the run begun there, as for run"),
             opt("--do", "LINE", "a line of Lua before the first tick, as for run (again for more)"),
             opt("--out", "FILE", "where the PNG goes (default shots/shot.png)"),

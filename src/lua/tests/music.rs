@@ -375,7 +375,9 @@ fn two_songs(name: &str, main: &str, conf: &str) -> crate::scratch::Scratch {
 /// power, both there in the middle, the old gone after the seconds, no
 /// click, as loud and muffled as the game asks; at a level change both run
 /// through the window's fade. Without a crossfade a song changed at a
-/// level change leaves the rest of the fade silent (the pause between).
+/// level change begins at once, the fade or not (a fade of the picture is
+/// no fade of the music: it left the rest of the fade silent until
+/// 2026-11-24).
 #[test]
 fn one_song_crossfades_into_the_next() {
     const LOW: f64 = 261.63;
@@ -413,7 +415,7 @@ fn one_song_crossfades_into_the_next() {
     eprintln!("at a level change with the window's fade: crossfading, {} silent ticks, the old {:+.1} dB and the new {:+.1} dB late in the fade; without, {} silent ticks", silent(&faded), both.0, both.1, silent(&cut));
     assert_eq!(silent(&faded), 0);
     assert!(both.0 > -20.0 && both.1 > -20.0, "both songs sound across the fade: {both:?}");
-    assert!((15..=20).contains(&silent(&cut)), "the pause between the songs: {}", silent(&cut));
+    assert_eq!(silent(&cut), 0, "no pause between the songs");
 }
 
 /// A run played where level changes fade takes the fades' steps on the

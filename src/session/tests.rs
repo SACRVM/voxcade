@@ -48,7 +48,6 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         music_was_paused: false,
         fade_clock: false,
         crossfade: None,
-        fade_cut: false,
         options: Options::default(),
         font: None,
         bank: Default::default(),

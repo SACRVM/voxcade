@@ -348,7 +348,7 @@ impl<G: Game> Session<G> {
                     (fade.out, fade.t) = (false, 0.0);
                     self.change();
                 } else {
-                    (self.fade, self.fade_cut) = (None, false);
+                    self.fade = None;
                 }
             }
             self.notice_song();
@@ -374,7 +374,6 @@ impl<G: Game> Session<G> {
             let length = leaving.fade.unwrap_or_else(|| self.cfg.transition.length(leaving.why));
             if self.fades && length > 0.0 {
                 self.fade = Some(Fade { out: true, t: 0.0, length, color: self.cfg.transition.rgb() });
-                self.fade_cut = false;
             } else if self.fade_clock && length > 0.0 {
                 // A replay of a run that faded: the fade's steps on the
                 // music's clock, out and in, as the window took them.
@@ -393,9 +392,10 @@ impl<G: Game> Session<G> {
     }
 
     /// The game's own song changed (`music:play`, `music:stop`): it begins
-    /// anew, over the crossfade asked (or the game's), silent to the end of
-    /// a fade being shown without one. Looked at after every step, so a
-    /// song stopped and begun again is seen as two changes.
+    /// anew, over the crossfade asked (or the game's), a level's fade being
+    /// shown or not (a fade of the picture is no fade of the music). Looked
+    /// at after every step, so a song stopped and begun again is seen as two
+    /// changes.
     pub(super) fn notice_song(&mut self) {
         let cue = (self.game.music().map(|c| c.song), self.game.music_silent());
         if cue != self.cue {
@@ -406,16 +406,7 @@ impl<G: Game> Session<G> {
             self.music_changed = true;
             let seconds = self.game.music_switch().began.unwrap_or(self.cfg.audio.crossfade);
             self.crossfade = Some(seconds);
-            self.fade_cut |= self.fade.is_some() && seconds <= 0.0;
         }
-    }
-
-    /// Whether the music is silent for a level's fade: a song is to change
-    /// (or changed) in it without a crossfade, the short pause between
-    /// the two (a song going on plays through).
-    pub(super) fn fade_hold(&self) -> bool {
-        let cut = self.game.music_switch().pending.is_some_and(|c| c.unwrap_or(self.cfg.audio.crossfade) <= 0.0);
-        self.fade.is_some() && (self.fade_cut || cut)
     }
 
     /// Plays a tick brought whole (`Tick`: over the network, a test): its

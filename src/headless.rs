@@ -578,8 +578,11 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
                 input
             }
         };
-        // The window's music for the frame, before its tick (`App::music`).
+        // The window's music for the frame, before its tick (`App::music`);
+        // a level change fades as in a window (its frames no ticks), so the
+        // sound is the window's.
         if let Some(h) = &mut heard {
+            game.fades = true;
             h.music(game, false);
         }
         game.step(&input);

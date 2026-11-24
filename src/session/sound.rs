@@ -290,7 +290,9 @@ impl<G: Game> Session<G> {
         if !began {
             mixer.music_mix(&self.game.music_mix());
         }
-        mixer.hold_music((held && self.steers_music()) || self.fade_hold() || self.game.music_paused());
+        // A level's fade holds no song: the music goes on through it as
+        // the code asked (silent only where it stopped the song).
+        mixer.hold_music((held && self.steers_music()) || self.game.music_paused());
         self.audio_laid = mixer.music_laid();
         began
     }

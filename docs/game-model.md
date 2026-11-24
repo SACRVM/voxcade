@@ -285,9 +285,9 @@ settings. Several players: `player` is seat 1, the others are in
   told at the first tick after, in order), so a song asked for again in
   the next level plays on through it without a gap; the run's replay
   says it faded (`fades = true`) and takes the same steps at each level
-  change without a picture. A song changed (another asked, or the
-  player's back) ends as the new begins, the rest of a level's fade
-  silent between them (a short pause), unless it crossfades:
+  change without a picture. A fade of the picture is no fade of the
+  music: a song changed (another asked) ends as the new begins, at once,
+  a level's fade or not, unless it crossfades:
   `music:play(song, { from = "now", crossfade = 3 })`, or
   `c.audio.crossfade` for every change, fades the old out as the new
   comes in over the seconds, equal in power (as loud together as either

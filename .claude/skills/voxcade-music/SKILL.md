@@ -266,8 +266,9 @@ say when they fall, so they count for the game's replays). The song then
 keeps time with the game, held while it pauses. A level change's fade
 holds no song: the clock goes on through it (beats in it are told at the
 first tick after), so a song asked for again in the next level plays on
-without a gap. Another song: the old ends as the new begins (the rest of
-a level's fade silent, a short pause), unless it crossfades:
+without a gap, at its level (a fade of the picture is no fade of the
+music). Another song: the old ends as the new begins, at once, unless it
+crossfades:
 `music:play("shop", { from = "now", crossfade = 3 })` or
 `c.audio.crossfade = 3` for every change fade the old out as the new
 comes in, equal in power; the clock is the new song's from then.

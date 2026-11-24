@@ -107,7 +107,6 @@ impl<G: Game> Session<G> {
             music_was_paused: false,
             fade_clock: false,
             crossfade: None,
-            fade_cut: false,
             fades: false,
             fade: None,
             flyby_from: 0.0,

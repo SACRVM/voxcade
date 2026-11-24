@@ -1354,9 +1354,17 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `audio/music/knob_tests.rs`); a level's fade holds no song, its
   frames step the clock (`Game::music_step`; a replay recorded so says
   `fades = true` and takes the steps without a picture,
-  `Session::fade_clock`), a song changed crossfades when asked
-  (`music:play`'s `crossfade`, `c.audio.crossfade`; `Mixer::crossfade_music`),
-  else ends with the rest of the fade silent; `music:stop(from | { from,
+  `Session::fade_clock`): a fade of the picture is no fade of the music
+  (the owner, 2026-11-24, after the music dropped out from a title into
+  its first level: the session held the song silent for the fade's second
+  half where the new run's song counted as a change; `Session::fade_hold`
+  and `fade_cut` are gone), so the same song asked on both sides plays on
+  through it unbroken at its level, another changes as asked, crossfaded
+  when asked (`music:play`'s `crossfade`, `c.audio.crossfade`;
+  `Mixer::crossfade_music`) else at once, and only `music:stop` is
+  silence (tests `the_same_song_plays_on_through_a_faded_change_of_scene`,
+  `another_song_through_a_faded_change_crossfades_as_asked`; `shot --sound`
+  plays a level change's fade as a window does); `music:stop(from | { from,
   fade })` silence, `host::Music::silent`,
   `Game::music_silent`, the session noticing (song, silent) after every
   step, a stop fading 5 ms at least and however young the song,
