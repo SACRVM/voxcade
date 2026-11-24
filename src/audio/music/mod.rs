@@ -157,7 +157,7 @@ mod sample_tests;
 
 pub use mix::{GLIDING, Glide, LETTERS, Mix, NEXT_NOTE, NO_KNOB, SAMPLE_KNOBS, SHORTEST, Strip, letter_index, muffle_cutoff};
 pub use parse::{Laid, has_channels, lay, note_hz, note_name, parse, read};
-pub use player::{Digests, Player, Swap};
+pub use player::{Digests, Followed, Player, Swap};
 pub use sample::Samples;
 pub use song::{FilterMode, Instrument, Sampled, Song, Timing};
 pub use voice::phonemes;

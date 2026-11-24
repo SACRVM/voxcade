@@ -554,6 +554,24 @@ machines' attract mode).
   under a chat's upload limit. The user's 148-second run: 1080p at 60
   frames a second in 81 seconds (275 MB), 720p under 50 MB in 38.
 
+## Music in a window
+
+One decision, one hand-over (2026-11-24, after a title of a game's own
+played its song twice and hung when the window stalled). The window's
+front end decides what should sound (`Front::wanted`: the engine's title,
+its settings' preview, or the game's) and `App::music` hands the mixer in
+one place only when that changes; the game's part is its session's
+(`Session::new_music`, `hand_music`), which names every song by its file,
+text and laid channels so the same song asked again across a change of
+scene plays on. The mixer lets two songs sound at most, the second only
+while a fade asked for runs; anything else ends within 5 ms. A game's own
+song keeps time with the game's clock (`Player::follow`): while it does,
+the window catches the clock up after a stall rather than dropping the
+time (`app::TickClock`), and the song follows the clock plus the time
+owed, so it plays straight through. What the mixer did is counted and said
+on exit (`Speaker::report`); `shot --sound` writes the sound of a run as
+the window hands it.
+
 ## 16-bit scale
 
 More Blood draws at 8-bit sprite scale (figures 22 voxels tall). Round

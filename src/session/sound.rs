@@ -91,6 +91,17 @@ pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig, songs: &[audio::m
     Ok(())
 }
 
+/// What song a file of `c.audio.music` with `text` is
+/// (`Player::identified`): its name and its text, length-prefixed.
+fn song_identity(file: &str, text: &str) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    for part in [file.as_bytes(), text.as_bytes()] {
+        h.update(&(part.len() as u64).to_le_bytes());
+        h.update(part);
+    }
+    *h.finalize().as_bytes()
+}
+
 /// What a session made to hand the mixer (`Session::new_music`): the song
 /// when the music changed, with its crossfade; the laid channels its song
 /// is to swap to (None inside: none to come), when they changed.
@@ -112,14 +123,15 @@ impl<G: Game> Session<G> {
         files.get(self.song.min(files.len().saturating_sub(1))).copied()
     }
 
-    /// Switches to the `index`th song a player hears (from 0); false if
-    /// there is none.
+    /// Switches to the `index`th song a player hears (from 0), which plays
+    /// at once where the player's song is what plays (not the game's own,
+    /// nor its silence); false if there is none or it was the one.
     pub fn select_song(&mut self, index: usize) -> bool {
         if index >= self.player_songs().len() || index == self.song {
             return false;
         }
         self.song = index;
-        self.music_changed = true;
+        self.music_changed |= self.game.music().is_none() && !self.game.music_silent();
         true
     }
 
@@ -144,7 +156,7 @@ impl<G: Game> Session<G> {
         let mut player = match self.game.music() {
             Some(cue) => {
                 let mut player = match &cue.laid {
-                    Some(laid) => audio::music::Player::new(self.laid_song(cue.song, laid)?, self.cfg.audio.music_volume),
+                    Some(laid) => audio::music::Player::new(self.laid_song(cue.song, laid)?, self.cfg.audio.music_volume).identified(self.laid_identity(cue.song, laid)?),
                     None => self.song(self.cfg.audio.music.files().get(cue.song)?)?,
                 };
                 // At the game's tempo from its first sample, not ramping to it.
@@ -177,6 +189,18 @@ impl<G: Game> Session<G> {
         Some(song)
     }
 
+    /// What song the studio `index` with the channels `laid` over it is:
+    /// its file, its whole text and the channels' digest.
+    fn laid_identity(&self, index: usize, laid: &audio::music::Laid) -> Option<[u8; 32]> {
+        let t = self.songs.get(index)?;
+        let mut h = blake3::Hasher::new();
+        for part in [t.name.as_bytes(), t.studio.as_deref()?.as_bytes(), &laid.digest] {
+            h.update(&(part.len() as u64).to_le_bytes());
+            h.update(part);
+        }
+        Some(*h.finalize().as_bytes())
+    }
+
     /// The song to hand the mixer when the music changed, and the laid
     /// channels its song is to swap to, read and made before the mixer is
     /// locked (the audio device waits on the lock while a song is parsed
@@ -185,7 +209,11 @@ impl<G: Game> Session<G> {
     /// brought back, a new run) the music follows.
     pub fn new_music(&mut self) -> NewMusic {
         self.notice_song();
-        let fresh = std::mem::take(&mut self.music_changed);
+        // A song the game asked for before its first tick (in
+        // `on_level_start`) begins with that tick: the player's song is
+        // not begun for the moment between, what plays goes on until then.
+        let asked = self.game.music().is_none() && !self.game.music_silent() && self.game.music_switch().pending.is_some();
+        let fresh = !asked && std::mem::take(&mut self.music_changed);
         let player = fresh.then(|| (self.music(), self.crossfade.take()));
         let swap = self.laid_swap(fresh);
         NewMusic { player, swap }
@@ -220,6 +248,28 @@ impl<G: Game> Session<G> {
         })
     }
 
+    /// The next song handed begins from its start even where it is the
+    /// song that plays: F5 and AGAIN, the game played again from its files
+    /// (a stop or another song of the game's own and then this one again
+    /// does the same, `notice_song`).
+    pub fn restart_music(&mut self) {
+        (self.restart, self.music_changed) = (true, true);
+    }
+
+    /// The game's music begun anew: the next feed makes it (the song that
+    /// plays going on where it is the same), a window's front end having
+    /// played its own meanwhile (the engine's title).
+    pub fn music_anew(&mut self) {
+        self.music_changed = true;
+    }
+
+    /// How far, in seconds, the time heard lies past the game's clock (a
+    /// window's ticks owed, `app::TickClock::behind`): its own song keeps
+    /// with that. 0 unless a window says.
+    pub fn music_ahead(&mut self, seconds: f32) {
+        self.music_ahead = f64::from(seconds.max(0.0));
+    }
+
     /// The music fed to a mixer no other thread waits on (a film's sound,
     /// tests): `new_music` and `hand_music` at once.
     pub fn feed_music(&mut self, mixer: &mut Mixer, held: bool) -> bool {
@@ -230,20 +280,38 @@ impl<G: Game> Session<G> {
     /// Hands the music to the mixer: the song made anew when it changed
     /// (`new_music`), else the game's own song kept in time with its clock
     /// (held while the game is, `held`: a pause, a fade); either as loud
-    /// and as muffled as the game asks (`Game::music_mix`). Whether a song
-    /// began.
+    /// and as muffled as the game asks (`Game::music_mix`). The song made
+    /// anew is the song that plays (`Player::identity`: its file, text and
+    /// laid channels): it plays on, never begun twice nor crossfaded into
+    /// itself, but where F5 asked for it from the start
+    /// (`restart_music`). Whether a song began.
     pub fn hand_music(&mut self, mixer: &mut Mixer, new: NewMusic, held: bool) -> bool {
-        let began = new.player.is_some();
-        if let Some((player, crossfade)) = new.player {
+        let restart = new.player.is_some() && std::mem::take(&mut self.restart);
+        let playing = mixer.playing();
+        let same = |p: &Option<audio::music::Player>| p.as_ref().and_then(audio::music::Player::identity).is_some_and(|id| playing == Some(id));
+        // The game's own song plays on only where the song that plays is
+        // with its clock (else it begins anew, cleanly, where the clock
+        // is: a run begun with the song its title played, its clock at 0).
+        let in_time = self.game.music().is_none_or(|c| mixer.music_keeps_with(c.start + c.beats, self.music_ahead));
+        let asked = new.player.is_some();
+        let player = new.player.filter(|(p, _)| restart || !(same(p) && in_time));
+        let began = player.is_some();
+        mixer.tally.played_on += u64::from(asked && !began);
+        if let Some((player, crossfade)) = player {
+            // Never a song crossfaded into itself: begun anew, the one
+            // playing ends within 5 ms.
+            let crossfade = crossfade.filter(|_| !same(&player));
             match (player, crossfade) {
                 // Silence (a stop) fades over its own time, 5 ms at least,
                 // so it never clicks.
                 (None, seconds) => mixer.crossfade_music(None, seconds.unwrap_or(0.0).max(audio::music::SHORTEST.0)),
                 (player, Some(seconds)) if seconds > 0.0 => mixer.crossfade_music(player, seconds),
-                (player, _) => mixer.start_music(player),
+                (player, _) => mixer.set_music(player),
             }
         } else if let Some(cue) = self.game.music() {
-            mixer.follow_music(cue.start + cue.beats, cue.ratio);
+            // (A song that plays on keeps with the clock, a jump where it
+            // is far off: a run begun anew with the song its title played.)
+            mixer.follow_music(cue.start + cue.beats, cue.ratio, self.music_ahead);
             mixer.music_intensity(cue.intensity);
         }
         if let Some(swap) = new.swap {
@@ -276,7 +344,9 @@ impl<G: Game> Session<G> {
         let path = self.files.path(file);
         let text = self.files.read_to_string(&path).map_err(|e| eprintln!("music: {}: {e}", path.display())).ok()?;
         match audio::music::parse(&text).and_then(|mut song| song.bind(&self.samples).map(|()| song)) {
-            Ok(song) => Some(audio::music::Player::new(song, self.cfg.audio.music_volume)),
+            // The same file with the same text is the same song, the
+            // title's, the player's or the game's own.
+            Ok(song) => Some(audio::music::Player::new(song, self.cfg.audio.music_volume).identified(song_identity(file, &text))),
             Err(e) => {
                 eprintln!("music: {}: {e:#}", path.display());
                 None

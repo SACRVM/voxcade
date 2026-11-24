@@ -104,6 +104,8 @@ impl<G: Game> Session<G> {
             cue,
             audio_laid: None,
             music_changed: true,
+            restart: false,
+            music_ahead: 0.0,
             fade_clock: false,
             crossfade: None,
             fade_cut: false,

@@ -115,6 +115,9 @@ impl<G: Game> Session<G> {
         }
         self.game = super::load::begun::<G>(&self.files, &self.cfg, &self.models, Arc::new(levels), place, &self.slots, &self.songs)?;
         self.cue = (self.game.music().map(|c| c.song), self.game.music_silent());
+        // The game anew: its music decided again at the next feed (the
+        // song that plays going on where it is the same).
+        self.music_changed = true;
         self.game.set_controls(&self.controls);
         self.game.set_local(&self.local);
         Ok(())
@@ -396,6 +399,9 @@ impl<G: Game> Session<G> {
     pub(super) fn notice_song(&mut self) {
         let cue = (self.game.music().map(|c| c.song), self.game.music_silent());
         if cue != self.cue {
+            // The game left a song of its own (a stop, another song): asked
+            // again, it begins anew, as the API says.
+            self.restart |= self.cue.0.is_some();
             self.cue = cue;
             self.music_changed = true;
             let seconds = self.game.music_switch().began.unwrap_or(self.cfg.audio.crossfade);

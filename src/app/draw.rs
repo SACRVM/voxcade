@@ -7,7 +7,6 @@ use anyhow::Result;
 use super::App;
 use crate::game::Game;
 use crate::menu::Page;
-use crate::sim::DT;
 
 impl<G: Game> App<G> {
     pub(super) fn draw(&mut self) -> Result<()> {
@@ -60,11 +59,11 @@ impl<G: Game> App<G> {
             let blink = clock.fps_since.elapsed().as_millis() % 1000 < 600;
             let ui = &game.cfg.ui;
             let camera = crate::ui::camera(&crate::ui::Layout::of(ui, aspect), ui.slant, ui.depth as f32);
-            let mut frame = game.compose(clock.accumulator / DT, aspect, scene, Some((crate::ui::prompt_panel(prompt, blink, ui, aspect), Vec::new(), camera)));
+            let mut frame = game.compose(clock.ticks.fraction(), aspect, scene, Some((crate::ui::prompt_panel(prompt, blink, ui, aspect), Vec::new(), camera)));
             frame.view_proj = glam::Mat4::from_translation(glam::Vec3::new(0.0, 2.0 * crate::ui::prompt_lift(prompt), 0.0)) * frame.view_proj;
             frame
         } else {
-            game.menu_frame(menu, settings, clock.accumulator / DT, aspect, scene)
+            game.menu_frame(menu, settings, clock.ticks.fraction(), aspect, scene)
         };
         if front.attracting {
             crate::ui::press_start(&mut frame.ui, front.attract_time, &game.cfg.ui, aspect, settings.language());

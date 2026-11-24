@@ -838,6 +838,16 @@ impl Duck {
     }
 }
 
+/// What keeping time with a game's clock did (`Player::follow`): how far
+/// off the song was, in milliseconds heard (ahead of the clock below 0).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Followed {
+    /// Caught up by going a little faster or slower, unheard.
+    Nudged(f64),
+    /// Too far off: it jumped to where the clock is.
+    Jumped(f64),
+}
+
 /// A jump this far off (samples, 50 ms) when keeping time with a game;
 /// less is caught up by going a little faster or slower.
 const JUMP: i64 = SAMPLE_RATE as i64 / 20;
@@ -1124,11 +1134,26 @@ pub struct Player {
     /// one's knobs for the sample being made.
     knobs_live: bool,
     turned: [Turned; LETTERS],
+    /// What song it is, for the one who hands it to tell it from another
+    /// (`identified`): None, never the same as any.
+    identity: Option<[u8; 32]>,
 }
 
 impl Player {
     pub fn title(&self) -> &str {
         &self.song.title
+    }
+
+    /// Named `identity` (a digest of the song's file, its text and the
+    /// channels laid over it): handed while a player of the same plays, it
+    /// is that song again.
+    pub fn identified(mut self, identity: [u8; 32]) -> Self {
+        self.identity = Some(identity);
+        self
+    }
+
+    pub fn identity(&self) -> Option<[u8; 32]> {
+        self.identity
     }
 
     pub fn new(song: Song, volume: f32) -> Self {
@@ -1162,6 +1187,7 @@ impl Player {
             gains: [[1.0; 2]; LETTERS],
             knobs_live: false,
             turned: [[(0.0, 0.0); GLIDING.len()]; LETTERS],
+            identity: None,
         }
     }
 
@@ -1253,11 +1279,29 @@ impl Player {
     /// (after a pause), else a little faster or slower until it is with
     /// it again, unheard. How far off is measured in samples heard (the
     /// song's divided by its `ratio`), so a song played faster or slower
-    /// jumps and closes in as it does at its own tempo.
-    pub fn follow(&mut self, beats: f64) {
+    /// jumps and closes in as it does at its own tempo. `ahead` seconds
+    /// heard past those beats (a window's clock behind the time heard,
+    /// `app::TickClock::behind`; 0 elsewhere). What it did.
+    pub fn follow(&mut self, beats: f64, ahead: f64) -> Followed {
+        let (unwrapped, off) = self.off(beats, ahead);
+        let ms = off * 1000.0 / SAMPLE_RATE as f64;
+        if off.abs() > JUMP as f64 {
+            self.seek(unwrapped);
+            self.rate = self.ratio;
+            Followed::Jumped(ms)
+        } else {
+            self.rate = self.ratio * (1.0 + (off / (4.0 * SAMPLE_RATE as f64)).clamp(-0.003, 0.003));
+            Followed::Nudged(ms)
+        }
+    }
+
+    /// Where `beats` (and `ahead` seconds heard past them) are, in samples
+    /// as written played on and on, and how far it is from there, in
+    /// samples heard (ahead of the clock below 0).
+    fn off(&self, beats: f64, ahead: f64) -> (f64, f64) {
         let (from, to) = self.song.span;
         let length = to - from;
-        let unwrapped = self.at_beat(beats);
+        let unwrapped = self.at_beat(beats) + ahead.max(0.0) * SAMPLE_RATE as f64 * self.ratio;
         let target = self.within(unwrapped);
         let now = self.time as f64 + self.carry;
         let mut off = target - now;
@@ -1269,13 +1313,14 @@ impl Player {
                 off += length;
             }
         }
-        let off = off / self.ratio;
-        if off.abs() > JUMP as f64 {
-            self.seek(unwrapped);
-            self.rate = self.ratio;
-        } else {
-            self.rate = self.ratio * (1.0 + (off / (4.0 * SAMPLE_RATE as f64)).clamp(-0.003, 0.003));
-        }
+        (unwrapped, off / self.ratio)
+    }
+
+    /// Whether it is with a game's clock at `beats` (and `ahead` seconds
+    /// heard past them) as `follow` would leave it, closing in unheard:
+    /// within a jump of it.
+    pub fn keeps_with(&self, beats: f64, ahead: f64) -> bool {
+        self.off(beats, ahead).1.abs() <= JUMP as f64
     }
 
     /// Where `at` samples of the song as written, played on and on, lie:

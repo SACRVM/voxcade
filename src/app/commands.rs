@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 
-use super::{App, Flow, apply_settings, failure, next_initials, pause_menu, planned, play_the_games_song, say_now, title_menu, trouble};
+use super::{App, Flow, apply_settings, failure, next_initials, pause_menu, planned, say_now, title_menu, trouble};
 use crate::game::Game;
 use crate::menu::{Command, Menu, Page};
 use crate::replay::{Playback, replay_session};
@@ -192,9 +192,6 @@ impl<G: Game> App<G> {
                 if command == Command::Fullscreen {
                     self.display.screen.window.set_fullscreen(self.settings.fullscreen).context("toggling fullscreen")?;
                 }
-                if command == Command::Song && self.front.playing {
-                    self.game.select_song(self.settings.song);
-                }
                 apply_settings(&mut self.game, &mut self.settings);
                 self.display.set_frame_rate(self.settings.frame_rate);
                 self.save_settings();
@@ -228,7 +225,6 @@ impl<G: Game> App<G> {
                 }
                 self.front.title_music = false;
                 self.renew(fresh);
-                play_the_games_song(&mut self.game, &self.settings);
                 self.runs.start(&self.game);
                 self.front.menu = Menu::default();
                 self.front.playing = true;
@@ -271,6 +267,11 @@ impl<G: Game> App<G> {
             Ok(fresh) => self.renew(fresh),
             Err(e) => eprintln!("reloading the game failed: {e:#}"),
         }
+        // F5 plays the game again from its start, its song too (a way back
+        // to the title or a run's end lets the same song play on).
+        if command == Command::Restart {
+            self.game.restart_music();
+        }
         if command == Command::Restart && on_title && self.begin.is_empty() {
             self.play_own_title();
         } else if command == Command::Restart {
@@ -282,7 +283,6 @@ impl<G: Game> App<G> {
                 }
             }
             self.front.straight_in();
-            play_the_games_song(&mut self.game, &self.settings);
         } else if watching || !self.play_own_title() {
             // The engine's title (a game's own plays itself).
             let menu = match left {
@@ -304,14 +304,8 @@ impl<G: Game> App<G> {
                 }
                 None => title_menu(&self.game),
             };
+            // Its song from the next frame on (`App::music`).
             self.front.back_to_title(menu);
-            self.game.music_changed = false;
-            if let Some(speaker) = self.speaker.as_mut() {
-                let title = self.game.title_music();
-                if let Some(mut mixer) = speaker.lock() {
-                    mixer.set_music(title);
-                }
-            }
         }
         Ok(())
     }

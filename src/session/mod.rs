@@ -252,6 +252,11 @@ pub struct Session<G: Game> {
     pub samples: audio::music::Samples,
     /// The music changed (its file or which file): start it over.
     pub music_changed: bool,
+    /// The next song handed begins from its start, the same as plays or
+    /// not (`restart_music`: F5).
+    restart: bool,
+    /// Seconds the time heard lies past the game's clock (`music_ahead`).
+    music_ahead: f64,
     /// Which of the songs a player hears plays (`player_songs`).
     pub song: usize,
     /// The titles of the songs a player hears (their `#title`, else the

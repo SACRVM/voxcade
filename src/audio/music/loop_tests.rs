@@ -127,16 +127,16 @@ fn the_audio_keeps_with_the_clock_round_a_loop() {
     // 12 seconds: the loop (bars 2 and 3, 3.2 s) goes round three times.
     for steps in 1..=720 {
         p.mix(&mut out);
-        p.follow(beats(steps));
+        p.follow(beats(steps), 0.0);
         assert!(p.since_jump as usize > tick, "a jump at step {steps}");
         assert!(off(&p, beats(steps)).abs() <= 2.0, "step {steps}: {} off", off(&p, beats(steps)));
     }
     assert!(place(&p) >= p.song.span.0 && place(&p) < p.song.span.1, "round the loop");
     // Set back into the first bar (a snapshot from before the loop): met there.
-    p.follow(beats(30));
+    p.follow(beats(30), 0.0);
     assert_eq!(place(&p), p.at_beat(beats(30)));
     // Far on: where the song goes round to.
-    p.follow(beats(7000));
+    p.follow(beats(7000), 0.0);
     assert!((place(&p) - p.within(p.at_beat(beats(7000)))).abs() < 1e-6);
     assert!(place(&p) >= p.song.span.0 && place(&p) < p.song.span.1);
 }
@@ -180,7 +180,7 @@ fn keeps_with_the_clock(&(tempo, head, ref notes, rounds): &(u32, &str, String, 
     let mut worst = 0.0f64;
     for step in 1..=steps {
         p.mix(&mut out);
-        p.follow(step as f64 * f64::from(tempo) / 3600.0);
+        p.follow(step as f64 * f64::from(tempo) / 3600.0, 0.0);
         let clock = (step * tick) as f64;
         let off = if clock < from + length { place(&p) - clock } else { round_off(place(&p) - clock, length) };
         worst = worst.max(off.abs());

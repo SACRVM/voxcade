@@ -25,14 +25,11 @@ use crate::render::Renderer;
 use crate::replay::Runs;
 use crate::session::{Reloaded, Scene, Session};
 use crate::settings::Settings;
-use crate::sim::DT;
 use crate::watch::FolderWatch;
 
 /// The format it is drawn in: the games' own, as the headless canvas's.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
-/// Ticks a frame may catch up before time is dropped (as the game's).
-const MAX_CATCH_UP: u32 = 5;
 
 /// What the game is drawn into, and its name to egui.
 struct Target {
@@ -60,7 +57,7 @@ pub struct Play<G: Game> {
     unloaded: std::collections::BTreeMap<String, String>,
     /// Time not yet stepped, and when the last frame was (None: held, so
     /// it goes on without catching up).
-    accumulator: f32,
+    clock: crate::app::TickClock,
     last: Option<Instant>,
     /// The scenario every run of it begins from (PLAY SCENARIO; F5 too).
     scenario: Option<String>,
@@ -102,7 +99,7 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), accumulator: 0.0, last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), clock: Default::default(), last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false };
         play.guard.begin(play.game.game.hidden());
         play.name_keys();
         play.music();
@@ -114,6 +111,8 @@ impl<G: Game> Play<G> {
         let mut fresh = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir))?;
         begin(&mut fresh, self.scenario.as_deref())?;
         self.adopt(fresh, device, queue);
+        // Played again from its start, its song too.
+        self.game.restart_music();
         Ok(())
     }
 
@@ -137,11 +136,12 @@ impl<G: Game> Play<G> {
         self.game.eval(line)
     }
 
-    /// The player's song for the game.
+    /// The player's song chosen for the game (it plays where the game
+    /// plays no song of its own; a game begun or begun anew decides its
+    /// music again at the next frame, `Session::new_music`).
     fn music(&mut self) {
         let songs = self.game.player_songs().len();
         self.game.select_song(self.settings.song.min(songs.saturating_sub(1)));
-        self.game.music_changed = true;
     }
 
     /// What seat 1 holds now, the other seats' set on the game for the
@@ -365,9 +365,13 @@ impl<G: Game> Play<G> {
         {
             s.hold(false);
         }
-        let elapsed = self.last.map_or(0.0, |l| (now - l).as_secs_f32().min(0.25));
+        let elapsed = self.last.map_or(0.0, |l| (now - l).as_secs_f32());
         self.last = Some(now);
         self.reload(device, queue);
+        // The frame's time owed to the game (all of it while its own song
+        // keeps time with its clock: `app::TickClock`).
+        let keep = self.game.steers_music();
+        self.clock.frame(elapsed, keep);
 
         // The music (started over when it changed), the player's volume.
         let music_gain = self.settings.music_gain();
@@ -375,9 +379,13 @@ impl<G: Game> Play<G> {
             // A song is made before the mixer is locked: the audio device
             // waits on the lock. (A level's fade holds no song:
             // `Session::hand_music` says when.)
+            self.game.music_ahead(self.clock.behind(0.0));
             let new = self.game.new_music();
             if let Some(mut mixer) = speaker.lock() {
-                self.game.hand_music(&mut mixer, new, false);
+                // A song begun now begins at the clock: nothing owed before it.
+                if self.game.hand_music(&mut mixer, new, false) {
+                    self.clock.settle();
+                }
                 mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
                 mixer.set_drive(self.game.cfg.audio.drive);
                 mixer.set_ceiling(self.game.cfg.audio.ceiling);
@@ -386,9 +394,7 @@ impl<G: Game> Play<G> {
 
         // The ticks due.
         self.controls();
-        self.accumulator += elapsed;
-        let mut ticks = 0;
-        while self.accumulator >= DT && ticks < MAX_CATCH_UP {
+        for _ in 0..self.clock.due(keep) {
             self.game.fades = true;
             self.game.step(input);
             self.guard_tick();
@@ -398,11 +404,6 @@ impl<G: Game> Play<G> {
             {
                 self.game.play_sounds(&mut mixer, self.settings.sound_gain());
             }
-            self.accumulator -= DT;
-            ticks += 1;
-        }
-        if ticks == MAX_CATCH_UP {
-            self.accumulator = 0.0;
         }
         self.draw(device, queue, egui, size)
     }
@@ -443,7 +444,7 @@ impl<G: Game> Play<G> {
         // What stops it is said in the IDE's red line over the picture
         // (the traceback in OUTPUT), not in the game's big letters.
         self.game.problem_shown = false;
-        let frame = self.game.menu_frame(&Menu::default(), &self.settings, self.accumulator / DT, aspect, Scene::Play);
+        let frame = self.game.menu_frame(&Menu::default(), &self.settings, self.clock.fraction(), aspect, Scene::Play);
         // A picture at another pitch or field of view (`frame:camera`) may
         // need faces the meshes left out: built anew with them, once.
         let faces = self.game.face_mask();
@@ -463,6 +464,13 @@ impl<G: Game> Play<G> {
         let t = self.target.as_ref().ok_or_else(|| anyhow::anyhow!("the game has not been drawn yet"))?;
         let rgba = crate::headless::read_texture(device, queue, &t.texture)?;
         crate::headless::png_bytes(t.size[0], t.size[1], &rgba)
+    }
+
+    /// What its sound did, in a line for OUTPUT as it stops
+    /// (`Speaker::report`: songs begun and played on, jumps of the music,
+    /// the device running dry); none without a speaker.
+    pub fn sound_said(&mut self) -> Option<String> {
+        self.speaker.as_mut()?.report(true)
     }
 
     /// Ends it: its run over (kept if long enough), its texture freed.

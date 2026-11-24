@@ -44,6 +44,8 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         cue: (None, false),
         audio_laid: None,
         music_changed: false,
+        restart: false,
+        music_ahead: 0.0,
         fade_clock: false,
         crossfade: None,
         fade_cut: false,

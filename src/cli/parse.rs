@@ -875,6 +875,7 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
         height: 1080,
         out: PathBuf::from("shots/shot.png"),
         begin: Default::default(),
+        sound: None,
     };
     let mut f = Flags::new("shot", args);
     while let Some((flag, _)) = f.next()? {
@@ -884,6 +885,7 @@ pub(super) fn shot_options(args: &[String]) -> Result<headless::ShotOptions> {
             "--frames" => opts.frames = Some(number("--frames N", value)?),
             "--replay" => opts.replay = Some(PathBuf::from(value)),
             "--record" => opts.record = Some(PathBuf::from(value)),
+            "--sound" => opts.sound = Some(PathBuf::from(value)),
             "--input" => opts.input = value.clone(),
             flag if seat_input(flag).is_some() => opts.seats.push((seat_input(flag).unwrap_or(0), value.clone())),
             "--screen" => {

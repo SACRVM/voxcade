@@ -285,10 +285,12 @@ settings. Several players: `player` is seat 1, the others are in
   `c.audio.crossfade` for every change, fades the old out as the new
   comes in over the seconds, equal in power (as loud together as either
   alone), through a level's fade too; `music:volume` and `music:muffle`
-  hold over both. A song asked while another still fades out (a stop's
-  fade, a crossfade) lets that one finish its fade under the new one,
-  one coming in fading out from as loud as it had come
-  (`Mixer::leaving`, three at most, made with the mixer). The clock is
+  hold over both. Two songs sound at most: a song asked while another
+  still crossfades ends the oldest within 5 ms, the one coming in fading
+  out from as loud as it had come; a stop's fade goes on under a song
+  begun after it (`Mixer::leaving`, made with the mixer). The same song
+  asked again from elsewhere (a title and a run, a session begun anew)
+  plays on where it keeps with the clock, never crossfaded into itself. The clock is
   the new song's from the moment it begins
   (`music.beat`, `on_beat` count its beats), the old one only heard as it
   goes. `music:stop(from)` (`"now"` unless said, `"beat"`, `"bar"`, or

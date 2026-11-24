@@ -39,6 +39,9 @@ pub struct ShotOptions {
     pub out: PathBuf,
     /// A scenario and console lines the run begins with.
     pub begin: crate::session::Begin,
+    /// Where the sound of the ticks played goes, as the window makes it
+    /// (`app::heard::Heard`): a WAV file.
+    pub sound: Option<PathBuf>,
 }
 
 /// Draws of a frame `shot` makes to time its passes; the first ones only
@@ -387,16 +390,44 @@ pub fn shot<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     }
     let mut recorder = opts.record.as_ref().map(|_| Recorder::default());
     let frames = opts.frames.or(replay.as_ref().map(|r| r.ticks as u32)).unwrap_or(90);
+    // The sound as a window makes it: its front end opened as the shot
+    // begins (the engine's title and its pages, a title level of the
+    // game's own begun above, else a run), its music handed by the
+    // window's own two functions every tick.
+    let mut heard = match &opts.sound {
+        Some(_) => {
+            let opening = match () {
+                _ if own_title => crate::app::heard::Opening::OwnTitle,
+                _ if title => crate::app::heard::Opening::EngineTitle,
+                _ => crate::app::heard::Opening::Run,
+            };
+            let mut heard = crate::app::heard::Heard::open(&mut game, opening, true)?;
+            if title {
+                heard.menu(menu.clone());
+            }
+            Some(heard)
+        }
+        None => None,
+    };
     // A menu screen: the title's run their animations for the frames
     // instead of the game; pause first plays them.
     let played = if title {
         for _ in 0..frames {
             menu.update();
+            if let Some(h) = &mut heard {
+                h.music(&mut game, false);
+                h.pull(f64::from(crate::sim::DT));
+            }
         }
         Played::default()
     } else {
-        play_ticks(&mut game, &mut canvas, frames, &mut playback, &mut script, &mut seats, &mut recorder, width as f32 / height as f32)
+        play_ticks(&mut game, &mut canvas, frames, &mut playback, &mut script, &mut seats, &mut recorder, heard.as_mut(), width as f32 / height as f32)
     };
+    if let (Some(h), Some(path)) = (&heard, &opts.sound) {
+        h.write(path)?;
+        println!("wrote {} ({:.2} s)", path.display(), h.samples.len() as f64 / 2.0 / f64::from(crate::audio::SAMPLE_RATE));
+        println!("{}", h.mixer.tally.said(None));
+    }
     for line in &played.warnings {
         println!("warning: {line}");
     }
@@ -529,7 +560,7 @@ struct Played {
 /// meshes it changed rebuilt as the game does (blasts show as the slowest
 /// ticks); a script's error ends them (the frame shows it).
 #[allow(clippy::too_many_arguments)]
-fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, playback: &mut Option<Playback>, script: &mut Script, seats: &mut SeatScripts, recorder: &mut Option<Recorder>, aspect: f32) -> Played {
+fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, playback: &mut Option<Playback>, script: &mut Script, seats: &mut SeatScripts, recorder: &mut Option<Recorder>, mut heard: Option<&mut crate::app::heard::Heard>, aspect: f32) -> Played {
     let mut played = Played::default();
     // The hidden-state guard as the IDE's PLAY has it (`inspect` too).
     let mut watch = crate::lua::hidden::Watch::default();
@@ -547,8 +578,16 @@ fn play_ticks<G: Game>(game: &mut Session<G>, canvas: &mut Canvas, frames: u32, 
                 input
             }
         };
+        // The window's music for the frame, before its tick (`App::music`).
+        if let Some(h) = &mut heard {
+            h.music(game, false);
+        }
         game.step(&input);
         let sim_tick = ms(step);
+        if let Some(h) = &mut heard {
+            h.sounds(game);
+            h.pull(f64::from(crate::sim::DT));
+        }
         // Drawn without the picture for the next step's pointer to be
         // answered from (`on_draw`'s panels).
         if game.has_pointer() {
@@ -1225,9 +1264,9 @@ fn film_sound<G: Game>(dir: &Path, replay: &Replay, first: u64, last: u64, wav: 
     let mut playback = Playback::new(replay, &mut game)?;
     let settings = Settings::default();
     let mut mixer = Mixer::default();
-    // The game's first song, as when it starts, and the songs its code
-    // picks in time with it.
-    game.music_changed = true;
+    // The game's first song, as when it starts (a session begun decides
+    // its music at the first feed), and the songs its code picks in time
+    // with it.
     let per_tick = (SAMPLE_RATE / 60) as usize * 2;
     let mut buf = vec![0.0f32; per_tick];
     let mut samples = Vec::with_capacity((last - first) as usize * per_tick);
@@ -1795,7 +1834,7 @@ fn limit(samples: &[f32], channels: usize, drive: f32, ceiling: f32) -> (Vec<f32
 
 /// 16-bit PCM. The sound has been through the limiter (the mixer's, or
 /// `limit`'s), so nothing reaches full scale; clamped all the same.
-fn write_wav(out: &Path, samples: &[f32], channels: u16) -> Result<()> {
+pub(crate) fn write_wav(out: &Path, samples: &[f32], channels: u16) -> Result<()> {
     use crate::audio::SAMPLE_RATE;
 
     if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -1865,7 +1904,7 @@ mod tests {
     fn a_game_without_slots_has_no_save_screen() {
         let pulsar = Path::new(env!("CARGO_MANIFEST_DIR")).join("games/pulsar");
         for screen in ["save", "load", "continue"] {
-            let opts = ShotOptions { frames: Some(1), replay: None, record: None, screen: Some(screen.into()), input: String::new(), seats: Vec::new(), at: None, shadows: Default::default(), fog: Default::default(), pad: None, width: 64, height: 64, out: PathBuf::from("unused.png"), begin: Default::default() };
+            let opts = ShotOptions { frames: Some(1), replay: None, record: None, screen: Some(screen.into()), input: String::new(), seats: Vec::new(), at: None, shadows: Default::default(), fog: Default::default(), pad: None, width: 64, height: 64, out: PathBuf::from("unused.png"), begin: Default::default(), sound: None };
             let said = format!("{:#}", shot::<crate::Voxcade>(&pulsar, &opts).unwrap_err());
             assert_eq!(said, format!("--screen {screen}: a game with save slots (c.saves.slots) has it; Pulsar has none"));
         }

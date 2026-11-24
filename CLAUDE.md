@@ -1333,9 +1333,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   fade })` silence, the player's own not coming back, `host::Music::silent`,
   `Game::music_silent`, the session noticing (song, silent) after every
   step, a stop fading 5 ms at least and however young the song,
-  `Mixer::crossfade_music`, a song asked while one still fades letting
-  it finish its fade under the new one (`Mixer::leaving`, three slots,
-  `start_music`, test `a_song_fading_out_rings_out_under_the_next`); a
+  `Mixer::crossfade_music`; two songs sound at most, the second only
+  while a fade asked for runs (a crossfade, a stop's fade, which goes on
+  under a song begun after it), every other song ending within 5 ms
+  (`Mixer::hand`, `ENDING`: a crossfade asked during a crossfade ends the
+  first; tests `two_songs_sound_at_most_and_only_while_a_fade_asked_for_runs`,
+  `a_song_fading_out_rings_out_under_the_next`); a
   play over a pending stop replaces it;
   `music.tempo` the game's tempo, held across songs until nil, kept in
   thousandths, `host::Music::tempo`; the clock today's formula while no
@@ -1504,7 +1507,14 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   allocator, test `the_audio_thread_takes_no_memory`: a finished
   crossfade's song, `Mixer::spent`, and a sound that ended are let go of
   on the main thread as the next is handed; a song is read and made
-  before the lock is taken, `Session::new_music`, then `hand_music`);
+  before the lock is taken, `Session::new_music`, then `hand_music`;
+  what it did is counted, `Mixer::tally`, `Calls`, and said in a line,
+  `Speaker::report`: songs begun, crossfades, silences, songs played on,
+  jumps of the music and the largest, the drift closed unheard, blocks,
+  callbacks and those that came after the device ran dry, `Pace`; on
+  `run`'s exit when the music jumped or the device ran dry, always with
+  `--maker`, in OUTPUT as the IDE's PLAY stops, `shot --sound` without
+  the device's);
   the window and the IDE never lock SDL's audio stream, never pause its
   device, and close it on a thread of their own and leave SDL unquit at
   the end (a Bluetooth headset dropping out and PipeWire started anew
@@ -1682,7 +1692,30 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   perspective with the vanishing point in the middle of the screen (the
   user's choice, it replaced an oblique view): `c.ui.slant` sets how
   strong, the plane `c.ui.depth` fills the screen exactly. The title's
-  settings play the chosen song (`Menu::previews_song`). The HUD is the
+  settings play the chosen song (`Menu::previews_song`). One decides what
+  music sounds in the window (the owner, 2026-11-24, after a title of a
+  game's own played its song twice: `shots/reviews/music-sources-review.md`):
+  `Front::wanted` from the front end alone (`Wanted::Title`, `Preview`,
+  `Game`), handed in one place only when it changes (`made_music`,
+  `hand_made` in `App::music`, `Front::heard`); everything else changes
+  state, never the mixer. The game's part is the session's
+  (`Session::new_music`, `hand_music`, also the IDE's PLAY's and the
+  film's): every song named (`Player::identity`, its file and text or a
+  studio and its laid channels), so the same song asked again plays on
+  across a change of scene (title and run, a preview, a session made
+  anew), never begun twice nor crossfaded into itself; the game's own only
+  where the mixer is with its clock (`Player::keeps_with`; a new run's
+  clock is at 0, so it begins anew there, once, cleanly), and from its
+  start where asked (F5, AGAIN: `Session::restart_music`; a stop or
+  another song of the game's and then it again). A song a run's
+  `on_level_start` asks is waited for, no player's song between. While a
+  game's own song keeps time with its clock, a window held up catches the
+  clock up over the next frames instead of dropping the time
+  (`app::TickClock`, `MOST_OWED` 2 s; `Session::music_ahead`): it jumped
+  back before, heard as a hang (test
+  `a_window_held_up_never_jumps_the_games_song`). Tests at the window's
+  seam without a window in `src/app/heard.rs` (`Heard`, also `shot
+  --sound FILE.wav`: the ticks' sound as the window hands it). The HUD is the
   game's (the user: "we are writing an engine, not a moddable game"):
   its `on_draw` draws it (`frame.width`/`height`/`alpha`, `frame:text`
   with a size, `text_width`, `box`, `bar`, `icon` from `c.icons`,

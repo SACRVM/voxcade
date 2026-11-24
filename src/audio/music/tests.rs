@@ -46,10 +46,10 @@ fn a_song_jumps_and_keeps_time() {
     assert!(out[0].abs() < out[400].abs() + 1e-6, "faded in");
     // A little behind (600 samples; the clock in beats, two a second): a
     // hair faster, until it is with the target.
-    p.follow((p.time + 600) as f64 / SAMPLE_RATE as f64 * 2.0);
+    p.follow((p.time + 600) as f64 / SAMPLE_RATE as f64 * 2.0, 0.0);
     assert!(p.rate > 1.0 && p.rate <= 1.003);
     // Far off: a jump.
-    p.follow(6.0);
+    p.follow(6.0, 0.0);
     assert_eq!((p.time, p.rate), (3 * second, 1.0));
     assert!(parse("#meter 3/4\nA: c\n").unwrap().meter == 3 && parse("#meter x\nA: c\n").is_err());
 }

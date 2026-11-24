@@ -437,7 +437,8 @@ impl<G: Game> Project<'_, G> {
                 },
                 Ask::Stop => {
                     if let Some(mut p) = self.play.take() {
-                        let said = p.said();
+                        let mut said = p.said();
+                        said.extend(p.sound_said().map(|line| (super::output::Kind::Note, line)));
                         self.shell.game_said(None, said);
                         p.end(&mut self.window.painter.renderer);
                     }

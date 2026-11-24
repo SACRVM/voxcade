@@ -3,7 +3,7 @@
 //! sent; a guest playing the host's bundles; the ticket and the code on the
 //! clipboard.
 
-use super::{App, CATCH_UP_BUDGET, MAX_CATCH_UP, failure, pads_of, play_the_games_song, renew, say_now, seat_controls, seated, tick_sounds, title_menu};
+use super::{App, CATCH_UP_BUDGET, MAX_CATCH_UP, failure, pads_of, renew, say_now, seat_controls, seated, tick_sounds, title_menu};
 use crate::game::Game;
 use crate::menu::{Command, Page};
 use crate::saves::Slots;
@@ -35,7 +35,6 @@ impl<G: Game> App<G> {
                     game.fades = true;
                     *seating = seated(game.cfg.players, *last_pad, front, settings, pads);
                     front.straight_in();
-                    play_the_games_song(game, settings);
                 }
                 Ok(None) => {}
                 Err(e) => {

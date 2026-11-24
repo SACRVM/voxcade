@@ -23,6 +23,21 @@ pub(super) enum Idle {
     Replay,
 }
 
+/// What a window's music is (`Front::wanted`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wanted {
+    /// The engine's title: its song (`c.title_screen.music`, else the
+    /// first a player hears) from `c.title_screen.music_at`'s bar, its
+    /// round's table and replays under it.
+    Title,
+    /// SETTINGS opened over the engine's title: the song chosen there.
+    Preview(usize),
+    /// The game's, as its session decides (`Session::new_music`): its own
+    /// song where it plays one (a title level of its own: the title's),
+    /// its silence, else the player's song.
+    Game,
+}
+
 pub(super) struct Front {
     /// The menu open over the title or the game (`Menu::default()`: none).
     pub menu: Menu,
@@ -42,8 +57,9 @@ pub(super) struct Front {
     pub title_tick: u64,
     /// The title's music plays, not the game's.
     pub title_music: bool,
-    /// The song the title's settings play instead of the title's, if any.
-    pub previewing: Option<usize>,
+    /// What the window last had the mixer play (`App::music`): handed
+    /// again only when what is wanted changes.
+    pub heard: Option<Wanted>,
     /// Seconds into the glide from the title into the game, while it runs.
     pub intro: Option<f32>,
     /// The title's attract mode: a replay playing under the title's music,
@@ -75,7 +91,7 @@ impl Front {
             title_time: 0.0,
             title_tick: 0,
             title_music: true,
-            previewing: None,
+            heard: None,
             intro: None,
             attracting: false,
             attract_time: 0.0,
@@ -121,7 +137,17 @@ impl Front {
         self.table_in_round = false;
         self.title_time = 0.0;
         self.title_music = true;
-        self.previewing = None;
+    }
+
+    /// What the window's music is to be now, from the front end alone:
+    /// the one decision (`App::music` hands it, and only when it changes).
+    /// `chosen` is the player's song in the settings (from 0).
+    pub fn wanted(&self, chosen: usize) -> Wanted {
+        match () {
+            _ if !self.title_music => Wanted::Game,
+            _ if self.menu.previews_song() => Wanted::Preview(chosen),
+            _ => Wanted::Title,
+        }
     }
 
     /// What the game asked of the window in a tick (`Session::requests`):

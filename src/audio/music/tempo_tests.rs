@@ -47,7 +47,7 @@ fn worst_off(milli: u32) -> f64 {
         p.mix(&mut out);
         units += u64::from(milli);
         let beats = units as f64 / 3_600_000.0;
-        p.follow(beats);
+        p.follow(beats, 0.0);
         assert!(p.since_jump as usize > tick, "a jump at {ratio}x");
         worst = worst.max(round_off(p.within(p.at_beat(beats)) - place(&p), length).abs() / ratio);
     }
@@ -92,7 +92,7 @@ fn a_song_faster_or_slower_never_jumps_on_a_frames_jitter() {
             p.mix(&mut out);
             made += frames;
             units += u64::from(milli);
-            p.follow(units as f64 / 3_600_000.0);
+            p.follow(units as f64 / 3_600_000.0, 0.0);
             assert!(p.since_jump > 0 || frames == 0, "{ratio}x: a jump at feed {n}");
         }
     }

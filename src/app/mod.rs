@@ -11,7 +11,9 @@
 //! title, the glide in, the game, attract mode, is `front::Front`; what
 //! keys mean before the game hears them is `keys.rs`.
 
+mod clock;
 mod commands;
+pub mod heard;
 mod draw;
 mod events;
 mod front;
@@ -40,10 +42,9 @@ use crate::settings::{self, FrameRate, Settings};
 use crate::sim::DT;
 use crate::watch::FolderWatch;
 use crate::window::Screen;
-use front::{Front, Idle};
+use front::{Front, Idle, Wanted};
 
-/// Simulation ticks allowed per rendered frame before we drop time.
-const MAX_CATCH_UP: u32 = 5;
+pub use clock::{MAX_CATCH_UP, TickClock};
 /// How loud the game's sounds are under the title music while the title
 /// plays a replay (attract mode).
 const ATTRACT_SOUNDS: f32 = 1.0 / 3.0;
@@ -63,7 +64,7 @@ enum Flow {
 /// and the frames counted for the frame rate shown.
 struct Clock {
     last: Instant,
-    accumulator: f32,
+    ticks: TickClock,
     fps_frames: u32,
     fps_since: Instant,
     fps: f32,
@@ -210,7 +211,7 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
     display.remesh(&mut game);
 
     // Sound is welcome, not required: without an audio device the game runs silent.
-    let mut speaker = crate::audio::speaker(&sdl);
+    let speaker = crate::audio::speaker(&sdl);
 
     let settings_path = settings::path_for(dir);
     let (mut settings, settings_trouble) = Settings::load_for(&settings_path, integrated);
@@ -238,18 +239,10 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
     // paused while the menu is open.
     let mut front = Front::new(title_menu(&game));
     let seating = Seating::new(game.cfg.players);
-    // The engine's title plays its song from the first moment. A title
-    // level of the game's own gets its song once, from the game as that
-    // level begins (`LuaGame::title_song`): begun here too, it sounded
-    // twice, the first copy from before the first picture.
-    if let Some(speaker) = speaker.as_mut()
-        && game.cfg.title_screen.level.is_none()
-    {
-        let title = game.title_music();
-        if let Some(mut mixer) = speaker.lock() {
-            mixer.set_music(title);
-        }
-    }
+    // Nothing sounds yet: the first frame's music (`App::music`, the one
+    // place the window hands the mixer) is the engine's title's song from
+    // the first moment, or the game's (a title level of its own: its song
+    // as the level begins, once).
 
     // Every run is recorded (`Runs`); a replay being watched gives the input
     // instead of the keys.
@@ -263,14 +256,12 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
             eprintln!("the replay was recorded on other game data: it will run apart");
         }
         front.straight_in();
-        play_the_games_song(&mut game, &settings);
     } else if !begin.is_empty() {
         // A scenario to try: past the title, straight into it.
         begun(&begin, &mut game);
         display.remesh(&mut game);
         runs.start(&game);
         front.straight_in();
-        play_the_games_song(&mut game, &settings);
     }
 
     // Opening on the title, a game with a title of its own opens in it
@@ -315,7 +306,7 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
     let watch = FolderWatch::new(dir);
 
     let mut app = App {
-        clock: Clock { last: Instant::now(), accumulator: 0.0, fps_frames: 0, fps_since: Instant::now(), fps: 0.0 },
+        clock: Clock { last: Instant::now(), ticks: TickClock::default(), fps_frames: 0, fps_since: Instant::now(), fps: 0.0 },
         watch,
         now_playing: String::new(),
         prompt: crate::prompt::Prompt::default(),
@@ -385,6 +376,11 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
         app.pace();
     }
     app.end();
+    // What the sound did, where anything but plain playing happened (the
+    // music jumped, the device ran dry), and always for the maker.
+    if let Some(line) = app.speaker.as_mut().and_then(|s| s.report(app.maker)) {
+        eprintln!("{line}");
+    }
     // The sound closed apart, and SDL not quit: its audio may hang in a
     // sound server gone away, and the window's end must not wait for it
     // (the program's end takes everything).
@@ -420,7 +416,6 @@ impl<G: Game> App<G> {
         });
         if titled {
             self.display.remesh(&mut self.game);
-            play_the_games_song(&mut self.game, &self.settings);
         }
         titled
     }
@@ -431,7 +426,6 @@ impl<G: Game> App<G> {
         self.runs.start(&self.game);
         self.seat_the_players();
         self.front.glide_in();
-        play_the_games_song(&mut self.game, &self.settings);
     }
 
     /// The game loaded afresh from its folder, in place of the one there;
@@ -496,46 +490,29 @@ impl<G: Game> App<G> {
         }
     }
 
-    /// Music: the title's on the title, the chosen song while the settings
-    /// are open there; the game's (started over when it changed) while
-    /// playing; the player's volume on top.
+    /// Music: what the front end wants (`Front::wanted`), made before
+    /// the mixer is locked (the audio device waits on the lock) and handed
+    /// here alone, only when it changes (`made_music`, `hand_made`); the
+    /// player's volume on top.
     fn music(&mut self) {
-        let App { speaker, game, front, settings, prompt, now_playing, .. } = self;
+        let App { speaker, game, front, settings, prompt, now_playing, clock, .. } = self;
         let Some(speaker) = speaker else { return };
-        // A song is read and made before the mixer is locked: the audio
-        // device waits on the lock.
-        let (mut title, mut new) = (None, None);
-        if front.title_music {
-            game.music_changed = false;
-            let last = game.player_songs().len().saturating_sub(1);
-            let preview = front.menu.previews_song().then_some(settings.song.min(last));
-            if preview != front.previewing {
-                front.previewing = preview;
-                title = Some(match preview {
-                    Some(song) => game.song_at(song),
-                    None => game.title_music(),
-                });
-            }
-        } else {
-            new = Some(game.new_music());
-        }
-        if let Some(mut mixer) = speaker.lock() {
-            if let Some(song) = title {
-                mixer.set_music(song);
-            } else if let Some(new) = new
-                && game.hand_music(&mut mixer, new, front.menu.is_open() || prompt.open)
-            {
-                // The player's own choice numbered when there are several.
-                let choice = game.player_songs().len() > 1 && !game.steers_music();
-                *now_playing = match mixer.music_title() {
-                    Some(t) if choice => format!(" | \u{266a} {}: {t}", game.song + 1),
-                    Some(t) => format!(" | \u{266a} {t}"),
-                    None => String::new(),
-                };
-            }
-            mixer.set_music_volume(game.cfg.audio.music_volume * settings.music_gain());
-            mixer.set_drive(game.cfg.audio.drive);
-            mixer.set_ceiling(game.cfg.audio.ceiling);
+        game.music_ahead(clock.ticks.behind(clock.last.elapsed().as_secs_f32()));
+        let made = made_music(game, front, settings);
+        let held = front.menu.is_open() || prompt.open;
+        let Some(mut mixer) = speaker.lock() else { return };
+        if hand_made(made, game, &mut mixer, held, settings) {
+            // The player's own choice numbered when there are several.
+            let choice = game.player_songs().len() > 1 && !game.steers_music();
+            *now_playing = match mixer.music_title() {
+                Some(t) if choice => format!(" | \u{266a} {}: {t}", game.song + 1),
+                Some(t) => format!(" | \u{266a} {t}"),
+                None => String::new(),
+            };
+            // A song begun now begins at the clock: the time before it (a
+            // game read, a level built) is not owed to it.
+            clock.ticks.settle();
+            clock.last = Instant::now();
         }
     }
 
@@ -639,13 +616,22 @@ impl<G: Game> App<G> {
         }
     }
 
-    /// The time since the last frame (at most a quarter of a second), owed
-    /// to the simulation; the console slides, the title's clock runs.
+    /// The time since the last frame owed to the simulation (all of it,
+    /// up to `clock::MOST_OWED`, where the game's own song keeps time with
+    /// its clock; else a quarter of a second at most); what the console's
+    /// slide and the title's clock take (a quarter of a second at most).
     fn elapsed(&mut self) -> f32 {
         let now = Instant::now();
-        let elapsed = (now - self.clock.last).as_secs_f32().min(0.25);
+        let elapsed = (now - self.clock.last).as_secs_f32();
         self.clock.last = now;
-        elapsed
+        let keep = self.keeps_time();
+        self.clock.ticks.frame(elapsed, keep)
+    }
+
+    /// Whether the game's own song keeps time with its clock, here alone:
+    /// the time a frame was held up in is then caught up, not dropped.
+    fn keeps_time(&self) -> bool {
+        self.front.playing && !self.front.title_music && self.net.is_none() && self.game.steers_music()
     }
 
     /// The script's keys for player 1 (`--input`), a step every tick's
@@ -670,7 +656,6 @@ impl<G: Game> App<G> {
             _ => input,
         };
         self.prompt.slide(elapsed);
-        self.clock.accumulator += elapsed;
         input
     }
 
@@ -739,8 +724,8 @@ impl<G: Game> App<G> {
     /// rest dropped): the game played with `input` or the replay's, the
     /// host's bundles built, the title's own ticks while it shows.
     fn ticks(&mut self, input: crate::input::Input) {
-        let mut ticks = 0;
-        while self.clock.accumulator >= DT && ticks < MAX_CATCH_UP {
+        let keep = self.keeps_time();
+        for _ in 0..self.clock.ticks.due(keep) {
             let App { front, playback, net, game, prompt, speaker, settings, .. } = self;
             if front.menu.is_open() {
                 front.menu.update();
@@ -829,10 +814,7 @@ impl<G: Game> App<G> {
                     }
                     // The game's own title began a run in its place
                     // (`world:new_game()`): recorded from here, its song.
-                    None if std::mem::take(&mut game.begun) => {
-                        runs.start(game);
-                        play_the_games_song(game, settings);
-                    }
+                    None if std::mem::take(&mut game.begun) => runs.start(game),
                     None => runs.step(game),
                 }
                 let quiet = if front.attracting { ATTRACT_SOUNDS } else { 1.0 };
@@ -843,11 +825,6 @@ impl<G: Game> App<G> {
                     game.title_sounds(&mut mixer, front.title_tick, front.title_time, settings.sound_gain());
                 }
             }
-            self.clock.accumulator -= DT;
-            ticks += 1;
-        }
-        if ticks == MAX_CATCH_UP {
-            self.clock.accumulator = 0.0;
         }
     }
 
@@ -895,11 +872,62 @@ impl<G: Game> App<G> {
     }
 }
 
-/// The game's own song (the one the settings chose) from the next tick on,
-/// started over.
-fn play_the_games_song<G: Game>(game: &mut Session<G>, settings: &Settings) {
-    game.select_song(settings.song.min(game.player_songs().len().saturating_sub(1)));
-    game.music_changed = true;
+/// What a frame's music is made of, before the mixer is locked
+/// (`made_music`).
+enum Made {
+    /// A song of the front end's own (the engine's title, the settings'
+    /// preview), what is wanted having changed to it.
+    Song(Option<crate::audio::music::Player>),
+    /// The game's, as its session makes it.
+    Game(crate::session::NewMusic),
+    /// Nothing changes.
+    Same,
+}
+
+/// The window's music for this frame, from what the front end wants
+/// (`Front::wanted`) and what it had the mixer play (`Front::heard`): the
+/// one decision. The game's music is begun anew as it becomes what is
+/// wanted, and the player's song chosen in the settings is the session's.
+fn made_music<G: Game>(game: &mut Session<G>, front: &mut Front, settings: &Settings) -> Made {
+    let chosen = settings.song.min(game.player_songs().len().saturating_sub(1));
+    let wanted = front.wanted(chosen);
+    let changed = front.heard.replace(wanted) != Some(wanted);
+    match wanted {
+        Wanted::Game => {
+            if changed {
+                game.music_anew();
+            }
+            game.select_song(chosen);
+            Made::Game(game.new_music())
+        }
+        Wanted::Title if changed => Made::Song(game.title_music()),
+        Wanted::Preview(song) if changed => Made::Song(game.song_at(song)),
+        Wanted::Title | Wanted::Preview(_) => Made::Same,
+    }
+}
+
+/// `made` handed to the mixer (the one place the window does): a song of
+/// the front end's own in place of what plays, unless it is the song that
+/// plays (it plays on); the game's through its session (`held`: a menu
+/// over it). Whether a song of the game's began.
+fn hand_made<G: Game>(made: Made, game: &mut Session<G>, mixer: &mut crate::audio::Mixer, held: bool, settings: &Settings) -> bool {
+    let began = match made {
+        Made::Song(song) => {
+            if song.as_ref().and_then(crate::audio::music::Player::identity).is_none_or(|id| mixer.playing() != Some(id)) {
+                mixer.set_music(song);
+            } else {
+                mixer.tally.played_on += 1;
+            }
+            mixer.hold_music(false);
+            false
+        }
+        Made::Game(new) => game.hand_music(mixer, new, held),
+        Made::Same => false,
+    };
+    mixer.set_music_volume(game.cfg.audio.music_volume * settings.music_gain());
+    mixer.set_drive(game.cfg.audio.drive);
+    mixer.set_ceiling(game.cfg.audio.ceiling);
+    began
 }
 
 /// The game's own title (`c.title_screen.level`) begun in place of the
