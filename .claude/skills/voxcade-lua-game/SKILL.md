@@ -436,8 +436,11 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   another crossfades with `music:play("shop", { from = "now", crossfade
   = 3 })` or `c.audio.crossfade = 3` (else the old ends, a short pause,
   the new begins). `music:stop()` is silence (`"now"` unless said,
-  `{ from = "bar", fade = 2 }`): no beats, the player's own song not
-  coming back; `music:play` after it begins the song from beat 0.
+  `{ from = "bar", fade = 2 }`): no beats, no song in its place;
+  `music:play` after it begins the song from beat 0. Music comes from
+  the code alone: nothing plays before `music:play` (ask in
+  `on_level_start`), a level asking nothing leaves what plays;
+  `music:pause()` and `music:resume()` hold the song and go on.
   `music:mix("K", { volume = 0.6, mute = true, pan = -0.5 }, seconds)` is
   channel K's strip on a mixing desk (fader, mute, pan; `false` gives a
   key or the whole strip back), held by letter whichever song plays;

@@ -17,7 +17,6 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("QUIT TO TITLE", "ZUM TITEL", "RETOUR AU TITRE"),
     ("MUSIC", "MUSIK", "MUSIQUE"),
     ("SOUND", "EFFEKTE", "SONS"),
-    ("SOUNDTRACK", "SOUNDTRACK", "BANDE SON"),
     ("FULLSCREEN", "VOLLBILD", "PLEIN ÉCRAN"),
     ("SCREEN SHAKE", "BILDWACKELN", "TREMBLEMENTS"),
     ("FLASHES", "BLITZE", "FLASHS"),

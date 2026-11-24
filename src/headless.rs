@@ -1737,7 +1737,7 @@ pub(crate) fn sound_statements(lines: &[&str]) -> Vec<Statement> {
 /// `seconds` (looping as the game would).
 pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()> {
     let game = Session::<G>::load(dir)?;
-    let file = game.song_file().context("conf.lua names no song a player hears (c.audio.music; a file of instruments plays only the channels a game lays over it)")?.to_string();
+    let file = game.player_songs().first().copied().context("conf.lua names no song a player hears (c.audio.music; a file of instruments plays only the channels a game lays over it)")?.to_string();
     song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive, game.cfg.audio.ceiling)), &game.samples, out, seconds)
 }
 

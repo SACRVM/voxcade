@@ -39,17 +39,16 @@ fn game_on(world: World, cfg: GameConfig) -> Session<Shooter> {
         ticked: false,
         sounds: SoundBank::default(),
         samples: Default::default(),
-        song_titles: Vec::new(),
         songs: Vec::new(),
         cue: (None, false),
         audio_laid: None,
         music_changed: false,
         restart: false,
         music_ahead: 0.0,
+        music_was_paused: false,
         fade_clock: false,
         crossfade: None,
         fade_cut: false,
-        song: 0,
         options: Options::default(),
         font: None,
         bank: Default::default(),
@@ -653,19 +652,15 @@ fn more_blood_starts_out_of_sight() {
     assert_eq!(game.game.status.hp, 5, "the player is hit at the start");
 }
 
-/// The number keys switch between the songs `c.audio.music` lists; each plays.
+/// Every song `c.audio.music` lists reads and plays.
 #[test]
-fn songs_can_be_switched() {
-    let mut game = Session::<Shooter>::load(Path::new("games/moreblood")).unwrap();
+fn every_song_of_more_blood_plays() {
+    let game = Session::<Shooter>::load(Path::new("games/moreblood")).unwrap();
     let files: Vec<String> = game.cfg.audio.music.files().iter().map(|f| f.to_string()).collect();
     assert!(files.len() >= 2, "More Blood should list several songs");
-    for (i, file) in files.iter().enumerate() {
-        // The first song already plays; every other one is a change.
-        assert_eq!(game.select_song(i), i != 0);
-        assert_eq!(game.song_file(), Some(file.as_str()));
-        assert!(game.music().is_some(), "{file} does not play");
+    for file in &files {
+        assert!(game.song(file).is_some(), "{file} does not play");
     }
-    assert!(!game.select_song(files.len()), "there is no song past the list");
 }
 
 /// Only models that can be seen or cast a shadow into the view are built:

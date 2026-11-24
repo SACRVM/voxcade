@@ -34,7 +34,6 @@ impl<G: Game> Session<G> {
                 settings,
                 logo: &logo,
                 drip: t.logo_drip,
-                songs: &self.song_titles,
                 scored: self.game.scored(),
                 font: self.font.as_deref(),
                 logo_heights: &t.logo_heights,

@@ -382,9 +382,15 @@ pub trait Game: Sized + 'static {
         None
     }
 
-    /// Whether it stopped its song (`music:stop`): silence then, the
-    /// player's own not coming back (`music` is None).
+    /// Whether it stopped its song (`music:stop`): silence then (`music`
+    /// is None).
     fn music_silent(&self) -> bool {
+        false
+    }
+
+    /// Whether it paused its song (`music:pause`): the song and its clock
+    /// hold where they are until it resumes.
+    fn music_paused(&self) -> bool {
         false
     }
 

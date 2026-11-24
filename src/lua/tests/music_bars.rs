@@ -98,7 +98,7 @@ fn a_bar_to_begin_at_is_one_of_the_song() {
         ("music:play('song', { at = 'two' })", "not \"two\""),
         ("music:play('song', { at = 6 })", "music:play: at = 6 is past the end of \"song\", which has 5 bars"),
         ("music:play('song', { at = 5 })", "music:play: at = 5 lies after the loop of \"song\" (#loop 3 4), which it never leaves"),
-        ("music:play(nil, { at = 2 })", "music:play: at needs a song of yours"),
+        ("music:play(nil, { at = 2 })", "music:play: which song?"),
         ("music:play('song', { start = 2 })", "music:play"),
     ] {
         std::fs::write(dir.join("main.lua"), format!("function on_tick()\n  {line}\nend\n")).unwrap();

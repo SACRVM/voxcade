@@ -187,7 +187,7 @@ impl<G: Game> App<G> {
                 self.front.menu = Menu::default();
             }
             Command::Restart | Command::ToTitle => self.leave_the_run(command)?,
-            Command::Changed | Command::Fullscreen | Command::Song => {
+            Command::Changed | Command::Fullscreen => {
                 crate::controls::label_keys(&mut self.settings);
                 if command == Command::Fullscreen {
                     self.display.screen.window.set_fullscreen(self.settings.fullscreen).context("toggling fullscreen")?;

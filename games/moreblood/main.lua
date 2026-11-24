@@ -99,6 +99,8 @@ end
 -- What the HUD counts from the level's start: the hostages, the gunship's
 -- full health.
 function on_level_start(how)
+  -- The game's song (the gunship brings its own, boss_music below).
+  music:play("move_on")
   level.state.hostages = level:count("hostage")
   local gunship = level:things("gunship")[1]
   level.state.gunship_hp = gunship and gunship.state.hp or 1
@@ -131,7 +133,7 @@ local function follow_hud()
   end
 end
 
--- The gunship's song while one is in the air (at once), the player's own
+-- The gunship's song while one is in the air (at once), the game's own
 -- again from the next bar once none is.
 local function boss_music()
   local up = false
@@ -141,7 +143,7 @@ local function boss_music()
   if up and music.song ~= "end_boss" then
     music:play("end_boss")
   elseif not up and music.song == "end_boss" then
-    music:play()
+    music:play("move_on")
   end
 end
 

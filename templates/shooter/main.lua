@@ -155,6 +155,8 @@ function on_draw(frame)
 end
 
 function on_level_start(how)
+  -- The game's song: asked again on every level, it plays on.
+  music:play("hot_pursuit")
   local w, d = level.size.x, level.size.y
   level:fill(0, 0, 0, w - 1, d - 1, 3, "#c2a878")
   for i = 0, 5 do

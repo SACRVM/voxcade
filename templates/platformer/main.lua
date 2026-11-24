@@ -31,6 +31,11 @@ local function lose_life(p)
   p.state.invulnerable = SAFE
 end
 
+-- The game's song: asked again on every level, it plays on.
+function on_level_start(how)
+  music:play("under_the_dunes")
+end
+
 -- A hero touches something: an enemy (from above), a pickup, a
 -- checkpoint or the door. This runs once, when the touch begins.
 function on_touch(a, b, where)

@@ -118,8 +118,8 @@ shooter's things stay in `src/shooter/`.
   and rename after a commit that is verified. An agent in its own
   worktree uses that worktree's own `target/`.
 - Play: `cargo run --release -- run games/arena` (opens a window; the user
-  plays it, you don't). F5 (play again on the files as they are), F9
-  (keep the run) and 1 to 9 (the game's songs) are the maker's keys:
+  plays it, you don't). F5 (play again on the files as they are) and F9
+  (keep the run) are the maker's keys:
   `run` has them only with `--maker`, a player of a packaged game never
   (the owner's D4, 2026-11-13), the IDE's PLAY always, `voxcade replay`
   keeps F5. Nothing of `run`'s own is meant to be tried here by an agent
@@ -1330,7 +1330,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `Session::fade_clock`), a song changed crossfades when asked
   (`music:play`'s `crossfade`, `c.audio.crossfade`; `Mixer::crossfade_music`),
   else ends with the rest of the fade silent; `music:stop(from | { from,
-  fade })` silence, the player's own not coming back, `host::Music::silent`,
+  fade })` silence, `host::Music::silent`,
   `Game::music_silent`, the session noticing (song, silent) after every
   step, a stop fading 5 ms at least and however young the song,
   `Mixer::crossfade_music`; two songs sound at most, the second only
@@ -1540,12 +1540,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `c.title_screen.level` names a level of `levels/` (never the start;
   `Levels::title`, `levels::start_in`) that the window opens in
   (`Session::begin_title`, `app::own_title`), no engine title, table or
-  initials, a run's end and QUIT TO TITLE back there; its song
-  `c.title_screen.music` from `music_at`'s bar, the game's own as if
-  asked before its handlers (`LuaGame::title_song`, set in `begin` where
-  `on_level_start` asked no song or silence; a song of `c.audio.music`,
-  else a mistake at load; `music:play`/`music:stop` win; unset, the
-  player's song; tests in `src/lua/tests/title.rs`); a run of its own
+  initials, a run's end and QUIT TO TITLE back there; its song from its
+  code as every level's (`music:play` in its `on_level_start`; the
+  owner, 2026-11-24: music comes from the code alone;
+  `c.title_screen.music` and `music_at` are the engine's title's, set
+  with `c.title_screen.level` a mistake at load naming both and the call,
+  `LuaGame::check_title_song`, the upgrade step "music from the code");
+  a run of its own
   that counts for nothing (`Session::on_title`: `Runs::start` records
   none, no `world:save`, no pause); its code asks `world:new_game()` or
   `world:load(slot)` (save games: `world:save(slot, { label })`, `world:delete_save(slot)` at the tick's end through `Game::saving`'s `saves::Change`, `world.saves.newest` by the order saves were made in the run, `lua::host::Stage::newest_save`; `Game::anew`: the session begins the run in its
@@ -1606,7 +1607,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `c.scored`; Sokovox gives 1000 less a point a move (100 at least) a
   level, once in a run.
   `shot` uses the defaults, so shots stay the same. SETTINGS is a short
-  page of AUDIO (the volumes, the song), VIDEO (fullscreen, shadows, blur,
+  page of AUDIO (the volumes), VIDEO (fullscreen, shadows, blur,
   shake, flashes, the frame rate), CONTROLS (a game of one's keys and
   rumble; a game of several's players page) and LANGUAGE (the user's
   wish: the one page of every setting was too full; `Page::Audio`,
@@ -1691,24 +1692,40 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   blur, so the tilt-shift never softens it. Its camera is a one-point
   perspective with the vanishing point in the middle of the screen (the
   user's choice, it replaced an oblique view): `c.ui.slant` sets how
-  strong, the plane `c.ui.depth` fills the screen exactly. The title's
-  settings play the chosen song (`Menu::previews_song`). One decides what
-  music sounds in the window (the owner, 2026-11-24, after a title of a
+  strong, the plane `c.ui.depth` fills the screen exactly. Music in a
+  game comes from its Lua code alone (the owner, 2026-11-24,
+  `shots/reviews/music-one-song.md`): what plays is the song the code
+  asked last with `music:play` until it asks another or `music:stop`;
+  nothing plays before it asks, a scene that asks nothing changes nothing
+  (what plays goes on, silence stays); no song of the player's (SETTINGS'
+  song row, its preview, the maker's keys 1 to 9 and `Settings::song`
+  are gone; `music:play()` without a song is a mistake saying so), only
+  the engine's title has a song of its own (`c.title_screen.music`, else
+  the first of `c.audio.music`); `music:pause()` and `music:resume()`
+  hold the song and its clock (`music.paused`; `host::Music::paused`, in
+  the hash only once set; the mixer fades 5 ms each way and the song
+  goes on from the sample it held at, `Mixer::hold_music`'s
+  `held_level`, the clock taken as where it is,
+  `Player::rebase`; a play or a stop while paused comes at once; tests
+  `a_paused_song_resumes_where_it_held`, `a_car_radio_steps_through_the_songs`,
+  HELP's A CAR RADIO). One decides what music sounds in the window (the owner, 2026-11-24, after a title of a
   game's own played its song twice: `shots/reviews/music-sources-review.md`):
-  `Front::wanted` from the front end alone (`Wanted::Title`, `Preview`,
-  `Game`), handed in one place only when it changes (`made_music`,
+  `Front::wanted` from the front end alone (`Wanted::Title`, `Game`),
+  handed in one place only when it changes (`made_music`,
   `hand_made` in `App::music`, `Front::heard`); everything else changes
   state, never the mixer. The game's part is the session's
   (`Session::new_music`, `hand_music`, also the IDE's PLAY's and the
   film's): every song named (`Player::identity`, its file and text or a
   studio and its laid channels), so the same song asked again plays on
-  across a change of scene (title and run, a preview, a session made
-  anew), never begun twice nor crossfaded into itself; the game's own only
-  where the mixer is with its clock (`Player::keeps_with`; a new run's
-  clock is at 0, so it begins anew there, once, cleanly), and from its
-  start where asked (F5, AGAIN: `Session::restart_music`; a stop or
-  another song of the game's and then it again). A song a run's
-  `on_level_start` asks is waited for, no player's song between. While a
+  across a change of scene (title and run, a session made anew), never
+  begun twice nor crossfaded into itself; the game's own
+  across a new run (a title of its own and a run asking the same song,
+  the run's clock at 0) plays on unbroken, its clock taken as where the
+  song is (`Player::rebase`, `Mixer::rebase_music`: no jump; the run's
+  beat 0 then lies wherever the song was, not on a beat heard; test
+  `the_same_song_plays_on_from_the_title_into_the_run_and_back`), and
+  from its start where asked (F5, AGAIN: `Session::restart_music`; a stop
+  or another song of the game's and then it again). While a
   game's own song keeps time with its clock, a window held up catches the
   clock up over the next frames instead of dropping the time
   (`app::TickClock`, `MOST_OWED` 2 s; `Session::music_ahead`): it jumped
@@ -1828,8 +1845,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   there (`lua::host::Music`'s `at`, in the hash only when not 1;
   `MusicCue::start`), and the engine's title's song at
   `c.title_screen.music_at` (checked as the game loads, `check_title_bar`;
-  a title level of the game's own begins its song there too; the settings' preview plays
-  the chosen song from its start, as the game plays the player's song);
+  a title level of the game's own says it in its code, `music:play`'s
+  `at`);
   a bar past the song's end, or after its `#loop` (which it never
   leaves), is a mistake (`Timing::bar_mistake`). MIDI comes in through `tools/midi2mml.py` and an import file
   (`games/moreblood/music/end_boss.import.toml`); the user makes music

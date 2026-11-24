@@ -53,19 +53,7 @@ pub(super) fn pad_nav(button: Button) -> Option<Nav> {
 }
 
 /// The maker's keys: F5, F9 and the number keys that pick a song.
-pub(super) const MAKER_KEYS: [Scancode; 11] = [
-    Scancode::F5,
-    Scancode::F9,
-    Scancode::_1,
-    Scancode::_2,
-    Scancode::_3,
-    Scancode::_4,
-    Scancode::_5,
-    Scancode::_6,
-    Scancode::_7,
-    Scancode::_8,
-    Scancode::_9,
-];
+pub(super) const MAKER_KEYS: [Scancode; 2] = [Scancode::F5, Scancode::F9];
 
 /// `code` if it is a maker's key the window answers: only behind the maker
 /// switch (`voxcade run --maker`), F5 also in a replay being watched (it
@@ -73,22 +61,6 @@ pub(super) const MAKER_KEYS: [Scancode; 11] = [
 /// are the game's alone.
 pub(super) fn maker_key(code: Scancode, maker: bool, watching: bool) -> Option<Scancode> {
     MAKER_KEYS.contains(&code).then_some(code).filter(|&c| maker || (watching && c == Scancode::F5))
-}
-
-/// The song a number key picks: 1 the first.
-pub(super) fn song_key(code: Scancode) -> Option<usize> {
-    const KEYS: [Scancode; 9] = [
-        Scancode::_1,
-        Scancode::_2,
-        Scancode::_3,
-        Scancode::_4,
-        Scancode::_5,
-        Scancode::_6,
-        Scancode::_7,
-        Scancode::_8,
-        Scancode::_9,
-    ];
-    KEYS.iter().position(|&k| k == code)
 }
 
 /// What a key or button does to a game being played (no menu open).
@@ -148,7 +120,6 @@ mod tests {
         assert_eq!(maker_key(Scancode::F5, false, true), Some(Scancode::F5), "F5 plays a replay again");
         assert_eq!(maker_key(Scancode::F9, false, true), None);
         assert_eq!(maker_key(Scancode::F11, true, false), None, "fullscreen is everyone's, not a maker key");
-        assert_eq!(maker_key(Scancode::_3, true, false).and_then(song_key), Some(2));
     }
 
     /// The settings of a game whose action `previous` has P, and whose

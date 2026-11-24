@@ -152,17 +152,10 @@ impl<G: Game> App<G> {
                 Ok(path) => println!("kept the run as {}", path.display()),
                 Err(e) => println!("F9: {e:#}"),
             }
-        } else if let Some(index) = maker_code.and_then(keys::song_key).filter(|_| !repeat && front.menu.page() != Some(Page::Initials)) {
-            if index < game.player_songs().len() {
-                settings.song = index;
-                commands.push(Command::Song);
-            } else {
-                println!("no song {} (c.audio.music has {} to play)", index + 1, game.player_songs().len());
-            }
         } else if front.menu.is_open() {
             front.played_with = Device::Keyboard;
             if let Some(nav) = keys::key_nav(code, settings).filter(|n| !repeat || keys::is_direction(*n)) {
-                commands.extend(front.menu.nav(nav, settings, game.player_songs().len()));
+                commands.extend(front.menu.nav(nav, settings));
             }
         } else if in_play
             && pauses
@@ -228,8 +221,8 @@ impl<G: Game> App<G> {
         let (menu, settings) = (&mut self.front.menu, &mut self.settings);
         match code {
             Scancode::Backspace => menu.backspace_address(),
-            Scancode::Return | Scancode::KpEnter if !repeat => commands.extend(menu.nav(Nav::Confirm, settings, 0)),
-            Scancode::Escape if !repeat => commands.extend(menu.nav(Nav::Back, settings, 0)),
+            Scancode::Return | Scancode::KpEnter if !repeat => commands.extend(menu.nav(Nav::Confirm, settings)),
+            Scancode::Escape if !repeat => commands.extend(menu.nav(Nav::Back, settings)),
             _ => {}
         }
     }
@@ -269,16 +262,15 @@ impl<G: Game> App<G> {
             return;
         }
         if self.front.menu.is_open() {
-            let songs = self.game.player_songs().len();
             let App { front, settings, .. } = self;
             match button {
                 sdl3::mouse::MouseButton::Left => {
                     if let Some(row) = self.menu_row_at(at) {
                         self.front.menu.choose(row);
-                        commands.extend(self.front.menu.nav(Nav::Confirm, &mut self.settings, songs));
+                        commands.extend(self.front.menu.nav(Nav::Confirm, &mut self.settings));
                     }
                 }
-                sdl3::mouse::MouseButton::Right => commands.extend(front.menu.nav(Nav::Back, settings, songs)),
+                sdl3::mouse::MouseButton::Right => commands.extend(front.menu.nav(Nav::Back, settings)),
                 _ => {}
             }
             return;
@@ -322,7 +314,7 @@ impl<G: Game> App<G> {
         if front.menu.is_open() {
             front.played_with = Device::Gamepad;
             if let Some(nav) = keys::pad_nav(button) {
-                commands.extend(front.menu.nav(nav, settings, game.player_songs().len()));
+                commands.extend(front.menu.nav(nav, settings));
             }
         } else if front.playing && watching.is_none() {
             front.played_with = Device::Gamepad;
@@ -355,7 +347,7 @@ impl<G: Game> App<G> {
                 return;
             }
         }
-        let App { front, settings, game, watching, .. } = self;
+        let App { front, settings, watching, .. } = self;
         if front.menu.rebinding.is_some() {
             let trigger = match axis {
                 Axis::TriggerLeft => Some("lefttrigger"),
@@ -388,7 +380,7 @@ impl<G: Game> App<G> {
             Some(nav) if front.stick != Some(nav) => {
                 front.stick = Some(nav);
                 front.played_with = Device::Gamepad;
-                commands.extend(front.menu.nav(nav, settings, game.player_songs().len()));
+                commands.extend(front.menu.nav(nav, settings));
             }
             None if v.abs() < 0.3 && front.stick.is_some_and(along) => front.stick = None,
             _ => {}

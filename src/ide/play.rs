@@ -102,7 +102,6 @@ impl<G: Game> Play<G> {
         let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), clock: Default::default(), last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false };
         play.guard.begin(play.game.game.hidden());
         play.name_keys();
-        play.music();
         Ok(play)
     }
 
@@ -126,7 +125,6 @@ impl<G: Game> Play<G> {
         self.game.options = self.settings.options();
         self.mask = self.game.face_mask();
         self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
-        self.music();
         self.name_keys();
     }
 
@@ -134,14 +132,6 @@ impl<G: Game> Play<G> {
     /// OUTPUT, the agent's `eval`): what it answered. It is part of the run.
     pub fn eval(&mut self, line: &str) -> Result<String> {
         self.game.eval(line)
-    }
-
-    /// The player's song chosen for the game (it plays where the game
-    /// plays no song of its own; a game begun or begun anew decides its
-    /// music again at the next frame, `Session::new_music`).
-    fn music(&mut self) {
-        let songs = self.game.player_songs().len();
-        self.game.select_song(self.settings.song.min(songs.saturating_sub(1)));
     }
 
     /// What seat 1 holds now, the other seats' set on the game for the
@@ -301,7 +291,6 @@ impl<G: Game> Play<G> {
             self.runs.start(&self.game);
             self.mark = self.game.start_mark();
             self.guard.begin(self.game.game.hidden());
-            self.music();
         }
         for asked in self.game.requests() {
             match asked {

@@ -330,7 +330,8 @@ pub const API: &[Item] = &[
     Item { of: "", name: "on_beat", what: Callback { params: &[("beat", "integer")], returns: "" },
         doc: "Runs on every beat of the song your game plays (music:play). beat counts from 0 at the song's start, on and on through its \
             loops (music.bar for the bar). Runs before on_tick, in the tick the beat begins: waves, shots, a light that pulse with the \
-            music. Its clock is the game's, so replays play it the same; while the player's own song plays (none of yours), no beats." },
+            music. Its clock is the game's, so replays play it the same; with no song of yours playing (none asked yet, music:stop) or paused \
+            (music:pause), no beats." },
     Item { of: "", name: "on_fall_out", what: Callback { params: &[("thing", "Thing")], returns: "" },
         doc: "Runs when a thing falls out of the level (c.physics.lost_below voxels under it, 48 unless set, or down on the world's floor \
             below): once, until it is back in. Things other than the player are removed after it; the player waits for what your code \
@@ -708,8 +709,9 @@ pub const API: &[Item] = &[
             cursor moves on a held key: for menus, lists and stepping on a grid. Directions too: input:repeated(\"down\")." },
     // music
     Item { of: "music", name: "play", what: Method { params: &[("song?", "string"), ("from?", "string|MusicPlay")], returns: "" },
-        doc: "Plays a song of c.audio.music by its file's name (\"storm\" for music/storm.mml) as your game's own. Your game's song wins \
-            over the player's choice.\n- from: when it begins: \"bar\" (the next bar of the one playing, unless said), \"beat\" or \"now\"; \
+        doc: "Plays a song of c.audio.music by its file's name (\"storm\" for music/storm.mml). Music comes from your code alone: \
+            what plays is the song asked last, until you ask another or music:stop; nothing plays before you ask (ask in on_level_start: \
+            a level, a title of your own, the start of a run), and a level that asks nothing leaves what plays.\n- from: when it begins: \"bar\" (the next bar of the one playing, unless said), \"beat\" or \"now\"; \
             at once when none of yours plays.\n- crossfade: { from = \"now\", crossfade = 3 } fades the old song out as the new comes in \
             over 3 seconds, as loud together as either alone. c.audio.crossfade sets it for every change; else the old ends as the new \
             begins.\n- at: the bar it begins at, counted from 1: { at = 33 } skips an intro of 32 bars; a bar past the song's end, or \
@@ -719,7 +721,9 @@ pub const API: &[Item] = &[
             channel fills as many whole bars; no t, no singing voice. A mistake in one halts the game at your line, naming the channel.\n\
             It starts at its beat 0 (its first bar, or the bar at says) and keeps time with the game (music.beat and on_beat count its \
             beats from then, on and on as it goes round, #loop's bars too), held while the game pauses. Asked for while it plays, it goes \
-            on, through a level change too. Without a song: the player's own again, from the next bar.\nAsked again with other channels \
+            on, unbroken, through a level change too, and from a title of your own into a run asking the same (the run's music.beat \
+            from 0 where the song is); paused (music:pause), it goes on again. To begin it from its start, music:stop() then \
+            music:play.\nAsked again with other channels \
             while its file of instruments plays, only they change, at from, the clock going on: a channel the same plays on untouched, a \
             changed one's sounding note rings on until its next note, its new notes from then. from = \"now\" for a step edited (it \
             sounds when the music comes to it), \"bar\" for the next pattern. Channels of other bars go round by the beats since the song \
@@ -728,10 +732,21 @@ pub const API: &[Item] = &[
     Item { of: "music", name: "stop", what: Method { params: &[("from?", "string|MusicStop")], returns: "" },
         doc: "Silence in place of your game's song: a drum machine's STOP, a cutscene's quiet.\n- from: \"now\" (unless said), \"beat\" or \
             \"bar\" of the song that plays.\n- fade: { from = \"bar\", fade = 2 } fades it out over 2 seconds; at once still without a \
-            click.\nThe player's own song does not come back (music:play() without a song brings it). music.song, music.beat, music.bar \
-            and music.position are nil and on_beat is quiet until music:play begins a song, from its beat 0 (a song stopped and played \
-            again begins anew). A play asked before a stop comes replaces it: the song that plays goes on, another comes at its own from. \
-            nil in music.song alone does not tell a stop from the player's own song: your game knows which it asked." },
+            click.\nmusic.song, music.beat, music.bar and music.position are nil and on_beat is quiet until music:play begins a song, from \
+            its beat 0 (a song stopped and played again begins anew). A play asked before a stop comes replaces it: the song that plays \
+            goes on, another comes at its own from. Paused, it ends at once in silence. To hold a song and go on with it later: \
+            music:pause()." },
+    Item { of: "music", name: "pause", what: Method { params: &[], returns: "" },
+        doc: "Holds your game's song where it is: it fades out over 5 ms and stays silent, its clock holds (music.beat stays, on_beat is \
+            quiet), until music:resume() goes on from the very sample it held at. A game's own pause, a radio switched off, a cutscene's \
+            hush with the song waiting. Paused, music:play of the same song goes on with it, of another begins that one at once, and \
+            music:stop ends in silence. Silence (no song of yours) stays silence. The engine's pause menu holds the song as well, apart \
+            from this." },
+    Item { of: "music", name: "resume", what: Method { params: &[], returns: "" },
+        doc: "Goes on with your game's song where music:pause held it, faded in over 5 ms; its clock goes on from where it held. Not \
+            paused, it does nothing." },
+    Item { of: "music", name: "paused", what: Field { ty: "boolean", set: false }, doc: "Whether your game's song is paused \
+            (music:pause), until music:resume, music:play or music:stop." },
     Item { of: "music", name: "mix", what: Method { params: &[("channel", "string"), ("settings?", "MusicMix|false"), ("seconds?", "number")], returns: "MusicMix|nil" },
         doc: "How a channel of your game's song sounds, as on a mixing desk: the channel is the song's letter (\"K\" for its K: line).\n- \
             volume: its fader, from 0 (silent) to 1 (as written, the start).\n- mute: true silences it, the fader kept; false lets it sound \
@@ -762,12 +777,12 @@ pub const API: &[Item] = &[
             1) inside. Without an amount it gives the amount you asked for last. Only heard: replays and the game itself do not change with \
             it." },
     Item { of: "music", name: "song", what: Field { ty: "string|nil", set: false }, doc: "The song your game plays (music:play), by its \
-            file's name; nil while the player's own plays or after music:stop." },
+            file's name; nil before your code asks one or after music:stop." },
     Item { of: "music", name: "beat", what: Field { ty: "integer|nil", set: false }, doc: "Beats since your game's song began, from 0 (its \
-            #tempo), on and on as it goes round; nil while the player's own song plays or after music:stop." },
+            #tempo), on and on as it goes round; nil before your code asks a song or after music:stop." },
     Item { of: "music", name: "position", what: Field { ty: "number|nil", set: false }, doc: "Beats since your game's song began, with \
-            the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil while the player's own song \
-            plays or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16." },
+            the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil before your code asks a song \
+            or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16." },
     Item { of: "music", name: "tempo", what: Field { ty: "number|nil", set: true }, doc: "The beats a minute of your game's song, 1 to \
             999: its #tempo until you set it. Set, the song plays faster or slower from the next tick, and music.beat, on_beat and \
             \"bar\" go with it. Only its timing changes: its sounds keep their length, pitch and a singer's vowels stay as they are, \
@@ -779,7 +794,7 @@ pub const API: &[Item] = &[
             in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a \
             hit." },
     Item { of: "music", name: "bar", what: Field { ty: "integer|nil", set: false }, doc: "Bars since your game's song began, from 0 (its \
-            #meter beats to a bar, 4 unless the song says); nil while the player's own song plays or after music:stop." },
+            #meter beats to a bar, 4 unless the song says); nil before your code asks a song or after music:stop." },
     // screen
     Item { of: "screen", name: "shake", what: Method { params: &[("amount", "number")], returns: "" },
         doc: "Shakes the screen: 0..1 more (a small hit 0.1, a blast 0.35, 1 at most); it dies down by itself. Only the camera moves, and \

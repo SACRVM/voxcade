@@ -39,6 +39,7 @@ impl UserData for MusicView {
             })
         });
         f.add_field_function_get("bar", |lua, _| look(lua, |h| Ok(h.music.clock(&h.songs).map(|c| c.bar as i64))));
+        f.add_field_function_get("paused", |lua, _| look(lua, |h| Ok(h.music.paused)));
     }
 
     fn add_methods<M: UserDataMethods<Self>>(m: &mut M) {
@@ -85,8 +86,11 @@ impl UserData for MusicView {
                     Some("now") => crate::lua::host::When::Now,
                     Some(other) => return Err(mlua::Error::runtime(format!("music:play: from \"bar\", \"beat\" or \"now\", not \"{other}\""))),
                 };
+                let names = || h.songs.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", ");
                 let song = match &song {
-                    None => None,
+                    // Music comes from the game's code alone: no song of the
+                    // player's to go back to.
+                    None => return Err(mlua::Error::runtime(format!("music:play: which song? Name one of c.audio.music ({}); music:stop() is silence", if h.songs.is_empty() { "none yet".to_string() } else { names() }))),
                     Some(name) => match h.songs.iter().position(|t| &t.name == name) {
                         Some(s) => Some(s),
                         None => {
@@ -101,12 +105,11 @@ impl UserData for MusicView {
                 // Channels are laid over a studio; a studio plays only laid
                 // ones (those that play stay where none are given).
                 let laid = match (channels, timing, &studio) {
-                    (Some(_), None, _) => return Err(mlua::Error::runtime("music:play: channels are laid over a file of instruments of c.audio.music, named first: music:play(\"drums\", { channels = ... })")),
                     (Some(_), Some(t), None) => return Err(mlua::Error::runtime(format!("music:play: {} has channels of its own; channels are laid over a file of instruments only (@instruments and #settings, no channel)", t.name))),
                     (Some(c), Some(_), Some(_)) => Some(Arc::new(c)),
                     (None, Some(_), Some(_)) if song == h.music.song && h.music.laid.is_some() => h.music.laid.clone(),
                     (None, Some(t), Some(_)) => return Err(mlua::Error::runtime(format!("music:play: {} is a file of instruments: lay channels over it, like music:play(\"{}\", {{ channels = {{ K = \"@kick c4 c4 c4 c4\" }} }})", t.name, t.name))),
-                    (None, ..) => None,
+                    (None, ..) | (Some(_), None, _) => None,
                 };
                 // A bar within the song: the player's own begins at its
                 // start; laid channels' bars are counted as they are read.
@@ -114,13 +117,10 @@ impl UserData for MusicView {
                     Some(wrong) => Err(mlua::Error::runtime(format!("music:play: at = {at} {wrong}"))),
                     None => Ok(()),
                 };
-                if let Some(at) = at {
-                    let Some(t) = timing else {
-                        return Err(mlua::Error::runtime("music:play: at needs a song of yours (the player's own begins at its start)"));
-                    };
-                    if laid.is_none() {
-                        bar_mistake(at, t.bars, t)?;
-                    }
+                if let (Some(at), Some(t)) = (at, timing)
+                    && laid.is_none()
+                {
+                    bar_mistake(at, t.bars, t)?;
                 }
                 let ask = crate::lua::host::SongAsk { song, stop: false, when, crossfade: cross, at: at.unwrap_or(1), laid };
                 // Asked for what is to come or what plays already, the same
@@ -131,7 +131,8 @@ impl UserData for MusicView {
                     return Ok(());
                 }
                 if !h.music.silent && song == h.music.song && ask.laid == h.music.laid {
-                    h.music.next = None;
+                    // (Paused, it goes on: asked again, it plays.)
+                    (h.music.next, h.music.paused) = (None, false);
                     return Ok(());
                 }
                 if song.is_some() && song == h.music.song && (cross.is_some() || at.is_some()) {
@@ -188,6 +189,19 @@ impl UserData for MusicView {
                 // At once unless faded: the audio's shortest fade keeps it
                 // from clicking.
                 h.music.next = Some(crate::lua::host::SongAsk { song: None, stop: true, when, crossfade: Some(fade.unwrap_or(0.0)), at: 1, laid: None });
+                Ok(())
+            })
+        });
+        m.add_function("pause", |lua, _: AnyUserData| {
+            change(lua, "music:pause", |h| {
+                // Only a song of the game's own pauses: silence stays.
+                h.music.paused = h.music.song.is_some();
+                Ok(())
+            })
+        });
+        m.add_function("resume", |lua, _: AnyUserData| {
+            change(lua, "music:resume", |h| {
+                h.music.paused = false;
                 Ok(())
             })
         });

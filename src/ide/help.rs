@@ -684,7 +684,7 @@ end
     },
     Topic {
         title: "YOUR OWN TITLE",
-        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program, and in a run world:to_title() goes back to the title (your own QUIT TO TITLE). c.title_screen.music, a song of c.audio.music, plays there as your game's own (from c.title_screen.music_at's bar) until your code plays another or stops it. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
+        text: "A game with save games may open on a title of its own: a level of the game (levels/title.toml here) that c.title_screen.level names, in place of the engine's title with its high scores. The window opens in it, and what happens there is your code: here a menu drawn with frame:menu and moved with the arrows. world:new_game() begins a run in the level a run begins in (the first but the title, or c.start's), world:load(slot) a run from a save (world.saves says what lies in the slots, world.saves.newest which was saved last: CONTINUE is world:load(world.saves.newest), nil while there is none), world:save(slot, { label = \"Meadow\" }) tells a save by a line of your own (world.saves[slot].label), world:delete_save(slot) empties a slot at the tick's end, world:open(\"settings\") shows the engine's SETTINGS over the game, world:quit() ends the program, and in a run world:to_title() goes back to the title (your own QUIT TO TITLE). Its song is your code's, as every level's: music:play in its on_level_start (c.title_screen.music is the engine's title's), and a run asking the same song lets it play on. The title is no run: it is never recorded, nothing is saved there, Escape is yours. level.name says where the game is. A run's end and QUIT TO TITLE come back to it; PLAY in the IDE begins the run at once (a scenario with level = \"title\" plays the title).",
         conf: r##"c.world.size = nil
 c.title_screen.level = "title"
 c.saves = { slots = 1 }
@@ -793,7 +793,7 @@ end
     },
     Topic {
         title: "GO WITH THE MUSIC",
-        text: "Play a song of c.audio.music as your game's own (music:play, by its file's name) and the game can go with it: on_beat runs on each of its beats, before on_tick, and music.bar counts its bars. Here a blip comes on the first beat of every bar and the screen glows on each beat. The song keeps time with the game (a pause holds both), so replays play it the same. music:play(\"drive\", { at = 33 }) begins a song at its bar 33, past an intro, its beat 0 there; the beats count on and on as the song goes round, round its #loop too. c.title_screen.music_at = 33 begins the title's song so.",
+        text: "Play a song of c.audio.music as your game's own (music:play, by its file's name) and the game can go with it: on_beat runs on each of its beats, before on_tick, and music.bar counts its bars. Here a blip comes on the first beat of every bar and the screen glows on each beat. The song keeps time with the game (a pause holds both), so replays play it the same. music:play(\"drive\", { at = 33 }) begins a song at its bar 33, past an intro, its beat 0 there; the beats count on and on as the song goes round, round its #loop too. c.title_screen.music_at = 33 begins the engine's title's song so.",
         conf: r##"c.audio.music = { "music/drive.mml" }   -- your song: music:play calls it "drive"
 c.player.kind = "hero"
 c.things.hero = {}
@@ -829,8 +829,51 @@ end
 "##,
     },
     Topic {
+        title: "A CAR RADIO",
+        text: "Music comes from your code alone: what plays is the song your code asked last with music:play, until it asks another or music:stop, and nothing plays before it asks. Here a radio: next steps to the next station (the next song of c.audio.music), at once or crossfaded over a second (fade); one song sounds, the old one only while the crossfade you asked runs. Asked for the song that plays, a song goes on unbroken, through a level change and from a title of your own into a run too. off pauses it (music:pause: it holds where it is, silent, its clock too) and on again resumes it from the very sample it held at (music:resume); music.paused says which. music:stop() is silence, music:play then begins a song from its start.",
+        conf: r##"c.audio.music = { "music/rock.mml", "music/news.mml", "music/jazz.mml" }
+c.actions = { "next", "fade", "off" }
+c.keys = { next = { "Space" }, fade = { "X" }, off = { "C" } }
+c.pad = { next = { "south" }, fade = { "east" }, off = { "west" } }"##,
+        files: &[
+            ("music/rock.mml", "#tempo 140\n@g square duty=0.25 volume=0.3\nA: @g o3 l8 e e g e a g e d\n"),
+            ("music/news.mml", "#tempo 100\n@b triangle volume=0.4\nA: @b o4 l4 c e g e\n"),
+            ("music/jazz.mml", "#tempo 90\n@p sine volume=0.4\nA: @p o4 l2 d f a >c\n"),
+        ],
+        code: r##"local STATIONS = { "rock", "news", "jazz" }
+
+function on_world_start()
+  world.state.station = 1
+end
+
+function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#30343c")
+  -- The station that plays goes on: asked again, nothing begins anew.
+  music:play(STATIONS[world.state.station], "now")
+end
+
+function on_tick()
+  local s = world.state
+  if input:pressed("next") or input:pressed("fade") then
+    s.station = s.station % #STATIONS + 1
+    local over = input:pressed("fade") and 1 or 0
+    music:play(STATIONS[s.station], { from = "now", crossfade = over })
+  end
+  if input:pressed("off") then
+    if music.paused then music:resume() else music:pause() end
+  end
+end
+
+function on_draw(frame)
+  local on = music.paused and "OFF" or STATIONS[world.state.station]:upper()
+  frame:text("RADIO: " .. on, 4, 4)
+  frame:text("{next} next  {fade} fade  {off} on/off", 4, 14)
+end
+"##,
+    },
+    Topic {
         title: "A DRUM MACHINE",
-        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. START stops the machine (music:stop: silence at once, the player's own song not coming back) and starts it again from its first beat. MUTE silences the row under the cursor and lets it sound again, as a mixing desk's button (music:mix: each channel's fader, mute and pan by its letter, only heard); the game keeps what the desk shows in its state and sets it again as a level starts. TONE turns the hats' filter darker in three steps and back (music:mix's cutoff, one of the instrument's words a strip turns over the instrument's own: cutoff, resonance and the levels glide under a sounding note, times like decay count from the next note). SLOWER and FASTER turn the tempo (music.tempo, beats a minute): the music goes slower or faster from the next tick, every sound as long as before, and music.position, on_beat and \"bar\" go with it. A studio is no song a player picks, and its whole text counts for replays.",
+        text: "Your game can write its music itself: a file of c.audio.music with only instruments and #settings (no channel) is a studio, and music:play lays channels of MML over it, a letter and its notes each: music:play(\"kit\", { channels = { K = \"@kick o4 l16 c r r r ...\" } }). Here sixteen steps a bar in two rows, a cursor on the arrows, toggle sets or clears a step, and the music plays them. Ask with from = \"now\" for a step edited: it sounds when the running light comes to it, the other channels playing on untouched. Ask with from = \"bar\" for a pattern to come at the next bar (pattern here). Every channel fills as many whole bars. music.position is the beats with their fraction, so math.floor(music.position * 4) % 16 is the sixteenth sounding now. Ask when a step changes, not every tick: the same channels again cost only a compare. START stops the machine (music:stop: silence at once) and starts it again from its first beat. MUTE silences the row under the cursor and lets it sound again, as a mixing desk's button (music:mix: each channel's fader, mute and pan by its letter, only heard); the game keeps what the desk shows in its state and sets it again as a level starts. TONE turns the hats' filter darker in three steps and back (music:mix's cutoff, one of the instrument's words a strip turns over the instrument's own: cutoff, resonance and the levels glide under a sounding note, times like decay count from the next note). SLOWER and FASTER turn the tempo (music.tempo, beats a minute): the music goes slower or faster from the next tick, every sound as long as before, and music.position, on_beat and \"bar\" go with it. A studio is no song a player picks, and its whole text counts for replays.",
         conf: r##"c.audio.music = { "music/kit.mml" }   -- the instruments: music:play calls it "kit"
 c.actions = { "toggle", "pattern", "start", "mute", "tone", "slower", "faster" }
 c.keys = { toggle = { "Space" }, pattern = { "Tab" }, start = { "Return" }, mute = { "M" }, tone = { "T" }, slower = { "Q" }, faster = { "E" } }"##,

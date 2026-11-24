@@ -174,8 +174,6 @@ pub struct Settings {
     /// Music and sound volume, 0..=VOLUME_STEPS.
     pub music: u8,
     pub sound: u8,
-    /// Which of the game's songs plays while playing.
-    pub song: usize,
     pub fullscreen: bool,
     /// The view shakes when things blow up.
     pub shake: bool,
@@ -253,7 +251,6 @@ impl Default for Settings {
         Self {
             music: 8,
             sound: 8,
-            song: 0,
             fullscreen: false,
             shake: true,
             flashes: true,
@@ -591,7 +588,7 @@ mod tests {
     fn settings_survive_a_save() {
         let dir = crate::scratch::Scratch::new("settings");
         let path = dir.join("settings.toml");
-        let mut s = Settings { music: 3, song: 2, blur: false, ..Settings::default() };
+        let mut s = Settings { music: 3, blur: false, ..Settings::default() };
         s.adopt_scores(&[]);
         s.enter("NIC", 12_345);
         s.keys.bind("fire", "Return");

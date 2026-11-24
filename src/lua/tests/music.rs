@@ -111,30 +111,46 @@ end
     assert!(start_error(&dir).contains("'music' is the engine's"), "{}", start_error(&dir));
 }
 
-/// `music:play()` without a song gives the music back to the player's
-/// choice from the next bar: no song of the game's, no beats, the session
-/// plays the player's song again (More Blood's gunship song so).
+/// Music comes from the game's code alone: nothing plays before it asks,
+/// and `music:play()` without a song is a mistake naming the songs and
+/// `music:stop()` (it gave the music back to the player's song, which is
+/// no more).
 #[test]
-fn the_player_gets_the_music_back() {
-    let dir = crate::scratch::Scratch::new("lua-music-back");
+fn music_plays_only_what_the_code_asks() {
+    let dir = crate::scratch::Scratch::new("lua-music-asked");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("music")).unwrap();
-    std::fs::write(dir.join("music/mine.mml"), "#tempo 120\nA: c1\n").unwrap();
-    std::fs::write(dir.join("music/boss.mml"), "#tempo 120\nA: c1\n").unwrap();
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 16, 16, 8 }\n  c.audio.music = { \"music/mine.mml\", \"music/boss.mml\" }\nend\n").unwrap();
-    std::fs::write(dir.join("main.lua"), "function on_tick()\n  if world.tick == 10 then music:play('boss') end\n  if world.tick == 20 then music:play() end\n  world.state.song = music.song or '-'\nend\n").unwrap();
+    std::fs::write(dir.join("music/mine.mml"), "#tempo 120
+A: c1
+").unwrap();
+    std::fs::write(dir.join("music/boss.mml"), "#tempo 120
+A: c1
+").unwrap();
+    std::fs::write(dir.join("conf.lua"), "function conf(c)
+  c.world.size = { 16, 16, 8 }
+  c.audio.music = { \"music/mine.mml\", \"music/boss.mml\" }
+end
+").unwrap();
+    std::fs::write(dir.join("main.lua"), "function on_tick()
+  if world.tick == 10 then music:play('boss') end
+  if world.tick == 20 then music:play() end
+end
+").unwrap();
     let mut g = Session::<crate::Voxcade>::load(&dir).unwrap();
-    let mut songs = Vec::new();
-    for _ in 0..200 {
+    let mut mixer = crate::audio::Mixer::default();
+    for _ in 0..5 {
         g.step(&Input::default());
-        songs.push((g.steers_music(), g.song_file().map(str::to_string)));
+        g.feed_music(&mut mixer, false);
     }
-    assert_eq!(halted(&g), "");
-    assert!(!songs[5].0 && songs[15].0, "the game's from tick 11");
-    assert!(songs[100].0, "until the boss song's next bar (tick 131)");
-    assert!(!songs[150].0, "the player's again after it");
-    assert_eq!(songs[150].1.as_deref(), Some("music/mine.mml"));
-    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.audio.boss_music = \"music/boss.mml\"\nend\n").unwrap();
+    assert!(!g.steers_music() && mixer.playing().is_none() && mixer.tally.songs == 0, "nothing asked, nothing plays");
+    for _ in 0..30 {
+        g.step(&Input::default());
+    }
+    assert!(halted(&g).contains("music:play: which song? Name one of c.audio.music (mine, boss); music:stop() is silence"), "{}", halted(&g));
+    std::fs::write(dir.join("conf.lua"), "function conf(c)
+  c.audio.boss_music = \"music/boss.mml\"
+end
+").unwrap();
     assert!(start_error(&dir).contains("c.audio.boss_music is no more"), "{}", start_error(&dir));
 }
 
@@ -324,18 +340,16 @@ fn the_music_sounds_as_the_game_asks() {
     assert_eq!(off, 0.0, "the level change changed the music");
     eprintln!("a level change: the samples after it differ from a run without it by {off}");
 
-    // In a window the song plays on through the level's fade, the game's
-    // own (music:play) and the player's alike: the fade's frames take the
-    // music's clock on, so the sound is the run's without a level change.
+    // In a window the song plays on through the level's fade: the fade's
+    // frames take the music's clock on, so the sound is the run's without a
+    // level change.
     let change = format!("{stays}\n  if world.tick == 150 then world:go_to('b') end");
     let own = music_of(&with("music-fade", &change), 300, true);
-    let theirs = music_of(&song_folder("music-fade-free", &format!("function on_tick()\n{change}\nend\n")), 300, true);
-    let theirs_on = music_of(&song_folder("music-fade-free-on", &format!("function on_tick()\n{stays}\nend\n")), 300, false);
     let silent = |s: &[f32]| s[100 * 1470..220 * 1470].chunks(1470).filter(|t| t.iter().all(|&s| s == 0.0)).count();
     let apart = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-    eprintln!("through the window's fade (0.3 s out, 0.3 s in): silent ticks {} and {}, the samples off a run without a level change by {} and {}", silent(&own), silent(&theirs), apart(&own, &on), apart(&theirs, &theirs_on));
-    assert_eq!((silent(&own), silent(&theirs)), (0, 0));
-    assert_eq!((apart(&own, &on), apart(&theirs, &theirs_on)), (0.0, 0.0), "the song went on as if no level had changed");
+    eprintln!("through the window's fade (0.3 s out, 0.3 s in): silent ticks {}, the samples off a run without a level change by {}", silent(&own), apart(&own, &on));
+    assert_eq!(silent(&own), 0);
+    assert_eq!(apart(&own, &on), 0.0, "the song went on as if no level had changed");
 }
 
 /// The power of a pure tone of `hz` in the music from tick `from` to `to`

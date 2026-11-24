@@ -30,11 +30,9 @@ pub enum Wanted {
     /// first a player hears) from `c.title_screen.music_at`'s bar, its
     /// round's table and replays under it.
     Title,
-    /// SETTINGS opened over the engine's title: the song chosen there.
-    Preview(usize),
-    /// The game's, as its session decides (`Session::new_music`): its own
-    /// song where it plays one (a title level of its own: the title's),
-    /// its silence, else the player's song.
+    /// The game's, as its code asked last (`Session::new_music`): its
+    /// song, its silence, or, where it asked nothing yet, what plays going
+    /// on.
     Game,
 }
 
@@ -141,13 +139,8 @@ impl Front {
 
     /// What the window's music is to be now, from the front end alone:
     /// the one decision (`App::music` hands it, and only when it changes).
-    /// `chosen` is the player's song in the settings (from 0).
-    pub fn wanted(&self, chosen: usize) -> Wanted {
-        match () {
-            _ if !self.title_music => Wanted::Game,
-            _ if self.menu.previews_song() => Wanted::Preview(chosen),
-            _ => Wanted::Title,
-        }
+    pub fn wanted(&self) -> Wanted {
+        if self.title_music { Wanted::Title } else { Wanted::Game }
     }
 
     /// What the game asked of the window in a tick (`Session::requests`):

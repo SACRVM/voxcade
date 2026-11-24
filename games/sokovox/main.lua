@@ -270,6 +270,8 @@ end
 function on_level_start(how)
   level.state.way_x, level.state.way_y, level.state.held_for = 0, 0, 0
   start(world.state.puzzle)
+  -- The game's song, asked again on every level: it plays on.
+  music:play("crates_at_dawn")
 end
 
 -- The way held this tick (one axis), how long it has been held, and a

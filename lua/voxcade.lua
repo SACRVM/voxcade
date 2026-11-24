@@ -835,20 +835,21 @@ local Controls = {}
 function Controls:key(action) end
 
 ---@class Music The song your game plays of its own choice, its beats and bars, and how loud and how muffled it sounds: the game can go with the music (waves on the beat), and replays play it the same.
----@field song string|nil The song your game plays (music:play), by its file's name; nil while the player's own plays or after music:stop.
----@field beat integer|nil Beats since your game's song began, from 0 (its #tempo), on and on as it goes round; nil while the player's own song plays or after music:stop.
----@field position number|nil Beats since your game's song began, with the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil while the player's own song plays or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16.
+---@field paused boolean Whether your game's song is paused (music:pause), until music:resume, music:play or music:stop.
+---@field song string|nil The song your game plays (music:play), by its file's name; nil before your code asks one or after music:stop.
+---@field beat integer|nil Beats since your game's song began, from 0 (its #tempo), on and on as it goes round; nil before your code asks a song or after music:stop.
+---@field position number|nil Beats since your game's song began, with the fraction: 6.5 is halfway through beat 6. On and on as it goes round, as music.beat; nil before your code asks a song or after music:stop. A running light over 16 sixteenths: math.floor(music.position * 4) % 16.
 ---@field tempo number|nil The beats a minute of your game's song, 1 to 999: its #tempo until you set it. Set, the song plays faster or slower from the next tick, and music.beat, on_beat and "bar" go with it. Only its timing changes: its sounds keep their length, pitch and a singer's vowels stay as they are, sung consonants go with it. It holds for every song of yours, through a stop and from level to level, until you set nil (each song its own #tempo again): set it only to change it. Kept to a thousandth (124.4567 reads 124.457). nil while none of yours plays and you set none. A channel's own t in a song plays as much faster as the song.
 ---@field intensity number How tense the game is, from 0 (calm) to 1 (all of the song; 1 unless you set it): the layers of your game's song (#layer in the song: drums from 0.35, the melody from 0.8) come in above their tension and go below it, each over a bar. Set it in on_tick from your states: enemies on the screen, a boss, a hit.
----@field bar integer|nil Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil while the player's own song plays or after music:stop.
+---@field bar integer|nil Bars since your game's song began, from 0 (its #meter beats to a bar, 4 unless the song says); nil before your code asks a song or after music:stop.
 local Music = {}
 
----Plays a song of c.audio.music by its file's name ("storm" for music/storm.mml) as your game's own. Your game's song wins over the player's choice.
+---Plays a song of c.audio.music by its file's name ("storm" for music/storm.mml). Music comes from your code alone: what plays is the song asked last, until you ask another or music:stop; nothing plays before you ask (ask in on_level_start: a level, a title of your own, the start of a run), and a level that asks nothing leaves what plays.
 ---- from: when it begins: "bar" (the next bar of the one playing, unless said), "beat" or "now"; at once when none of yours plays.
 ---- crossfade: { from = "now", crossfade = 3 } fades the old song out as the new comes in over 3 seconds, as loud together as either alone. c.audio.crossfade sets it for every change; else the old ends as the new begins.
 ---- at: the bar it begins at, counted from 1: { at = 33 } skips an intro of 32 bars; a bar past the song's end, or after its #loop (which it never leaves), is a mistake.
 ---- channels: notes your game writes, laid over a file of instruments (a .mml of c.audio.music with @instruments and #settings and no channel, which no player picks alone): { channels = { K = "@kick o4 l16 c r r r c r r r c r r r c r r r", H = "..." } }, a letter and its MML each, the whole set that plays. Every channel fills as many whole bars; no t, no singing voice. A mistake in one halts the game at your line, naming the channel.
----It starts at its beat 0 (its first bar, or the bar at says) and keeps time with the game (music.beat and on_beat count its beats from then, on and on as it goes round, #loop's bars too), held while the game pauses. Asked for while it plays, it goes on, through a level change too. Without a song: the player's own again, from the next bar.
+---It starts at its beat 0 (its first bar, or the bar at says) and keeps time with the game (music.beat and on_beat count its beats from then, on and on as it goes round, #loop's bars too), held while the game pauses. Asked for while it plays, it goes on, unbroken, through a level change too, and from a title of your own into a run asking the same (the run's music.beat from 0 where the song is); paused (music:pause), it goes on again. To begin it from its start, music:stop() then music:play.
 ---Asked again with other channels while its file of instruments plays, only they change, at from, the clock going on: a channel the same plays on untouched, a changed one's sounding note rings on until its next note, its new notes from then. from = "now" for a step edited (it sounds when the music comes to it), "bar" for the next pattern. Channels of other bars go round by the beats since the song began: music.bar % 4 is a four-bar pattern's bar. at and crossfade are for a song that begins, a mistake on such a change. Without channels the ones laid play on. The same channels again cost only a compare; ask when a step changes.
 ---@param song? string
 ---@param from? string|MusicPlay
@@ -857,9 +858,15 @@ function Music:play(song, from) end
 ---Silence in place of your game's song: a drum machine's STOP, a cutscene's quiet.
 ---- from: "now" (unless said), "beat" or "bar" of the song that plays.
 ---- fade: { from = "bar", fade = 2 } fades it out over 2 seconds; at once still without a click.
----The player's own song does not come back (music:play() without a song brings it). music.song, music.beat, music.bar and music.position are nil and on_beat is quiet until music:play begins a song, from its beat 0 (a song stopped and played again begins anew). A play asked before a stop comes replaces it: the song that plays goes on, another comes at its own from. nil in music.song alone does not tell a stop from the player's own song: your game knows which it asked.
+---music.song, music.beat, music.bar and music.position are nil and on_beat is quiet until music:play begins a song, from its beat 0 (a song stopped and played again begins anew). A play asked before a stop comes replaces it: the song that plays goes on, another comes at its own from. Paused, it ends at once in silence. To hold a song and go on with it later: music:pause().
 ---@param from? string|MusicStop
 function Music:stop(from) end
+
+---Holds your game's song where it is: it fades out over 5 ms and stays silent, its clock holds (music.beat stays, on_beat is quiet), until music:resume() goes on from the very sample it held at. A game's own pause, a radio switched off, a cutscene's hush with the song waiting. Paused, music:play of the same song goes on with it, of another begins that one at once, and music:stop ends in silence. Silence (no song of yours) stays silence. The engine's pause menu holds the song as well, apart from this.
+function Music:pause() end
+
+---Goes on with your game's song where music:pause held it, faded in over 5 ms; its clock goes on from where it held. Not paused, it does nothing.
+function Music:resume() end
 
 ---How a channel of your game's song sounds, as on a mixing desk: the channel is the song's letter ("K" for its K: line).
 ---- volume: its fader, from 0 (silent) to 1 (as written, the start).
@@ -986,7 +993,7 @@ function on_hit(thing, by, damage, weapon) end
 ---@param weapon string|nil
 function on_death(thing, by, weapon) end
 
----Runs on every beat of the song your game plays (music:play). beat counts from 0 at the song's start, on and on through its loops (music.bar for the bar). Runs before on_tick, in the tick the beat begins: waves, shots, a light that pulse with the music. Its clock is the game's, so replays play it the same; while the player's own song plays (none of yours), no beats.
+---Runs on every beat of the song your game plays (music:play). beat counts from 0 at the song's start, on and on through its loops (music.bar for the bar). Runs before on_tick, in the tick the beat begins: waves, shots, a light that pulse with the music. Its clock is the game's, so replays play it the same; with no song of yours playing (none asked yet, music:stop) or paused (music:pause), no beats.
 ---@param beat integer
 function on_beat(beat) end
 
@@ -1086,8 +1093,8 @@ function on_pickup(thing, item) end
 ---@field rotation integer Degrees clockwise seen from above, 0, 90, 180 or 270.
 
 ---@class Conf.title_screen
----@field music string What plays on the title, a song of c.audio.music, named as music:play takes it ("storm") or by its file ("music/storm.mml"). Unset: on the engine's title its first song, on a title level of the game's own the player's song, as in a run. On a title level of the game's own (c.title_screen.level) it begins as the level does, as the game's own song (music.song says it), until your code plays another or stops it (music:play, music:stop, in on_level_start too), and again each time the title comes back.
----@field music_at integer The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro. It goes round as the song says (#loop). On the engine's title and on a title level of the game's own alike (there as music:play's at). (from 1 to 9999)
+---@field music string What plays on the engine's title, a song of c.audio.music, named as music:play takes it ("storm") or by its file ("music/storm.mml"). Unset: its first song. A title level of the game's own (c.title_screen.level) plays its song from its code, as every level does (music:play in its on_level_start): set with it, this is a mistake.
+---@field music_at integer The bar the engine's title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro. It goes round as the song says (#loop). A title level of the game's own says it in its code (music:play's at). (from 1 to 9999)
 ---@field at number[] The ground point the camera looks at (default: where the player starts).
 ---@field view_width number Voxels across the screen there (default: c.camera.view_width). (above 0, up to 65536)
 ---@field logo string[] The logo, a line each (default: the game's title); logo_colors colors them.
