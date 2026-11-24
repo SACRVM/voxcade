@@ -44,6 +44,24 @@ struct Game {
     reports: crate::scratch::Scratch,
 }
 
+/// A desync's report writes its two states on a thread of its own
+/// (`play::report`), after the run that found it: the game waits for them
+/// (each report's `apart.json`, its last file; a minute at most) before its
+/// scratch folder goes, or a file written into a folder being removed left
+/// the folder behind (seen once, on a slow machine, by `tools/check_tmp.sh`).
+impl Drop for Game {
+    fn drop(&mut self) {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let reports = || -> Vec<std::path::PathBuf> {
+            let inside = |d: &Path| std::fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect::<Vec<_>>();
+            inside(self.reports.as_ref()).iter().flat_map(|game| inside(game)).collect()
+        };
+        while reports().iter().any(|r| !r.join("apart.json").exists()) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+}
+
 impl Game {
     fn new(dir: &Path, seed: u64, link: Link, host_keys: &str) -> Self {
         let mut session = crate::session::Session::<Lua>::load(dir).unwrap();
