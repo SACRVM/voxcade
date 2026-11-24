@@ -574,7 +574,12 @@ pub const API: &[Item] = &[
     Item { of: "thing", name: "on_ground", what: Field { ty: "boolean", set: false }, doc: "Whether it stands on something." },
     Item { of: "thing", name: "wall", what: Field { ty: "Way|nil", set: false }, doc: "The way to a wall right beside it (within half a \
             voxel), higher than a step (the way it faces first), or nil: a wall jump, a wall slide." },
-    Item { of: "thing", name: "facing", what: Field { ty: "Way", set: false }, doc: "The way it faces, one of the 8 ways." },
+    Item { of: "thing", name: "facing", what: Field { ty: "Way", set: false }, doc: "The way it faces, one of the 8 ways. Its model is drawn turned that way (to the nearest quarter, or exactly with \
+            rotates = \"free\"): its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its \
+            left.\n- north: as the layers are written, read as a map from above: the first row far, the first column left.\n- east: the \
+            first row right, the first column far.\n- south: the first row near, the first column right. A thing faces south unless \
+            something turns it (in a level seen from behind, the camera).\n- west: the first row left, the first column near.\nNear, far, left and right as a camera not turned \
+            sees them, from above or from the side; a level seen from behind (camera yaw 180) swaps them." },
     Item { of: "thing", name: "seat", what: Field { ty: "integer|nil", set: false }, doc: "A player's seat (1 for player, 2 and on for the \
             others); nil for a level's thing, so if thing.seat then asks whether a thing is a player, in any handler (a ~= player leaves out \
             seats 2 and on)." },
@@ -1423,7 +1428,7 @@ pub const KIND_KEYS: &[(&str, &str, &str)] = &[
     ("persistent", "boolean", "Its things a level's file sets down stay as left for the whole run, in any level: removed ones stay removed, the others where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player."),
     ("width", "number", "Its body across and deep, in voxels (c.physics.body_width unless set)."),
     ("height", "number", "Its body's height, in voxels (its model's unless set)."),
-    ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north)."),
+    ("facing", "number[]", "The way it faces as it comes in, { x, y } (x east, y north): its model's first row (+y) points that way, as thing.facing says ({ 0, -1 }: the first row towards the camera, the first column on the right).\nOnly a game of the platformer kit (c.kit = \"platformer\") reads it, for now: in a game without a kit or of the shooter kit a thing comes in facing south (or the camera, in a level seen from behind); turn it with level:spawn's facing, a level file's facing or thing:face."),
     ("props", "table", "What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these."),
     ("names", "table", "Which of its props name something, checked as the game loads and at level:spawn: names = { to = \"level\", at = \"place\", works = \"things\" }.\n- \"level\": a level of the game.\n- \"place\": a place in the level its \"level\" prop names, else in its own (\"start\" always).\n- \"thing\": a named thing of its level; \"things\": a list of them.\n\"\" (or {}) names nothing. The level editor offers the names there are."),
     ("family", "string|string[]", "A family, or a list of them: level:things(\"enemies\") finds them, thing.families says them."),

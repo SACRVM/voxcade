@@ -469,7 +469,13 @@ local Player = {}
 ---@field z number The height of its feet.
 ---@field on_ground boolean Whether it stands on something.
 ---@field wall Way|nil The way to a wall right beside it (within half a voxel), higher than a step (the way it faces first), or nil: a wall jump, a wall slide.
----@field facing Way The way it faces, one of the 8 ways.
+---The way it faces, one of the 8 ways. Its model is drawn turned that way (to the nearest quarter, or exactly with rotates = "free"): its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its left.
+---- north: as the layers are written, read as a map from above: the first row far, the first column left.
+---- east: the first row right, the first column far.
+---- south: the first row near, the first column right. A thing faces south unless something turns it (in a level seen from behind, the camera).
+---- west: the first row left, the first column near.
+---Near, far, left and right as a camera not turned sees them, from above or from the side; a level seen from behind (camera yaw 180) swaps them.
+---@field facing Way
 ---@field seat integer|nil A player's seat (1 for player, 2 and on for the others); nil for a level's thing, so if thing.seat then asks whether a thing is a player, in any handler (a ~= player leaves out seats 2 and on).
 ---@field input Input A player's keys this tick, as input is seat 1's: p.input.dir, p.input:pressed("fire"). Only in on_tick, as input.
 ---@field controls Controls What a player plays with, as controls is seat 1's: p.controls.device, p.controls:key("fire") (a key in braces in a text is the first of frame.players's).
@@ -1225,7 +1231,8 @@ Only for a kind that stands: fixed = true, no behavior, a model. thing:place mov
 ---@field persistent? boolean Its things a level's file sets down stay as left for the whole run, in any level: removed ones stay removed, the others where they stood, thing.state (a chest, a lever; not the bats). By their names; not the hero that becomes the player.
 ---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
 ---@field height? number Its body's height, in voxels (its model's unless set).
----@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north).
+---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north): its model's first row (+y) points that way, as thing.facing says ({ 0, -1 }: the first row towards the camera, the first column on the right).
+Only a game of the platformer kit (c.kit = "platformer") reads it, for now: in a game without a kit or of the shooter kit a thing comes in facing south (or the camera, in a level seen from behind); turn it with level:spawn's facing, a level file's facing or thing:face.
 ---@field props? table What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these.
 ---@field names? table Which of its props name something, checked as the game loads and at level:spawn: names = { to = "level", at = "place", works = "things" }.
 - "level": a level of the game.

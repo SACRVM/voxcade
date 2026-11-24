@@ -68,6 +68,25 @@ aaaaa *3
   above; x left to right; `.` empty. A row ending ` *3` stands three
   times, a line `*4` after a layer's rows makes that layer four (counts
   in all; the writer folds from three alike up).
+- **Which way it faces in the game**: the model's front is +y, the first
+  row of each layer; its first column (x 0) is its left. A thing's or a
+  piece's `facing` (or `rotation`, north 0, clockwise from above) turns
+  it about its pivot; as a camera not turned (yaw 0) sees it, from above
+  or from the side:
+
+  | facing | rotation | the first row points | the first column lies |
+  |---|---|---|---|
+  | north | 0 | away from the camera (up the screen from above) | left |
+  | east | 90 | right | far |
+  | south | 180 | towards the camera | right |
+  | west | 270 | left | near |
+
+  So a figure whose face is in its first row looks at the camera facing
+  south, which is where things face unless something turns them, and
+  `level:effect` always: write it facing +y (its face in the first
+  row), never mirrored for the camera. A level seen from behind (camera
+  yaw 180) swaps near and far, left and right (`docs/tiles.md`, "Which
+  way a model faces").
 - **From the pivot**: `at` and a part's `joint` are measured from the
   pivot, the cell the game stands the model on (`size / 2` across and
   deep, on the floor, `docs/game-model.md`), its low corner. So the box

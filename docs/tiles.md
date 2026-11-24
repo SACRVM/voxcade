@@ -238,6 +238,12 @@ bb
   (a part about itself, frames about the pivot), every other frame or
   part keeps its text. It prints the cells set and cleared and the box
   grown; `--dry` only says; with `--shot` it only shows.
+- A model's rows and columns in the game: its front is +y, the first row
+  of each layer (the far row), its first column its left; facing north
+  it lies as written read from above, facing south (where things face
+  unless turned) half round, the first row towards the camera. The table
+  for every facing is under "A level as text", "Which way a model
+  faces".
 
 ## Decided
 
@@ -308,6 +314,28 @@ facing = [0, -1]
   as a model's `.vvx`: BunnyFarm's farm reads as its map). x runs left to
   right in both. A new level reads from the front when it is taller than
   deep, else from above; the editor keeps the file's view.
+- **Which way a model faces** (a piece's or a thing's `facing`, or its
+  `rotation` in quarter turns, north 0 and clockwise seen from above): a
+  model's front is +y, the first row of each layer of its `.vvx` (the
+  far row as written), and its first column (x 0) is on its left. Turned
+  to its facing about its pivot, the way the first row points and where
+  the first column lies, as a camera not turned (yaw 0) sees them, from
+  above or from the side:
+
+  | facing | rotation | the first row points | the first column lies |
+  |---|---|---|---|
+  | `"north"` | 0 | north: away from the camera (up the screen from above) | west: left |
+  | `"east"` | 90 | east: right | north: far |
+  | `"south"` | 180 | south: towards the camera | east: right |
+  | `"west"` | 270 | west: left | south: near |
+
+  North shows the layers as written, read as a map from above; south,
+  where a piece or a thing faces unless something turns it, half round:
+  the first row nearest, the first column on the right (a turn, not a
+  mirror: the model's own left is on the screen's right). The ways are
+  the world's: a level seen from behind (`[camera] yaw = 180`) swaps
+  near and far, left and right. `level:effect` faces south always.
+  Test `a_models_rows_and_columns_lie_as_its_facing_says`.
 - **Remembering** (0.7, `docs/game-model.md`, "Levels that remember"):
   `location = "station"` after `size` (and `view`), in a level of blocks
   or of pieces, puts it in a location: while the player changes among the

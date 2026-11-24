@@ -643,6 +643,78 @@ end
     assert_eq!(run(Some(0), None).1, print, "a model only drawn is no part of the fingerprint");
 }
 
+/// Where a model's rows and columns lie for each way it faces
+/// (`docs/tiles.md`, "Which way a model faces"): its front is +y, the
+/// first row of each layer, its first column its left. A level's pieces
+/// facing north, east, south and west (and `rotation = 90`), and things of
+/// a kind turned by `level:spawn`'s facing, drawn by `frame:model`: the
+/// first row's first voxel and the first row's middle one land where the
+/// table says, from the pivot's cell (x east, y north).
+#[test]
+fn a_models_rows_and_columns_lie_as_its_facing_says() {
+    let model = "format = \"voxcade voxel 1\"\nsize = [3, 3, 1]\n\n[palette]\nk = \"#ff0000\"\na = \"#00ff00\"\nc = \"#808080\"\n\n[[frame]]\nlayers = \"\"\"\nkac\nccc\nccc\n\"\"\"\n";
+    let piece = |name: &str, x: i32, way: &str| format!("[[thing]]\nname = \"{name}\"\nmodel = \"mark.vvx\"\nat = [{x}, 10, 1]\n{way}\n\n");
+    let level = format!(
+        "format = \"voxcade level 1\"\nsize = [80, 40, 16]\n\n{}{}{}{}{}[[place]]\nname = \"start\"\nat = [40, 30, 1]\n",
+        piece("n", 10, "facing = \"north\""),
+        piece("e", 20, "facing = \"east\""),
+        piece("s", 30, "facing = \"south\""),
+        piece("w", 40, "facing = \"west\""),
+        piece("r", 50, "rotation = 90"),
+    );
+    let main = r##"
+function on_level_start()
+  level:fill(0, 0, 0, 79, 39, 0, "#404040")
+  level.state.marks = {
+    level:spawn("mark", 10, 25, { z = 1, facing = { x = 0, y = 1 } }),
+    level:spawn("mark", 20, 25, { z = 1, facing = { x = 1, y = 0 } }),
+    level:spawn("mark", 30, 25, { z = 1, facing = { x = 0, y = -1 } }),
+    level:spawn("mark", 40, 25, { z = 1, facing = { x = -1, y = 0 } }),
+  }
+end
+
+function on_draw(frame)
+  frame:camera({ look_at = { 40, 20, 0 }, width = 120 })
+  for _, t in ipairs(level.state.marks) do frame:model("mark.vvx", t) end
+end
+"##;
+    let dir = folder("facing", main);
+    std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = nil\n  c.things.mark = { model = \"mark.vvx\", fixed = true }\nend\n").unwrap();
+    std::fs::write(dir.join("mark.vvx"), model).unwrap();
+    std::fs::create_dir_all(dir.join("levels")).unwrap();
+    std::fs::write(dir.join("levels/room.toml"), level).unwrap();
+    let mut g = game_in(&dir);
+    steps(&mut g, 2);
+    let frame = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "");
+    let cells = |color: [u8; 4]| -> Vec<glam::IVec3> {
+        let mut cells: Vec<glam::IVec3> = frame.cubes().iter().filter(|i| i.color == color).map(|i| glam::Vec3::from_slice(&i.pos_size[..3]).floor().as_ivec3()).collect();
+        cells.sort_unstable_by_key(|c| (c.y, c.x));
+        cells
+    };
+    let at = |x: i32, y: i32, dx: i32, dy: i32| glam::IVec3::new(x + dx, y + dy, 1);
+    // facing: the first column's first voxel and the first row's middle,
+    // from the pivot: north (-1, 1) (0, 1); east (1, 1) (1, 0); south
+    // (1, -1) (0, -1); west (-1, -1) (-1, 0).
+    let ways = [(-1, 1, 0, 1), (1, 1, 1, 0), (1, -1, 0, -1), (-1, -1, -1, 0)];
+    let mut first = Vec::new();
+    let mut middle = Vec::new();
+    for y in [10, 25] {
+        for (n, &(kx, ky, ax, ay)) in ways.iter().enumerate() {
+            let x = 10 + 10 * n as i32;
+            first.push(at(x, y, kx, ky));
+            middle.push(at(x, y, ax, ay));
+        }
+    }
+    // The piece of rotation = 90 faces east.
+    first.push(at(50, 10, 1, 1));
+    middle.push(at(50, 10, 1, 0));
+    first.sort_unstable_by_key(|c| (c.y, c.x));
+    middle.sort_unstable_by_key(|c| (c.y, c.x));
+    assert_eq!(cells([255, 0, 0, 255]), first, "the first row's first voxel");
+    assert_eq!(cells([0, 255, 0, 255]), middle, "the first row's middle");
+}
+
 /// A model file of `frames` frames, a voxel each, as a `.vvx`.
 fn frames_model(frames: usize) -> String {
     let frame = "[[frame]]\nlayers = \"\"\"\n...\n.a.\n...\n\"\"\"\n";
