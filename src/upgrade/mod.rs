@@ -48,6 +48,7 @@ const STEPS: &[Step] = &[
     Step { since: "0.7.0", name: "lamps stopped by walls", plan: lamps::plan, apply: lamps::plan, left: None },
     Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left) },
     Step { since: "0.7.0", name: "names of 0.7", plan: names::plan, apply: names::apply, left: Some(names::left) },
+    Step { since: "0.7.0", name: "music from the code", plan: music::plan, apply: music::apply, left: Some(music::left) },
 ];
 
 /// The steps that only say what the author should change and write nothing.
@@ -449,6 +450,10 @@ mod colors;
 /// meant: a kind's keys by its behavior (through `like`), two settings and
 /// `level.away` in the game's Lua.
 mod names;
+
+/// Step 0.7.0: music comes from the game's code alone: `music:play` added
+/// where it safely can, said where not.
+mod music;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {
