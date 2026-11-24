@@ -492,13 +492,16 @@ mod tests {
     /// models placed every way (four facings, turned freely and tipped off
     /// the quarter turns, posed and moved by less than a voxel, between
     /// voxels): a figure with mirrored clones and an empty part, Studio's
-    /// machine, More Blood's soldier of frames.
+    /// machine, More Blood's soldier of frames. Studio's machine in fine
+    /// voxels (380,000 of them) is aimed at more thinly, every 160th and
+    /// 1800th voxel: trying every voxel costs with the voxels squared, and
+    /// at the coarse machine's thinning the test took over five minutes.
     #[test]
     fn the_walk_meets_what_every_voxel_meets() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
         let mut rays = 0;
-        for (game, scenario, every, grid) in [("games/studio", None, 8, (128, 72)), ("games/lights", Some("posed"), 1, (320, 180)), ("games/lights", Some("load"), 7, (320, 180)), ("games/moreblood", None, 1, (320, 180))] {
+        for (game, scenario, every, grid) in [("games/studio", None, 160, (128, 72)), ("games/lights", Some("posed"), 1, (320, 180)), ("games/lights", Some("load"), 7, (320, 180)), ("games/moreblood", None, 1, (320, 180))] {
             let mut g = Session::<crate::Voxcade>::load(&root.join(game)).unwrap();
             if let Some(s) = scenario {
                 g.start_scenario(s).unwrap();
@@ -516,7 +519,7 @@ mod tests {
         assert!(car.parts.iter().any(|p| p.empty.is_some()) && soldier.frames.len() > 1);
         let origins = [Vec3::new(40.0, 30.0, 2.0), Vec3::new(40.37, 29.81, 2.25)];
         let turns = [Quat::IDENTITY, turning(90.0, 0.0, 0.0), turning(33.0, 0.0, 0.0), turning(17.0, 23.0, -11.0), turning(0.0, 90.0, 0.0), turning(-140.0, -61.0, 37.0)];
-        for (name, model, every) in [("car", &car, 1), ("machine", &machine, 90), ("soldier", &soldier, 1)] {
+        for (name, model, every) in [("car", &car, 1), ("machine", &machine, 1800), ("soldier", &soldier, 1)] {
             let mut n = 0;
             for (i, look) in [IVec2::Y, IVec2::X, IVec2::NEG_Y, IVec2::NEG_X].into_iter().enumerate() {
                 for (j, &turn) in turns.iter().enumerate() {
