@@ -443,7 +443,7 @@ impl StartPage {
             self.message = Some(format!("{e:#}"));
             return;
         }
-        let started = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("run").arg(dir).spawn());
+        let started = crate::cli::program().and_then(|exe| std::process::Command::new(exe).arg("run").arg(dir).spawn());
         match started {
             Ok(child) => {
                 self.message = None;
