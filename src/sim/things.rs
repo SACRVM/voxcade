@@ -56,6 +56,12 @@ pub struct Def {
     /// Drawn facing exactly its way, off the grid (`rotates = "free"`), not
     /// in quarter turns (`"quarter"`, the default): the game's choice.
     pub free_turn: bool,
+    /// The way its things face as they come in (`facing = { x, y }`), in
+    /// any game, kit or none (`Sim::body_facing`): a thing's own way (its
+    /// level's file, `level:spawn`) beats it, and without either a thing
+    /// rests facing the camera (`Sim::rest_way`). Every behavior of a kit
+    /// starts so, then turns as its rules turn it.
+    pub facing: Option<[f32; 2]>,
     /// How fast its model turns round its upright axis as it is drawn,
     /// degrees a second (`spin`; 0: not at all): a gem, a coin. Only the
     /// picture turns.
@@ -271,6 +277,7 @@ fn piece() -> Def {
         team: None,
         immune: Vec::new(),
         free_turn: false,
+        facing: None,
         spin: 0.0,
         fixed: true,
         solid: false,
@@ -393,6 +400,16 @@ fn got(v: &toml::Value) -> String {
     }
 }
 
+/// A way on the ground written `{ x, y }`, two numbers not both 0 (a
+/// kind's `facing`).
+pub fn way(v: &toml::Value) -> Option<[f32; 2]> {
+    let n = |v: &toml::Value| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)).filter(|n| n.is_finite());
+    match v.as_array()?.as_slice() {
+        [x, y] => Some([n(x)? as f32, n(y)? as f32]).filter(|&w| w != [0.0, 0.0]),
+        _ => None,
+    }
+}
+
 fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
     resolve_like("things", &cfg.things)?
         .into_iter()
@@ -464,6 +481,10 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 Some("free") => true,
                 Some(other) => bail!("{}: \"{other}\" is neither \"quarter\" (on the grid, the default) nor \"free\" (facing exactly its way)", what("rotates")),
             };
+            let facing = match params.remove("facing") {
+                None => None,
+                Some(v) => Some(way(&v).with_context(|| format!("{}: a way, {{ x, y }} (x east, y north: {{ 1, 0 }} faces east, {{ 0, -1 }} south){}", what("facing"), if v.is_array() { String::new() } else { got(&v) }))?),
+            };
             let spin = match params.remove("spin") {
                 None => 0.0,
                 Some(v) => v.as_float().or_else(|| v.as_integer().map(|i| i as f64)).with_context(|| format!("{}: how fast it turns round, degrees a second", what("spin")))? as f32,
@@ -519,13 +540,13 @@ fn own_defs(cfg: &GameConfig, behaviors: &[&str]) -> Result<Vec<Def>> {
                 Some(_) => bail!("{}: parts by name and how far they swing (swing = {{ leg_left = 30, leg_right = -30 }})", what("swing")),
             };
             if behavior.is_none()
-                && let Some(key) = params.keys().find(|k| !["width", "height", "facing"].contains(&k.as_str()))
+                && let Some(key) = params.keys().find(|k| !["width", "height"].contains(&k.as_str()))
             {
                 let known = ["like", "behavior", "model", "hp", "fixed", "solid", "width", "height", "facing"].into_iter().chain(COMMON);
                 let near = crate::audio::words::near(key, known).map(|k| format!(" (did you mean `{k}`?)")).unwrap_or_default();
                 bail!("{}: not a setting of a kind without a behavior (the script's: model, hp, fixed, solid, width, height, facing and {}){near}", what(key), COMMON.join(", "));
             }
-            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, spin, fixed, solid, persistent, frames, fps, swing, params })
+            Ok(Def { name, behavior, model, hp, props, names, families, effect, sound, reach, team, immune, free_turn, facing, spin, fixed, solid, persistent, frames, fps, swing, params })
         })
         .collect()
 }

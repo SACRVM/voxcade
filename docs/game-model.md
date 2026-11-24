@@ -1317,7 +1317,14 @@ kind's markers in order). Only a kind without a behavior, which the
 script moves: one with a behavior turns by its ready-made rules, and
 its level does not load (`check_facings`). A kind with `rotates = "free"`
 faces the bearing exactly, any other the nearest of the four ways;
-`pitch` and `roll` stay the pieces'.
+`pitch` and `roll` stay the pieces'. A kind's own `facing = { x, y }`
+(`c.things.NAME.facing`) is where its things face as they come in, in
+every game, kit or none (0.7; before, only the platformer kit read it),
+set down by a file or spawned (`Sim::body_facing`): a thing's own way
+(the file's, `level:spawn`'s) beats it, without either a thing rests
+facing the camera; a kind with a behavior starts so and turns as its
+rules turn it (the upgrade step "kinds facing their way" names a game's
+kinds that now face their way; tests in `src/lua/tests/facing.rs`).
 A piece's `at` is its pivot cell (the model's cell `size / 2` across and
 deep, on its floor; "A model's pivot" below), and `thing.x`, `thing.y`
 read `at + 0.5`, the middle of that cell (the grid's low corner added):

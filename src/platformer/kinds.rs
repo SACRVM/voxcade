@@ -271,10 +271,9 @@ fn scale(own: &toml::Table, f: f32, keys: &mut [(&str, &mut f32)]) {
 struct Common {
     width: Option<f32>,
     height: Option<f32>,
-    facing: Option<[f32; 2]>,
 }
 
-const COMMON: [&str; 3] = ["width", "height", "facing"];
+const COMMON: [&str; 2] = ["width", "height"];
 
 /// Numbers the kit no longer reads: what a touch means is the game's code.
 const MOVED: [(&str, &str); 7] = [
@@ -392,7 +391,7 @@ impl Rules {
                     fps: def.fps,
                     swing: def.swing.clone(),
                     spin: def.spin,
-                    facing: common.facing,
+                    facing: def.facing,
                     reach: def.reach,
                     rules,
                 })

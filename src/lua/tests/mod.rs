@@ -5,6 +5,7 @@ mod camera;
 mod colors;
 mod course;
 mod events;
+mod facing;
 mod given;
 mod hud;
 mod input;

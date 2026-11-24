@@ -82,7 +82,8 @@ aaaaa *3
   | west | 270 | left | near |
 
   So a figure whose face is in its first row looks at the camera facing
-  south, which is where things face unless something turns them, and
+  south, which is where things face unless something turns them (their
+  own way, else their kind's `facing = { x, y }`, in every game), and
   `level:effect` always: write it facing +y (its face in the first
   row), never mirrored for the camera. A level seen from behind (camera
   yaw 180) swaps near and far, left and right (`docs/tiles.md`, "Which

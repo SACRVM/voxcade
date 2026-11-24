@@ -256,34 +256,46 @@ impl Shooter {
     /// gunship on top of what stands there.
     pub(super) fn place_kind(&mut self, kind: usize, cell: IVec3) -> crate::sim::things::Id {
         let half = self.sim.half();
-        // Things that only stand where they are: on the marker's cell, or in
-        // its middle.
-        let at_cell = self.sim.body(cell.as_vec3(), 0.0);
         let rules = Arc::clone(&self.rules);
         let k = &rules.kinds[kind];
+        // Facing its kind's way where it states one (`Sim::body_facing`),
+        // its behavior turning it on from there.
+        let body = |pos: Vec3, height: f32| self.sim.body_facing(pos, height, k.facing);
+        // Things that only stand where they are: on the marker's cell, or in
+        // its middle.
+        let at_cell = body(cell.as_vec3(), 0.0);
         match &k.rules {
             KindRules::Script => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
-                self.things.spawn(kind, self.sim.body(pos, height), k.hp, Brain::Script(Default::default()))
+                let body = body(pos, height);
+                self.things.spawn(kind, body, k.hp, Brain::Script(Default::default()))
             }
             KindRules::Soldier(_) => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
-                self.things.spawn(kind, self.sim.body(pos, height), k.hp.max(1), Brain::Soldier(Soldier::new(false)))
+                let body = body(pos, height);
+                self.things.spawn(kind, body, k.hp.max(1), Brain::Soldier(Soldier::new(false)))
             }
             KindRules::Spawner(r) => self.things.spawn(kind, at_cell, 0, Brain::Spawner(Spawner { timer: r.first, spawned: 0 })),
             KindRules::Captive(_) => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
-                self.things.spawn(kind, self.sim.body(pos, height), k.hp, Brain::Captive(Captive { freed: false, gone: 0 }))
+                let body = body(pos, height);
+                self.things.spawn(kind, body, k.hp, Brain::Captive(Captive { freed: false, gone: 0 }))
             }
             KindRules::Pickup(_) => self.things.spawn(kind, at_cell, 0, Brain::Pickup),
             KindRules::Gunship(r) => {
                 let top = self.sim.world.column_top(cell.x, cell.y) as f32;
                 let at = Vec3::new(cell.x as f32 + 0.5, cell.y as f32 + 0.5, top);
                 let rockets = &rules.weapons[r.rockets];
-                self.things.spawn(kind, Body::new(at, 0.0), k.hp, Brain::Gunship(super::Gunship::new(top, rockets)))
+                // (South unless its kind says, whatever way the camera
+                // looks: it turns to the player as it flies.)
+                let mut body = Body::new(at, 0.0);
+                if let Some([x, y]) = k.facing {
+                    body.face(Vec3::new(x, y, 0.0));
+                }
+                self.things.spawn(kind, body, k.hp, Brain::Gunship(super::Gunship::new(top, rockets)))
             }
         }
     }
@@ -1080,7 +1092,8 @@ impl Shooter {
         }
         for (at, height, kind) in arrivals {
             let hp = rules.kinds[kind].hp.max(1);
-            self.things.spawn(kind, self.sim.body(at, height), hp, Brain::Soldier(Soldier::new(true)));
+            let body = self.sim.body_facing(at, height, rules.kinds[kind].facing);
+            self.things.spawn(kind, body, hp, Brain::Soldier(Soldier::new(true)));
         }
     }
 }
