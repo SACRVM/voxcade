@@ -49,10 +49,11 @@ const STEPS: &[Step] = &[
     Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left) },
     Step { since: "0.7.0", name: "names of 0.7", plan: names::plan, apply: names::apply, left: Some(names::left) },
     Step { since: "0.7.0", name: "music from the code", plan: music::plan, apply: music::apply, left: Some(music::left) },
+    Step { since: "0.7.0", name: "kinds facing their way", plan: facing::plan, apply: facing::plan, left: None },
 ];
 
 /// The steps that only say what the author should change and write nothing.
-const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls"];
+const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls", "kinds facing their way"];
 
 impl Step {
     /// Whether a game stating version `made` (None: none) needs the step.
@@ -454,6 +455,12 @@ mod names;
 /// Step 0.7.0: music comes from the game's code alone: `music:play` added
 /// where it safely can, said where not.
 mod music;
+
+/// Step 0.7.0: a kind's `facing` turns its things in every game (until
+/// then only the platformer kit read it): the step says which kinds of a
+/// game without that kit now face their way and how to keep the old look
+/// (the facing taken out); it changes nothing.
+mod facing;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

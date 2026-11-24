@@ -335,7 +335,13 @@ facing = [0, -1]
   mirror: the model's own left is on the screen's right). The ways are
   the world's: a level seen from behind (`[camera] yaw = 180`) swaps
   near and far, left and right. `level:effect` faces south always.
-  Test `a_models_rows_and_columns_lie_as_its_facing_says`.
+  A thing of a kind whose own way says nothing (no `facing` or
+  `rotation` in the file, none in `level:spawn`) faces its kind's
+  (`c.things.door = { facing = { 1, 0 } }`: east), in every game, kit or
+  none; with neither it faces south, or the camera in a level seen from
+  behind.
+  Tests `a_models_rows_and_columns_lie_as_its_facing_says`,
+  `a_thing_of_a_kind_with_a_way_is_drawn_facing_it`.
 - **Remembering** (0.7, `docs/game-model.md`, "Levels that remember"):
   `location = "station"` after `size` (and `view`), in a level of blocks
   or of pieces, puts it in a location: while the player changes among the

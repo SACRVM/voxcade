@@ -70,9 +70,12 @@ impl Figures {
     pub fn load(dir: &Path, cfg: &GameConfig) -> Self {
         let mut figures = BTreeMap::new();
         let mut rests = std::collections::BTreeSet::new();
+        // (Its way through `like` too, as the game reads it.)
+        let ways = crate::config::resolve_like("things", &cfg.things).unwrap_or_else(|_| cfg.things.clone());
         for (kind, table) in &cfg.things {
-            let start = start_way(table);
-            if rests_to_the_camera(table) {
+            let way_of = ways.get(kind).unwrap_or(table);
+            let start = start_way(way_of);
+            if rests_to_the_camera(way_of) {
                 rests.insert(kind.clone());
             }
             let number = |key: &str| table.get(key).and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)));

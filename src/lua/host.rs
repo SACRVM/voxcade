@@ -50,6 +50,9 @@ pub struct Kind {
     pub team: Option<String>,
     /// Drawn facing exactly its way (`rotates = "free"`).
     pub free_turn: bool,
+    /// The way its things face as they come in (`facing`), unless their
+    /// own says otherwise (`Sim::body_facing`).
+    pub facing: Option<[f32; 2]>,
     /// How fast its model turns round as it is drawn, degrees a second.
     pub spin: f32,
     /// Stays where it is put: no gravity (`fixed`).
@@ -1579,7 +1582,7 @@ impl Host for Plain {
             Some(z) => Vec3::new(x, y, z),
             None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), k.height, self.sim.half()),
         };
-        let id = self.things.spawn(kind, self.sim.body(at, k.height), k.hp, Walk::default());
+        let id = self.things.spawn(kind, self.sim.body_facing(at, k.height, k.facing), k.hp, Walk::default());
         if !self.looking {
             self.focus.get_or_insert(id);
         }

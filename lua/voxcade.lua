@@ -352,7 +352,7 @@ function Level:solid(x, y, z) end
 function Level:ground(x, y) end
 
 ---Puts a new thing of a kind (c.things) into the level at x, y, on the ground there unless options.z is given. x and y lie inside the level (level.size); only a kind with fixed = true may wait outside, one coming in from off the screen.
----- options.z: the height of its feet. options.facing: the way it faces.
+---- options.z: the height of its feet. options.facing: the way it faces, over its kind's.
 ---- options.state: its first state. options.name: its name, one thing's in the level.
 ---- options.props: what your code reads of it over its kind's props.
 ---A kind without a behavior falls to the ground; with fixed = true (c.things.NAME.fixed) it stays exactly where it is put. A kit's kinds stand where a marker there would place them. The camera follows the player; in a game without a figure for it (no c.player.kind), the first thing placed. Pieces ("piece") come only from a level's file.
@@ -472,7 +472,7 @@ local Player = {}
 ---The way it faces, one of the 8 ways. Its model is drawn turned that way (to the nearest quarter, or exactly with rotates = "free"): its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its left.
 ---- north: as the layers are written, read as a map from above: the first row far, the first column left.
 ---- east: the first row right, the first column far.
----- south: the first row near, the first column right. A thing faces south unless something turns it (in a level seen from behind, the camera).
+---- south: the first row near, the first column right. A thing faces south unless something turns it: its own way (a level file's facing, level:spawn's), else its kind's (c.things.NAME.facing); with neither, in a level seen from behind, the camera.
 ---- west: the first row left, the first column near.
 ---Near, far, left and right as a camera not turned sees them, from above or from the side; a level seen from behind (camera yaw 180) swaps them.
 ---@field facing Way
@@ -1239,7 +1239,7 @@ Only for a kind that stands: fixed = true, no behavior, a model. thing:place mov
 ---@field width? number Its body across and deep, in voxels (c.physics.body_width unless set).
 ---@field height? number Its body's height, in voxels (its model's unless set).
 ---@field facing? number[] The way it faces as it comes in, { x, y } (x east, y north): its model's first row (+y) points that way, as thing.facing says ({ 0, -1 }: the first row towards the camera, the first column on the right).
-Only a game of the platformer kit (c.kit = "platformer") reads it, for now: in a game without a kit or of the shooter kit a thing comes in facing south (or the camera, in a level seen from behind); turn it with level:spawn's facing, a level file's facing or thing:face.
+In every game, kit or none, set down by a level's file or spawned. A thing's own way wins: a level file's facing or rotation, level:spawn's facing. Without either a thing comes in facing south (the camera, in a level seen from behind). A kind with a behavior starts so, then turns as its rules turn it.
 ---@field props? table What your code reads of it, thing.props: props = { worth = 100 }. A level's thing or level:spawn may give one its own of these.
 ---@field names? table Which of its props name something, checked as the game loads and at level:spawn: names = { to = "level", at = "place", works = "things" }.
 - "level": a level of the game.

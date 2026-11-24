@@ -428,6 +428,23 @@ impl Sim {
         b
     }
 
+    /// A body as `body`, but facing `way` where its kind states one
+    /// (`c.things.NAME.facing`, `things::Def::facing`): turned from south
+    /// as `Body::face` turns it (exactly; its model to the nearest quarter,
+    /// or exactly with `rotates = "free"`), whatever way the camera looks.
+    /// A thing's own way (its level's file, `level:spawn`'s facing) is laid
+    /// over it after.
+    pub fn body_facing(&self, pos: Vec3, height: f32, way: Option<[f32; 2]>) -> Body {
+        match way {
+            Some([x, y]) => {
+                let mut b = Body::new(pos, height);
+                b.face(Vec3::new(x, y, 0.0));
+                b
+            }
+            None => self.body(pos, height),
+        }
+    }
+
     /// Swaps in a reloaded level; the debris goes.
     pub fn replace_world(&mut self, world: World) {
         self.world = world;

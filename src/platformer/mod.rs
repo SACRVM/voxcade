@@ -303,12 +303,11 @@ impl Platformer {
             KindRules::Crate(_) => Brain::Crate,
         };
         let figure = matches!(k.rules, KindRules::Hero(_) | KindRules::Walker(_) | KindRules::Hopper(_) | KindRules::Flyer(_));
-        let mut body = self.sim.body(at, k.height);
-        match k.facing {
-            // The way its kind says (a bat facing the camera, wings spread).
-            Some([x, y]) => body.face(Vec3::new(x, y, 0.0)),
-            None if figure => body.face(Vec3::new(toward, 0.0, 0.0)),
-            None => {}
+        // The way its kind says (a bat facing the camera, wings spread),
+        // else a figure towards the stage's middle, anything else resting.
+        let mut body = self.sim.body_facing(at, k.height, k.facing);
+        if k.facing.is_none() && figure {
+            body.face(Vec3::new(toward, 0.0, 0.0));
         }
         let hero = matches!(k.rules, KindRules::Hero(_));
         let id = self.things.spawn(kind, body, k.hp, brain);

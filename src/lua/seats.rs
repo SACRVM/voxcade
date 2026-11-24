@@ -133,7 +133,7 @@ impl<K: Kit> LuaGame<K> {
                     let h = self.plain_mut().expect("a plain host without a kit");
                     let (height, half) = (h.kinds[k].height, h.sim.half());
                     let at = crate::sim::stand_at(&h.sim.world, at, height, half);
-                    let mut body = h.sim.body(at, height);
+                    let mut body = h.sim.body_facing(at, height, h.kinds[k].facing);
                     if let Some(way) = facing {
                         body.face(way.as_vec2().extend(0.0));
                     }

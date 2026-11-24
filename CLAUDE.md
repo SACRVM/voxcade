@@ -2367,7 +2367,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   tests at 180 too). The level editor's LEVEL has YAW, GAME VIEW looks
   that way. Levels of one location may look different ways: the record
   of one left brings back a thing's way over its rest facing (test
-  `levels_of_one_location_turned_two_ways`). Not built: a picture's own
+  `levels_of_one_location_turned_two_ways`). A kind's `facing` holds in
+  every game, kit or none (before 0.7 only the platformer kit read it;
+  the upgrade step "kinds facing their way" says so, changing nothing):
+  a thing's own way (the file's, `level:spawn`'s) > its kind's
+  (`Sim::body_facing`, every host's and kit's spawn) > the rest facing;
+  a kind with a behavior starts so and turns as its rules do (tests in
+  `src/lua/tests/facing.rs`). Not built: a picture's own
   yaw (`frame:camera`), 90 and 270 from the side.
 - World voxels are palette indices (0 empty). Moving things are instanced
   cubes built in `Session::compose` and the game's `Game::draw` (through

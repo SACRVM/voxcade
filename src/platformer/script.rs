@@ -59,7 +59,7 @@ impl Host for Platformer {
                 Some(z) => Vec3::new(x, y, z),
                 None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), k.height, k.width * 0.5),
             };
-            return Ok(self.things.spawn(kind, self.sim.body(at, k.height), k.hp, Brain::Script(Default::default())));
+            return Ok(self.things.spawn(kind, self.sim.body_facing(at, k.height, k.facing), k.hp, Brain::Script(Default::default())));
         }
         let z = z.unwrap_or_else(|| self.sim.world.column_top(x.floor() as i32, y.floor() as i32) as f32);
         Ok(self.place(kind, Vec3::new(x, y, z)))

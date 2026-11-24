@@ -657,13 +657,19 @@ fn check_solid_things(game: &Files, cfg: &GameConfig, path: &Path) -> Result<()>
         return Ok(());
     }
     let level = crate::grid::GridLevel::read_in(game, path)?;
-    // A thing without a way faces the camera (`Sim::rest_way`): south,
-    // or as the level turns it.
+    // A thing without a way of its own faces its kind's (`Sim::body_facing`:
+    // its model to the nearest quarter, turned from south), else the camera
+    // (`Sim::rest_way`): south, or as the level turns it.
     let rest = level.camera.map_or(180, |c| (c.yaw + 180) % 360);
+    let kind_way = |kind: &str| {
+        let [x, y] = kinds.get(kind)?.get("facing").and_then(crate::sim::things::way)?;
+        let look = crate::sim::quarter_turn(glam::Vec3::new(x, y, 0.0), glam::IVec2::NEG_Y);
+        crate::grid::Way::of_pair(look.to_array()).map(|w| w.bearing() as i32)
+    };
     for t in level.things.iter().filter(|t| !t.is_piece()) {
         let Some(model) = solids.get(&t.kind) else { continue };
         let m = crate::vox::load_model_in(game, &game.dir().join(model))?;
-        let turn = t.facing.map_or(rest, |f| crate::grid::Way::nearest(f.bearing()).bearing() as i32);
+        let turn = t.facing.map_or_else(|| kind_way(&t.kind).unwrap_or(rest), |f| crate::grid::Way::nearest(f.bearing()).bearing() as i32);
         let cells: crate::world::CellSet = crate::session::piece_cells(&m, [turn, 0, 0]).expect("quarter turns").into_iter().map(|c| c + IVec3::from(t.at)).collect();
         let inside = |at: [i32; 3]| cells.contains(&IVec3::from(at));
         if let Some(p) = level.places.iter().find(|p| inside(p.at)) {

@@ -70,7 +70,7 @@ impl Host for Shooter {
                 Some(z) => Vec3::new(x, y, z),
                 None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), height, self.sim.half()),
             };
-            return Ok(self.things.spawn(kind, self.sim.body(at, height), k.hp, Brain::Script(Default::default())));
+            return Ok(self.things.spawn(kind, self.sim.body_facing(at, height, k.facing), k.hp, Brain::Script(Default::default())));
         }
         let (cx, cy) = (x.floor() as i32, y.floor() as i32);
         let cz = z.map_or_else(|| self.sim.world.column_top(cx, cy), |z| z.floor() as i32);
@@ -451,7 +451,7 @@ impl Host for Shooter {
         }
         let height = self.shapes.kind(k).height();
         let at = crate::sim::stand_at(&self.sim.world, at, height, self.sim.half());
-        let mut body = self.sim.body(at, height);
+        let mut body = self.sim.body_facing(at, height, k.facing);
         if let Some(way) = facing {
             body.face(Vec3::new(way.x as f32, way.y as f32, 0.0));
         }

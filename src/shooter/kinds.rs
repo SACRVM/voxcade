@@ -85,6 +85,9 @@ pub struct Kind {
     pub immune: Immune,
     /// Drawn facing exactly its way (`rotates = "free"`).
     pub free_turn: bool,
+    /// The way its things face as they come in (`facing`,
+    /// `Sim::body_facing`); its behavior turns them on from there.
+    pub facing: Option<[f32; 2]>,
     /// How fast its model turns round as it is drawn, degrees a second.
     pub spin: f32,
     /// Its model's frames for what it does: a soldier's or a hostage's
@@ -455,6 +458,9 @@ impl Rules {
             if let Some(r) = k.reach {
                 keys.push(("reach", r.to_string()));
             }
+            if let Some(f) = k.facing {
+                keys.push(("facing", lua_list(&f)));
+            }
             let weapon = |w: usize| text(&self.weapon_names[w]);
             match &k.rules {
                 KindRules::Script => keys[0].1 = "nil".into(),
@@ -635,7 +641,7 @@ impl Rules {
                     if let Some(key) = def.params.keys().next() {
                         bail!("c.things.{name}.{key}: a kind without a behavior (the script's) has a model and hp, nothing more");
                     }
-                    return Ok(Kind { name: name.clone(), model: def.model.clone(), hp: def.hp.unwrap_or(0), reach: def.reach, team, immune, free_turn: def.free_turn, spin: def.spin, frames: def.frames.clone(), swing: def.swing.clone(), rules: KindRules::Script });
+                    return Ok(Kind { name: name.clone(), model: def.model.clone(), hp: def.hp.unwrap_or(0), reach: def.reach, team, immune, free_turn: def.free_turn, facing: def.facing, spin: def.spin, frames: def.frames.clone(), swing: def.swing.clone(), rules: KindRules::Script });
                 };
                 let rules = match behavior {
                     "soldier" => {
@@ -697,7 +703,7 @@ impl Rules {
                     KindRules::Gunship(_) => 30,
                     _ => 0,
                 });
-                Ok(Kind { name: name.clone(), model: def.model.clone(), hp, reach: def.reach, team, immune, free_turn: def.free_turn, spin: def.spin, frames: def.frames.clone(), swing: def.swing.clone(), rules })
+                Ok(Kind { name: name.clone(), model: def.model.clone(), hp, reach: def.reach, team, immune, free_turn: def.free_turn, facing: def.facing, spin: def.spin, frames: def.frames.clone(), swing: def.swing.clone(), rules })
             })
             .collect::<Result<Vec<_>>>()?;
         let fps = own.player.fps.map_or(things::FPS, |f| f.max(0.1));
@@ -707,11 +713,11 @@ impl Rules {
 }
 
 /// Reads a table as it is written, without what it is like or the keys the
-/// engine reads (`like`, `behavior`, `model`, `hp`): an unknown key or a
-/// wrong value is reported where it stands.
+/// engine reads (`like`, `behavior`, `model`, `hp`, `facing`): an unknown
+/// key or a wrong value is reported where it stands.
 fn written<T: serde::de::DeserializeOwned>(table: &toml::Table, what: &str) -> Result<()> {
     let mut table = table.clone();
-    for key in ["like", "behavior", "model", "hp"] {
+    for key in ["like", "behavior", "model", "hp", "facing"] {
         table.remove(key);
     }
     // A kind's keys every kind has (`sim::things::Def`).
