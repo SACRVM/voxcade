@@ -1,7 +1,7 @@
 # Voxcade replay: Drums, 150 ticks, quit, score 0
 version = 1
 game = "Drums"
-fingerprint = "ca0bbfacd5e37ea1"
+fingerprint = "9cd0d53d63e1aaba"
 ticks = 150
 outcome = "quit"
 score = 0
@@ -13,7 +13,7 @@ final_state = "e70fecead922f8ba"
 "conf.lua" = "7486209eac8e7608"
 "main.lua" = "0ee0f0c71073005e"
 music = "750a12ec4c28eaba"
-"music/kit.mml" = "41815e73bffb92bb"
+"music/kit.mml" = "4db8a481bbdf9cab"
 
 [[controls]]
 at = 0

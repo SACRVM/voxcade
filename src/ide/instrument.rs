@@ -637,7 +637,8 @@ fn lerp((a, b): (f64, f64), t: f64) -> f64 {
 fn draw(sort: Sort, dice: &mut Dice) -> Vec<Spec> {
     let o = Part::Own;
     match sort {
-        // The owner's kick recipe ([JE] in the kits): a sub falling in Hz
+        // The owner's kick recipe (from JUST EDIT, the owner's own audio
+        // tool, measured on 154 one-shot kicks): a sub falling in Hz
         // to its pitch, often a body in the slam band (100 to 250 Hz) and
         // a click of band-passed noise (its centre 2.0 to 2.6 kHz), driven
         // together into the soft clipper. `hard` moves them together from
@@ -660,8 +661,9 @@ fn draw(sort: Sort, dice: &mut Dice) -> Vec<Spec> {
             specs.push(Spec::new(Part::Sum, None, vec![("drive", lerp((1.5, 10.0), hard) * dice.between((0.85, 1.15)))], vec![]));
             specs
         }
-        // A tone layer and a noise layer (the kits' snares: a tone at 160
-        // to 260 Hz, noise high- or band-passed over 1.2 kHz).
+        // A tone layer and a noise layer (the snares of the drum kits the
+        // library had until 2026-11-24: a tone at 160 to 260 Hz, noise
+        // high- or band-passed over 1.2 kHz).
         Sort::Snare => {
             let tone = dice.between((160.0, 260.0));
             let d = dice.between((0.06, 0.14));
@@ -710,7 +712,7 @@ fn draw(sort: Sort, dice: &mut Dice) -> Vec<Spec> {
             }
             specs
         }
-        // A sine at 80 to 260 Hz (the kits' toms 107 to 254) falling a
+        // A sine at 80 to 260 Hz (those kits' toms 107 to 254) falling a
         // little from over it, ringing out.
         Sort::Tom => {
             let f = ratio(dice, (80.0, 260.0));
@@ -874,8 +876,9 @@ pub fn good(samples: &[f32], sort: Sort) -> Result<(), String> {
     Ok(())
 }
 
-/// The owner's three kick meters ([JE] in the kits: its KNALL, BALLERN
-/// and BRUSTKORB), ported as its own text defines them: the one-shot from
+/// The owner's three kick meters (JUST EDIT's, the owner's own audio
+/// tool: its KNALL, BALLERN and BRUSTKORB), ported as its own text
+/// defines them: the one-shot from
 /// its onset, over its own peak; bands split by cascaded one-poles (two
 /// a side, 12 dB an octave).
 #[derive(Clone, Copy, Debug)]

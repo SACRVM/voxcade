@@ -130,10 +130,9 @@ exponentially in Hz to the note's pitch, `pitch_decay` its time
 constant (0.02); not with `sweep`. `curve=exp` makes `decay` and
 `release` fall exponentially, their time the fall to -60 dB (so
 -20 dB at a third of it; a release equal to the decay goes on as the
-decay went). The RG-80's bass drum (`music/kits/rg80.mml`) is the
-example: a sub, a body, a click, `= drive=3`. Check a kick with the
-owner's three meters (KNALL, BALLERN, BRUSTKORB; a port in
-`shots/kits/kick_meters.py`, git-ignored) against their good zone.
+decay went). A bass drum so: a sub, a body, a click, `= drive=3`.
+Check a kick with the owner's three meters (KNALL, BALLERN, BRUSTKORB;
+`ide::instrument::kick_meters`) against their good zone.
 
 ## Samples
 
@@ -169,8 +168,8 @@ unlooped note ends with its envelope or when its stretch has played out
 once (the playing song made anew from it); samples count for neither
 replays nor the state hash. `voxcade music FILE.mml` alone finds the
 `samples/` beside the `music/` folder it lies in, else beside the file.
-`games/drums/samples/thump.wav` is the engine's own render of the
-RG-80's bass drum, the studio's `@thump`.
+`games/drums/samples/thump.wav` is the engine's own render of a
+layered bass drum, the studio's `@thump`.
 
 ## A song from a recipe
 
