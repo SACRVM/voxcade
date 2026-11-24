@@ -760,7 +760,7 @@ function Frame:grid(grid) end
 ---Writes text on the screen, over the level. x and y are its top left, in UI voxels from the screen's top left (frame.width across, frame.height down).
 ---- color: a Color, a fourth value see-through.
 ---- size: 1 the small letters (7 voxels high), 2 to 4 the big ones (c.ui.display_font).
----- An action in braces is its key as the player sees it: "PRESS {jump}" writes PRESS X, or the pad's button (controls:key). {{ writes a brace.
+---- An action in braces is its key as the player sees it: "{jump} JUMP" draws the key as a small sign where there is one (an arrow, a letter in a thin frame, the pad's button, the mouse), else writes its name (controls:key); "{jump:name}" always its name. The big letters of a display font write the name. {{ writes a brace.
 ---Written as you write it: lower case, the letters of German and French (ä ö ü ß é è ê à ç œ …) and signs such as · × → ▲ ▼ ✓ … „ « ». A display font has capitals only; a key's name is in capitals.
 ---What is drawn first on the HUD lies on top: where two things share a voxel, the first keeps it (a box drawn later does not cover an icon drawn before).
 ---@param text string
@@ -829,7 +829,7 @@ function Frame:drop_in(text, x, y, ticks, color, size) end
 ---@field device string|nil What the player plays with, the one used last: "keyboard" or "gamepad"; nil before the run's first tick and where nobody plays (tests, a replay recorded without it).
 local Controls = {}
 
----The first key or button of an action (c.actions, one the ready-made rules bring, or pause) as the player sees it: the keyboard's key as it is printed on it (Y where the binding is Z on a German keyboard), the pad's button as it is printed on the pad (B, CIRCLE). Empty if nothing is bound or nobody plays.
+---The first key or button of an action (c.actions, one the ready-made rules bring, or pause) as the player sees it: the keyboard's key as it is printed on it (Y where the binding is Z on a German keyboard), the pad's button as it is printed on the pad (B, CIRCLE). Empty if nothing is bound or nobody plays. In a text, {action} draws it as a sign, {action:name} writes this.
 ---@param action string
 ---@return string
 function Controls:key(action) end
@@ -1093,7 +1093,7 @@ function on_pickup(thing, item) end
 ---@field rotation integer Degrees clockwise seen from above, 0, 90, 180 or 270.
 
 ---@class Conf.title_screen
----@field music string What plays on the engine's title, a song of c.audio.music, named as music:play takes it ("storm") or by its file ("music/storm.mml"). Unset: its first song. A title level of the game's own (c.title_screen.level) plays its song from its code, as every level does (music:play in its on_level_start): set with it, this is a mistake.
+---@field music string What plays on the engine's title, a song of c.audio.music, named as music:play takes it ("storm") or by its file ("music/storm.mml"). Unset, the title is silent. A title level of the game's own (c.title_screen.level) plays its song from its code, as every level does (music:play in its on_level_start): set with it, this is a mistake.
 ---@field music_at integer The bar the engine's title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro. It goes round as the song says (#loop). A title level of the game's own says it in its code (music:play's at). (from 1 to 9999)
 ---@field at number[] The ground point the camera looks at (default: where the player starts).
 ---@field view_width number Voxels across the screen there (default: c.camera.view_width). (above 0, up to 65536)

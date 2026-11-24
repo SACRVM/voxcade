@@ -57,6 +57,7 @@ function conf(c)
   -- Calm songs from the library (music/, made by tools/compose.py); keys
   -- 1 and 2 switch, the title plays the first.
   c.audio.music = { "music/crates_at_dawn.mml", "music/quiet_warehouse.mml" }
+  c.title_screen.music = "music/crates_at_dawn.mml"   -- the engine's title's song (unset, the title is silent)
   c.audio.music_volume = 0.4
 
   -- the sounds are files, sounds/NAME.toml, played by their names (level:sound)

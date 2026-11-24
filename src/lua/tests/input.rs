@@ -5,34 +5,38 @@ use super::*;
 
 /// `controls` is what the player plays with, there everywhere: the device
 /// used last and how it labels an action's key (the keyboard by its
-/// layout, the pad by its letters), in a text as the action in braces too;
-/// nobody plays until a window or a replay says who does. An action the
-/// game lacks is named, and so is a brace left open.
+/// layout, the pad by its letters), in a text as the action in braces too
+/// (its sign where there is one, `{action:name}` its name; a sign's own
+/// character in a script's text is left out); nobody plays until a window
+/// or a replay says who does. An action the game lacks is named, and so
+/// is a brace left open or a word after the colon but name.
 #[test]
 fn controls_name_the_keys_in_hand() {
     use crate::controls::{Bindings, Device, PadStyle};
     let main = "function on_tick() world.state.seen = controls.device or 'nobody' end\n\
-                function on_draw(frame) frame:text((controls.device or 'nobody') .. ':' .. controls:key('fire') .. ':{pause}:{{', 0, 0) end\n";
+                function on_draw(frame) frame:text((controls.device or 'nobody') .. ':' .. controls:key('fire') .. ':{pause:name}:{pause}:{{\u{E000}', 0, 0) end\n";
     let mut g = game("keys-in-hand", main);
     let shown = |g: &Session<LuaGame>| {
         g.compose(0.0, 1.6, Scene::Play, None);
         first_text(g)
     };
-    assert_eq!(shown(&g), "nobody:::{");
+    assert_eq!(shown(&g), "nobody::::{");
+    let sign = |device, label| crate::ui::signs::key_sign(device, label).unwrap();
     let mut settings = crate::settings::Settings::default();
     settings.keys = Bindings::new(&[("fire", &["Z"]), ("pause", &["Escape"])]);
     settings.pad = Bindings::new(&[("fire", &["east"]), ("pause", &["start"])]);
     settings.key_names.insert("Z".into(), "Y".into());
     g.set_controls(g.player_controls(Device::Keyboard, PadStyle::Xbox, &settings));
-    assert_eq!(shown(&g), "keyboard:Y:ESCAPE:{", "a German keyboard's Y where the binding says Z");
+    assert_eq!(shown(&g), format!("keyboard:Y:ESCAPE:{}:{{", sign(Device::Keyboard, "ESCAPE")), "a German keyboard's Y where the binding says Z");
     steps(&mut g, 1);
     assert_eq!(state(&mut g, "seen"), format!("{:?}", crate::lua::Value::Str(b"keyboard".to_vec())), "on_tick sees it too");
     g.set_controls(g.player_controls(Device::Gamepad, PadStyle::PlayStation, &settings));
-    assert_eq!(shown(&g), "gamepad:CIRCLE:OPTIONS:{");
+    assert_eq!(shown(&g), format!("gamepad:CIRCLE:OPTIONS:{}:{{", sign(Device::Gamepad, "OPTIONS")));
     for (name, line, says) in [
         ("keys-unknown", "frame:text(controls:key('jumpp'), 0, 0)", "controls:key: no action 'jumpp'"),
         ("keys-unknown-text", "frame:text('PRESS {jumpp}', 0, 0)", "frame:text: no action 'jumpp'"),
         ("keys-open-brace", "frame:text('PRESS {fire', 0, 0)", "frame:text: a '{' without its '}'"),
+        ("keys-other-word", "frame:text('PRESS {fire:sign}', 0, 0)", "frame:text: {fire:sign}: after an action only :name"),
     ] {
         let g = game(name, &format!("function on_draw(frame) {line} end\n"));
         g.compose(0.0, 1.6, Scene::Play, None);

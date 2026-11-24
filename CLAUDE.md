@@ -782,7 +782,9 @@ nearest; its replay `tests/two_ships`);
   pictures` and say so in the commit; `every_letter_reads_as_it_did`
   draws every character of the pixel font and More Blood's display font
   on a plain sky, its means in cells of 8 by 8 pixels against
-  `tests/letters.txt` (a wrong letter moves cells; renewed alike).
+  `tests/letters.txt` (a wrong letter moves cells; renewed alike), and
+  `every_sign_reads_as_it_did` every key's sign (`ui::signs`) so, in the
+  small letters and twice as big, against `tests/signs.txt`.
   `tests/docs_examples.rs` reads
   the level, map and model examples of `docs/tiles.md` with the engine's
   own readers; `a_picture_drawn_twice_is_the_same_to_the_byte` (in
@@ -1609,7 +1611,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   keyboard's Y for the bindings' Z), and typed initials are the letters
   the keys say. A Lua game names them too (`controls.device`, the
   device used last; `controls:key(action)`; in a text the action in
-  braces, `frame:text("{undo} UNDO")`); they come from the player's
+  braces, `frame:text("{undo} UNDO")`, drawn as the key's small sign
+  where the engine has one, else its name, `{undo:name}` always the name:
+  `src/ui/signs.rs`, the owner's 2026-11-24 "dezent und nie
+  übertreiben": the pixel font's size, ink in the text's color, frames
+  and outlines a quieter tone of it (`signs::quiet`), a letter key its
+  small letter in a thin frame, the arrows, Tab, Shift, Return,
+  Backspace and Space plain signs, the mouse an outline with the button
+  filled, a pad's face buttons a letter in a ring or the PlayStation's
+  shape, shoulders framed, the d-pad a cross with the way lit; each a
+  character of the private use area, measured by `ui::advance`, never
+  in a script's own text; the big letters of a display font write the
+  name; the engine's menus hint only what is not plain, choosing with
+  Return, a click or the pad's confirm and going back are standard and
+  unsaid, `ui::hint_text`); they come from the player's
   machine, so the window sets them before its ticks and replays write
   them down when they change (`replay::ControlsAt`; nobody plays in
   replays from before):
@@ -1752,8 +1767,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (what plays goes on, silence stays); no song of the player's (SETTINGS'
   song row, its preview, the maker's keys 1 to 9 and `Settings::song`
   are gone; `music:play()` without a song is a mistake saying so), only
-  the engine's title has a song of its own (`c.title_screen.music`, else
-  the first of `c.audio.music`); `music:pause()` and `music:resume()`
+  the engine's title has a song of its own (`c.title_screen.music`;
+  unset the title is silent, its attract mode too: the owner, 2026-11-24,
+  "still wenn keine musik gewählt"; the upgrade step "the title's song
+  named" writes the first song a player heard into an older game's
+  `conf.lua`); `music:pause()` and `music:resume()`
   hold the song and its clock (`music.paused`; `host::Music::paused`, in
   the hash only once set; the mixer fades 5 ms each way and the song
   goes on from the sample it held at, `Mixer::hold_music`'s

@@ -466,8 +466,11 @@ settings. Several players: `player` is seat 1, the others are in
   =, color =, falloff =, cone =, blend =, rotation =, pitch =, shadows =, fog =
   }` with a level's light's words, `frame:light(at, radius, color)` as
   before 0.7, both a lamp walls stop unless `shadows = "none"`). An action in braces in a
-  text is its key as the player sees it (`"PRESS {jump}"`, as
-  `controls:key`), `{{` a brace.
+  text is its key as the player sees it (`"{jump} JUMP"`): a small sign
+  where the engine has one (an arrow, a letter in a thin frame, the pad's
+  button, the mouse; `ui::signs`, in the pixel font's size, never louder
+  than the text), else its name as `controls:key` says it;
+  `{jump:name}` always the name, `{{` a brace.
   `frame:model` rotates a model further (`rotation`) and poses a figure
   of parts (`pose`: each part by its name, a rotation about its joint): only the
   picture, decided anew each frame from the states, as a kind's `swing`
@@ -910,7 +913,8 @@ Then:
   only), and so is going to the title level.
 - Its song comes from its code, as every level's: `music:play` in its
   `on_level_start`. `c.title_screen.music` and `music_at` are the
-  engine's title's (it has no code); set with `c.title_screen.level` they
+  engine's title's (it has no code; unset, the engine's title is silent,
+  no song is a default); set with `c.title_screen.level` they
   are a mistake at load naming both and the call to make (the upgrade
   step "music from the code" moves them where it can). A run begun from
   the title whose first level asks the same song lets it play on,

@@ -75,6 +75,7 @@ function conf(c)
   c.effects.haze = 0.0
 
   c.audio.music = { "music/pulsar_drive.mml" }
+  c.title_screen.music = "music/pulsar_drive.mml"   -- the engine's title's song (unset, the title is silent)
   c.audio.music_volume = 0.45
   -- the sounds are files, sounds/NAME.toml, played by their names (level:sound)
 

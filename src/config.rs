@@ -486,7 +486,7 @@ impl Default for PlayerConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct TitleScreenConfig {
-    /// What plays on the engine's title, a song of `c.audio.music`, named as `music:play` takes it (`"storm"`) or by its file (`"music/storm.mml"`). Unset: its first song.
+    /// What plays on the engine's title, a song of `c.audio.music`, named as `music:play` takes it (`"storm"`) or by its file (`"music/storm.mml"`). Unset, the title is silent.
     /// A title level of the game's own (`c.title_screen.level`) plays its song from its code, as every level does (`music:play` in its `on_level_start`): set with it, this is a mistake.
     pub music: Option<String>,
     /// The bar the engine's title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro.

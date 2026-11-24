@@ -50,6 +50,10 @@ const STEPS: &[Step] = &[
     Step { since: "0.7.0", name: "names of 0.7", plan: names::plan, apply: names::apply, left: Some(names::left) },
     Step { since: "0.7.0", name: "music from the code", plan: music::plan, apply: music::apply, left: Some(music::left) },
     Step { since: "0.7.0", name: "kinds facing their way", plan: facing::plan, apply: facing::plan, left: None },
+    // No `left`: a game stating 0.7.0 may be silent on its title on
+    // purpose (the repo's games and templates were brought over by it as
+    // it came).
+    Step { since: "0.7.0", name: "the title's song named", plan: title_song::plan, apply: title_song::apply, left: None },
 ];
 
 /// The steps that only say what the author should change and write nothing.
@@ -461,6 +465,9 @@ mod music;
 /// game without that kit now face their way and how to keep the old look
 /// (the facing taken out); it changes nothing.
 mod facing;
+/// Step 0.7.0: the engine's title is silent unless `c.title_screen.music`
+/// names its song: the song it played before written into `conf.lua`.
+mod title_song;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

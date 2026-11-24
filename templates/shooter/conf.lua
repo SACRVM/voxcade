@@ -106,6 +106,7 @@ function conf(c)
 
   c.title_screen.logo = { "MY GAME" }
   c.audio.music = { "music/hot_pursuit.mml" }
+  c.title_screen.music = "music/hot_pursuit.mml"   -- the engine's title's song (unset, the title is silent)
 
   -- Small pictures for the HUD (main.lua draws them). Each letter is a
   -- color; a dot is empty.

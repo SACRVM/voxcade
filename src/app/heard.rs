@@ -293,6 +293,35 @@ mod tests {
         assert_eq!(quiet, 0, "{quiet} windows of 20 ms silent through the change");
     }
 
+    /// The engine's title without `c.title_screen.music` is silent, its
+    /// attract mode too (the owner, 2026-11-24: no song is a default, not
+    /// the first of `c.audio.music`): no song begun from the window opening
+    /// on, into a run whose code asks one and back; named, that song.
+    #[test]
+    fn the_engine_title_plays_only_the_song_it_names() {
+        let (_dir, mut g) = game("heard-silent-title", "function on_tick() if world.tick == 30 then music:play(\"two\") end end\n", "  c.title_screen.level = nil\n");
+        // Songs begun: every hand-over that was no silence.
+        let begun = |h: &Heard| h.mixer.tally.songs - h.mixer.tally.silences;
+        let mut heard = Heard::open(&mut g, Opening::EngineTitle, false).unwrap();
+        frames(&mut heard, &mut g, 120, false);
+        assert_eq!((begun(&heard), heard_now(&heard)), (0, vec![]), "a silent title");
+        assert!(heard.samples.iter().all(|v| *v == 0.0));
+        heard.front.attracting = true;
+        frames(&mut heard, &mut g, 60, false);
+        assert_eq!(begun(&heard), 0, "its attract mode under no music");
+        heard.front.attracting = false;
+        heard.start();
+        frames(&mut heard, &mut g, 60, false);
+        assert_eq!((begun(&heard), heard_now(&heard)), (1, vec!["two"]), "the run's code asks its song");
+        heard.to_title(&mut g).unwrap();
+        frames(&mut heard, &mut g, 30, false);
+        assert_eq!((begun(&heard), heard.mixer.songs_sounding()), (1, 0), "back on a silent title: the run's song goes, none begun");
+        let (_dir, mut g) = game("heard-named-title", "", "  c.title_screen.level = nil\n  c.title_screen.music = \"three\"\n");
+        let mut heard = Heard::open(&mut g, Opening::EngineTitle, false).unwrap();
+        frames(&mut heard, &mut g, 60, false);
+        assert_eq!((begun(&heard), heard_now(&heard)), (1, vec!["three"]), "the song it names");
+    }
+
     /// The engine's title, a run and the way back: the title's song from
     /// the first frame; a run whose code asks nothing lets it play on
     /// (music comes from the code alone, and a scene that asks nothing
@@ -301,7 +330,7 @@ mod tests {
     /// end brings the title's song again.
     #[test]
     fn the_engine_title_and_a_run_hand_the_mixer_once_a_change() {
-        let (_dir, mut g) = game("heard-engine-title", "function on_tick() if world.tick == 60 then music:play(\"two\", \"now\") end end\n", "  c.title_screen.level = nil\n");
+        let (_dir, mut g) = game("heard-engine-title", "function on_tick() if world.tick == 60 then music:play(\"two\", \"now\") end end\n", "  c.title_screen.level = nil\n  c.title_screen.music = \"one\"\n");
         let mut heard = Heard::open(&mut g, Opening::EngineTitle, false).unwrap();
         assert_eq!(frames(&mut heard, &mut g, 60, false), 1);
         assert_eq!((heard.mixer.tally.songs, heard_now(&heard)), (1, vec!["one"]), "the title's song from the first frame");

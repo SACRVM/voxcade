@@ -182,8 +182,14 @@ pub fn engine_case(s: &str) -> String {
     out
 }
 
+/// How far a character moves the pen, in pixel-font voxels: a letter 5
+/// and a column of air, a key's sign (`signs`) its width and one.
+pub fn advance(ch: char) -> f32 {
+    super::signs::sign(ch).map_or(6.0, |s| s.width as f32 + 1.0)
+}
+
 pub fn text_width(s: &str, scale: i32) -> f32 {
-    (s.chars().count() as f32 * 6.0 - 1.0) * scale as f32
+    (s.chars().map(advance).sum::<f32>() - 1.0) * scale as f32
 }
 
 /// A line's width at `scale`: in the display font from 2 up when the game
@@ -219,9 +225,26 @@ pub fn text(out: &mut Vec<Instance>, s: &str, x: f32, y: f32, scale: i32, color:
 /// A game's text as it is written, lower case and accents too; the line
 /// at `y`, a g's tail below it.
 pub fn written(out: &mut Vec<Instance>, s: &str, x: f32, y: f32, scale: i32, color: [u8; 4], depth: i32) {
-    for (i, ch) in s.chars().enumerate() {
-        let Some(g) = glyph(ch) else { continue };
-        letter(out, g, accented(ch).map(|(_, a)| a), x + i as f32 * 6.0 * scale as f32, y, scale, color, depth);
+    let mut at = x;
+    for ch in s.chars() {
+        drawn(out, ch, at, y, scale, color, depth);
+        at += advance(ch) * scale as f32;
+    }
+}
+
+/// A character at `x`, `y`: its glyph, or a key's sign (`signs`).
+#[allow(clippy::too_many_arguments)]
+fn drawn(out: &mut Vec<Instance>, ch: char, x: f32, y: f32, scale: i32, color: [u8; 4], depth: i32) {
+    if let Some(sign) = super::signs::sign(ch) {
+        let quiet = super::signs::quiet(color);
+        let rows: [&str; 9] = std::array::from_fn(|r| sign.rows[r].as_str());
+        dots(out, &rows, sign.width as i32, x, y - (sign.top * scale) as f32, scale, depth, |c| match c {
+            b'#' => Some(color),
+            b'+' => Some(quiet),
+            _ => None,
+        });
+    } else if let Some(g) = glyph(ch) {
+        letter(out, g, accented(ch).map(|(_, a)| a), x, y, scale, color, depth);
     }
 }
 
@@ -240,16 +263,19 @@ pub(super) fn shown_row<'a>(g: &'a [&'a str; 9], accent: Option<[&'a str; 2]>, r
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn letter(out: &mut Vec<Instance>, g: &[&str; 9], accent: Option<[&str; 2]>, x: f32, y: f32, scale: i32, color: [u8; 4], depth: i32) {
-    let on = |c: i32, r: i32| {
-        let row = (0..9).contains(&r).then(|| shown_row(g, accent, r));
-        (0..5).contains(&c) && row.is_some_and(|row| row.as_bytes()[c as usize] == b'#')
-    };
+    let rows: [&str; 9] = std::array::from_fn(|r| shown_row(g, accent, r as i32));
+    dots(out, &rows, 5, x, y, scale, depth, |c| (c == b'#').then_some(color));
+}
+
+/// Nine rows of dots `width` wide (row 0 the capitals' top, 7 and 8 below
+/// the line) as voxels from `x`, `y`, `ink` the color of each sort of dot
+/// (None: nothing there).
+#[allow(clippy::too_many_arguments)]
+fn dots(out: &mut Vec<Instance>, rows: &[&str; 9], width: i32, x: f32, y: f32, scale: i32, depth: i32, ink: impl Fn(u8) -> Option<[u8; 4]>) {
     let d = depth * scale.min(2);
-    for r in 0..9 {
-        for c in 0..5 {
-            if !on(c, r) {
-                continue;
-            }
+    for (r, row) in (0..9).zip(rows) {
+        for c in 0..width {
+            let Some(color) = row.as_bytes().get(c as usize).and_then(|&b| ink(b)) else { continue };
             for sy in 0..scale {
                 for sx in 0..scale {
                     let px = x + (c * scale + sx) as f32;
@@ -283,10 +309,11 @@ pub fn dropping(out: &mut Vec<Instance>, s: &str, layout: &Layout, x: Option<f32
         return;
     }
     let width = text_width(s, scale);
-    let x0 = x.unwrap_or_else(|| ((layout.width - width) / 2.0).round());
+    let mut at = x.unwrap_or_else(|| ((layout.width - width) / 2.0).round());
     for (i, ch) in s.chars().enumerate() {
-        let Some(g) = glyph(ch) else { continue };
-        let Some(lift) = drop_lift(t - (i as u64 * LETTER_DELAY) as f32, 60.0, 0.25) else { continue };
-        letter(out, g, accented(ch).map(|(_, a)| a), x0 + i as f32 * 6.0 * scale as f32, y + lift, scale, color, depth);
+        if let Some(lift) = drop_lift(t - (i as u64 * LETTER_DELAY) as f32, 60.0, 0.25) {
+            drawn(out, ch, at, y + lift, scale, color, depth);
+        }
+        at += advance(ch) * scale as f32;
     }
 }
