@@ -423,10 +423,10 @@ impl<K: Kit> LuaGame<K> {
     fn title_song(cfg: &GameConfig, levels: &crate::levels::Levels) -> Result<Option<usize>> {
         let (Some(_), Some(file)) = (levels.title, cfg.title_screen.music.as_deref()) else { return Ok(None) };
         let files = cfg.audio.music.files();
-        match files.iter().position(|f| *f == file) {
+        match cfg.audio.music.file_of(file).and_then(|found| files.iter().position(|f| *f == found)) {
             Some(song) => Ok(Some(song)),
             None => anyhow::bail!(
-                "c.title_screen.music = \"{file}\": a title level of the game's own (c.title_screen.level) plays a song of c.audio.music, and it is not there (its songs: {})",
+                "c.title_screen.music = \"{file}\": a title level of the game's own (c.title_screen.level) plays a song of c.audio.music, named as music:play takes it (\"NAME\") or by its file (\"music/NAME.mml\"), and it is not there (its songs: {})",
                 if files.is_empty() { "none".to_string() } else { files.join(", ") }
             ),
         }

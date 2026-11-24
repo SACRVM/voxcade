@@ -486,7 +486,7 @@ impl Default for PlayerConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct TitleScreenConfig {
-    /// What plays on the title, a song of `c.audio.music`. Unset: on the engine's title its first song, on a title level of the game's own the player's song, as in a run.
+    /// What plays on the title, a song of `c.audio.music`, named as `music:play` takes it (`"storm"`) or by its file (`"music/storm.mml"`). Unset: on the engine's title its first song, on a title level of the game's own the player's song, as in a run.
     /// On a title level of the game's own (`c.title_screen.level`) it begins as the level does, as the game's own song (`music.song` says it), until your code plays another or stops it (`music:play`, `music:stop`, in `on_level_start` too), and again each time the title comes back.
     pub music: Option<String>,
     /// The bar the title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro.
@@ -1278,6 +1278,16 @@ pub enum Songs {
 impl Songs {
     fn is_none(&self) -> bool {
         *self == Songs::None
+    }
+
+    /// The file of these songs a setting names: by its path as written
+    /// here (`"music/storm.mml"`) or by the song's name as `music:play`
+    /// takes it (the file's name without its ending, `"storm"`).
+    pub fn file_of(&self, named: &str) -> Option<&str> {
+        let files = self.files();
+        files.iter().copied().find(|f| *f == named).or_else(|| {
+            files.iter().copied().find(|f| std::path::Path::new(f).file_stem().is_some_and(|s| s.to_string_lossy() == named))
+        })
     }
 
     pub fn files(&self) -> Vec<&str> {

@@ -343,6 +343,25 @@ fn the_games_music_wins_over_the_title_song() {
     assert_eq!(song(&mut g).0, "\"two\"", "played later on the title");
 }
 
+/// The title's song is named as `music:play` takes one (the file's name
+/// without its ending) or by its file as `c.audio.music` writes it: a game
+/// wrote the name, and the check knew only the file.
+#[test]
+fn the_title_song_is_named_as_music_play_takes_it_or_by_its_file() {
+    for named in ["three", "music/three.mml"] {
+        let dir = title_folder("title-song-named", "");
+        with_songs(&dir, &format!("  c.title_screen.music = \"{named}\"\n  c.title_screen.music_at = 3\n"));
+        let mut g = game_in(&dir);
+        g.begin_title().unwrap();
+        assert_eq!(song(&mut g), ("\"three\"".into(), Some(8.0)), "{named}");
+        assert!(g.music().is_some(), "{named}: the title's song for the mixer");
+    }
+    let dir = title_folder("title-song-named-wrong", "");
+    with_songs(&dir, "  c.title_screen.music = \"thre\"\n");
+    let e = start_error(&dir);
+    assert!(e.contains("named as music:play takes it (\"NAME\") or by its file (\"music/NAME.mml\")"), "{e}");
+}
+
 /// A title level of the game's own plays its song as the game's: one not
 /// in `c.audio.music` is a mistake at load naming both settings.
 #[test]

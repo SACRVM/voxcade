@@ -62,7 +62,9 @@ fn heard<'a>(cfg: &'a GameConfig, songs: &[audio::music::Timing]) -> Vec<&'a str
 /// The title's song file: `c.title_screen.music`, else the first song a
 /// player hears.
 fn title_song<'a>(cfg: &'a GameConfig, songs: &[audio::music::Timing]) -> Option<&'a str> {
-    cfg.title_screen.music.as_deref().or_else(|| heard(cfg, songs).first().copied())
+    // By its file or by its name; a name not among the songs stays as
+    // written (the engine's title then finds no file and plays nothing).
+    cfg.title_screen.music.as_deref().map(|named| cfg.audio.music.file_of(named).unwrap_or(named)).or_else(|| heard(cfg, songs).first().copied())
 }
 
 /// The title's song: not a studio, and `c.title_screen.music_at` within
@@ -70,7 +72,7 @@ fn title_song<'a>(cfg: &'a GameConfig, songs: &[audio::music::Timing]) -> Option
 /// setting (a song that does not read says its own mistake when it is
 /// played; without a song there is nothing to begin).
 pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig, songs: &[audio::music::Timing]) -> Result<()> {
-    if let Some(file) = cfg.title_screen.music.as_deref()
+    if let Some(file) = cfg.title_screen.music.as_deref().map(|named| cfg.audio.music.file_of(named).unwrap_or(named))
         && cfg.audio.music.files().iter().zip(songs).any(|(f, t)| *f == file && t.studio.is_some())
     {
         anyhow::bail!("conf.lua: c.title_screen.music = \"{file}\" is a file of instruments, no song to play (a game lays its channels over it, music:play)");
