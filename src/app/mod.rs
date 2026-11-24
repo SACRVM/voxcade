@@ -238,7 +238,13 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
     // paused while the menu is open.
     let mut front = Front::new(title_menu(&game));
     let seating = Seating::new(game.cfg.players);
-    if let Some(speaker) = speaker.as_mut() {
+    // The engine's title plays its song from the first moment. A title
+    // level of the game's own gets its song once, from the game as that
+    // level begins (`LuaGame::title_song`): begun here too, it sounded
+    // twice, the first copy from before the first picture.
+    if let Some(speaker) = speaker.as_mut()
+        && game.cfg.title_screen.level.is_none()
+    {
         let title = game.title_music();
         if let Some(mut mixer) = speaker.lock() {
             mixer.set_music(title);
