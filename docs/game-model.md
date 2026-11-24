@@ -910,7 +910,8 @@ Then:
   only), and so is going to the title level.
 - Its song comes from its code, as every level's: `music:play` in its
   `on_level_start`. `c.title_screen.music` and `music_at` are the
-  engine's title's (it has no code); set with `c.title_screen.level` they
+  engine's title's (it has no code; unset, the engine's title is silent,
+  no song is a default); set with `c.title_screen.level` they
   are a mistake at load naming both and the call to make (the upgrade
   step "music from the code" moves them where it can). A run begun from
   the title whose first level asks the same song lets it play on,

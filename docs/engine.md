@@ -548,7 +548,8 @@ machines' attract mode).
   letters, picked like at an arcade machine after a run that beats a
   line; on the title the round goes title, table, replay.
 - Attract mode: 30 s on the title without a key and the game's replays
-  play under the title music, PRESS START blinking.
+  play under the title music (none where the title is silent), PRESS
+  START blinking.
 - `voxcade film`: a replay as MP4 or WebM through ffmpeg, its music and
   sounds mixed alongside, or as a GIF built in; `--max-mb` keeps a video
   under a chat's upload limit. The user's 148-second run: 1080p at 60
@@ -563,7 +564,7 @@ song of the player's. One decision, one hand-over (2026-11-24, after a
 title of a game's own played its song twice and hung when the window
 stalled). The window's front end decides what should sound
 (`Front::wanted`: the engine's title, whose song is
-`c.title_screen.music`, or the game's) and `App::music` hands the mixer
+`c.title_screen.music`, silent unless it names one, or the game's) and `App::music` hands the mixer
 in one place only when that changes; the game's part is its session's
 (`Session::new_music`, `hand_music`), which names every song by its file,
 text and laid channels so the same song asked again across a change of

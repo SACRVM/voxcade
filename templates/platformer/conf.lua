@@ -63,6 +63,7 @@ function conf(c)
   c.title_screen.logo_colors = { "#e8a040" }
 
   c.audio.music = { "music/under_the_dunes.mml" }
+  c.title_screen.music = "music/under_the_dunes.mml"   -- the engine's title's song (unset, the title is silent)
   c.audio.music_volume = 0.4
 
   -- The camera looks from a little above and shows the whole room.

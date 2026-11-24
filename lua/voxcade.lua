@@ -1093,7 +1093,7 @@ function on_pickup(thing, item) end
 ---@field rotation integer Degrees clockwise seen from above, 0, 90, 180 or 270.
 
 ---@class Conf.title_screen
----@field music string What plays on the engine's title, a song of c.audio.music, named as music:play takes it ("storm") or by its file ("music/storm.mml"). Unset: its first song. A title level of the game's own (c.title_screen.level) plays its song from its code, as every level does (music:play in its on_level_start): set with it, this is a mistake.
+---@field music string What plays on the engine's title, a song of c.audio.music, named as music:play takes it ("storm") or by its file ("music/storm.mml"). Unset, the title is silent. A title level of the game's own (c.title_screen.level) plays its song from its code, as every level does (music:play in its on_level_start): set with it, this is a mistake.
 ---@field music_at integer The bar the engine's title's song begins at, counted from 1 (its start): 33 for a song with 32 bars of intro. It goes round as the song says (#loop). A title level of the game's own says it in its code (music:play's at). (from 1 to 9999)
 ---@field at number[] The ground point the camera looks at (default: where the player starts).
 ---@field view_width number Voxels across the screen there (default: c.camera.view_width). (above 0, up to 65536)

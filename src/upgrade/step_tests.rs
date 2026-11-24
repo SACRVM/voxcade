@@ -129,6 +129,15 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
             }),
         ),
         (
+            "the title's song named",
+            game("step-title-song", &|d| {
+                put(d, "conf.lua", &conf("  c.audio.music = { \"music/kit.mml\",\n    \"music/storm.mml\" }\n  c.audio.music_volume = 0.4\n"));
+                put(d, "music/kit.mml", "#tempo 120\n@k sine\n");
+                put(d, "music/storm.mml", "#tempo 120\n@a triangle\nA: c1 c1 c1 c1\n");
+                put(d, "main.lua", "function on_level_start(how)\n  music:play(\"storm\")\nend\n");
+            }),
+        ),
+        (
             "worlds and prefabs as text",
             game("step-worlds", &|d| {
                 put(d, "conf.lua", &conf("  c.world.file = \"world.vox\"\n"));
@@ -219,7 +228,7 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
         put(d, "main.lua", "function on_world_start() end\n");
     });
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code", "the title's song named"]);
     assert!(steps[1].would.is_empty(), "no lamps to speak of");
     let e = opens(&dir).unwrap_err().to_string();
     assert!(e.contains("made for Voxcade 0.6.0"), "{e}");
@@ -289,4 +298,55 @@ fn music_from_the_code_adds_the_call_where_it_safely_can() {
     let said = upgrade(&later, false).unwrap().join("\n");
     assert!(said.contains("main.lua: on_level_start: music comes from the game's code alone now, and the game asks its songs only later"), "{said}");
     opens(&later).unwrap();
+}
+
+/// "the title's song named" on games of each shape: on the engine's title
+/// with songs and no `c.title_screen.music`, the first song a player heard
+/// (not a file of instruments) is written after `c.audio.music`, and the
+/// title then has that song; a title song named, a title level of the
+/// game's own or no song at all: nothing; `c.audio` set whole, the songs
+/// set inside a block or `c.title_screen` set whole after them: the line
+/// said, nothing changed.
+#[test]
+fn the_titles_song_is_named_where_the_title_played_the_first() {
+    let conf = |rest: &str| format!("function conf(c)\n  c.voxcade = \"0.6.0\"\n{rest}end\n");
+    let songs = |d: &Path, conf: &str| {
+        put(d, "conf.lua", conf);
+        put(d, "main.lua", "function on_level_start(how)\n  music:play(\"calm\")\nend\n");
+        put(d, "music/kit.mml", "#tempo 120\n@k sine\n");
+        put(d, "music/storm.mml", "#tempo 120\n@a triangle\nA: c1 c1 c1 c1\n");
+        put(d, "music/calm.mml", "#tempo 90\n@a triangle\nA: c1 c1 c1 c1\n");
+    };
+    let step = STEPS.iter().find(|s| s.name == "the title's song named").unwrap();
+    let plain = game("step-title-plain", &|d| songs(d, &conf("  c.audio.music = { \"music/kit.mml\", \"music/storm.mml\", \"music/calm.mml\" }\n  c.audio.music_volume = 0.4\n")));
+    let dry = (step.plan)(&plain).unwrap();
+    assert_eq!(dry, ["conf.lua:4: the engine's title is silent now unless c.title_screen.music names its song; adds c.title_screen.music = \"music/storm.mml\" after c.audio.music, so the title plays the song it played before"]);
+    upgrade(&plain, false).unwrap();
+    let text = std::fs::read_to_string(plain.join("conf.lua")).unwrap();
+    assert!(text.contains("  c.audio.music = { \"music/kit.mml\", \"music/storm.mml\", \"music/calm.mml\" }\n  c.title_screen.music = \"music/storm.mml\"   -- the engine's title's song (unset, the title is silent)\n  c.audio.music_volume = 0.4\n"), "{text}");
+    let mut cfg = crate::config::GameConfig::default();
+    crate::lua::conf::run(&crate::files::Files::folder(&plain), &mut cfg).unwrap();
+    assert_eq!(cfg.title_screen.music.as_deref(), Some("music/storm.mml"), "the title plays storm as before");
+    assert!((step.plan)(&plain).unwrap().is_empty(), "nothing more to do");
+    // Untouched: a title song named, a title of the game's own, no songs.
+    for (name, rest) in [
+        ("step-title-named", "  c.audio.music = { \"music/storm.mml\", \"music/calm.mml\" }\n  c.title_screen.music = \"calm\"\n"),
+        ("step-title-own", "  c.audio.music = { \"music/storm.mml\" }\n  c.title_screen.level = \"title\"\n"),
+        ("step-title-none", "  c.audio.music = { \"music/kit.mml\" }\n"),
+    ] {
+        let dir = game(name, &|d| songs(d, &conf(rest)));
+        assert!((step.plan)(&dir).unwrap().is_empty(), "{name}");
+    }
+    // Where the line cannot safely go: said, nothing changed.
+    for (name, rest) in [
+        ("step-title-whole", "  c.audio = { music = { \"music/storm.mml\" }, music_volume = 0.4 }\n"),
+        ("step-title-block", "  if true then\n    c.audio.music = { \"music/storm.mml\" }\n  end\n"),
+        ("step-title-after", "  c.audio.music = { \"music/storm.mml\" }\n  c.title_screen = { logo = { \"GAME\" } }\n"),
+    ] {
+        let dir = game(name, &|d| songs(d, &conf(rest)));
+        let before = std::fs::read(dir.join("conf.lua")).unwrap();
+        let said = (step.apply)(&dir).unwrap();
+        assert_eq!(said, ["conf.lua: the engine's title is silent now unless c.title_screen.music names its song: add c.title_screen.music = \"music/storm.mml\" to conf(c), after c.audio.music, for the song it played before (nothing is changed here)"], "{name}");
+        assert_eq!(std::fs::read(dir.join("conf.lua")).unwrap(), before, "{name}");
+    }
 }

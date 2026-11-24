@@ -236,7 +236,7 @@ c.audio.music = { "music/sunny_hills.mml" }   -- the game's songs; its code play
 c.audio.music_volume = 0.4
 c.audio.drive = 0          -- how hard the game's sound is pushed into the limiter, in decibels: 0 as it is, more makes it denser and louder; music you listen to for long tires sooner when dense (0 to 12)
 c.audio.ceiling = -1       -- the loudest it may get, in dB true peak, after the drive (-6 to 0; -1 unless set)
-c.title_screen.music = "music/storm.mml"      -- the engine's title's song (default: the first song)
+c.title_screen.music = "music/storm.mml"      -- the engine's title's song (unset: the title is silent)
 c.title_screen.music_at = 33                  -- the bar the engine title's song begins at (1 unless set): past an intro
 ```
 

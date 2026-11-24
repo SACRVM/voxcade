@@ -129,6 +129,7 @@ function conf(c)
 
   -- Bright by day, calm by night (main.lua chooses), from the library.
   c.audio.music = { "music/sunny_hills.mml", "music/quiet_warehouse.mml" }
+  c.title_screen.music = "music/sunny_hills.mml"   -- the engine's title's song (unset, the title is silent)
   c.audio.music_volume = 0.4
 
   -- the sounds are files, sounds/NAME.toml, played by their names (level:sound)

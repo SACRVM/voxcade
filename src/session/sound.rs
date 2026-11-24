@@ -44,12 +44,12 @@ fn heard<'a>(cfg: &'a GameConfig, songs: &[audio::music::Timing]) -> Vec<&'a str
     cfg.audio.music.files().into_iter().zip(songs).filter(|(_, t)| t.studio.is_none()).map(|(f, _)| f).collect()
 }
 
-/// The title's song file: `c.title_screen.music`, else the first song a
-/// player hears.
-fn title_song<'a>(cfg: &'a GameConfig, songs: &[audio::music::Timing]) -> Option<&'a str> {
+/// The title's song file: `c.title_screen.music`; unset, the engine's
+/// title is silent (music comes from what a scene asks, never a default).
+fn title_song(cfg: &GameConfig) -> Option<&str> {
     // By its file or by its name; a name not among the songs stays as
     // written (the engine's title then finds no file and plays nothing).
-    cfg.title_screen.music.as_deref().map(|named| cfg.audio.music.file_of(named).unwrap_or(named)).or_else(|| heard(cfg, songs).first().copied())
+    cfg.title_screen.music.as_deref().map(|named| cfg.audio.music.file_of(named).unwrap_or(named))
 }
 
 /// The title's song: not a studio, and `c.title_screen.music_at` within
@@ -57,7 +57,7 @@ fn title_song<'a>(cfg: &'a GameConfig, songs: &[audio::music::Timing]) -> Option
 /// setting (a song that does not read says its own mistake when it is
 /// played; without a song there is nothing to begin).
 pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig, songs: &[audio::music::Timing]) -> Result<()> {
-    if let Some(file) = cfg.title_screen.music.as_deref().map(|named| cfg.audio.music.file_of(named).unwrap_or(named))
+    if let Some(file) = title_song(cfg)
         && cfg.audio.music.files().iter().zip(songs).any(|(f, t)| *f == file && t.studio.is_some())
     {
         anyhow::bail!("conf.lua: c.title_screen.music = \"{file}\" is a file of instruments, no song to play (a game lays its channels over it, music:play)");
@@ -67,7 +67,7 @@ pub(super) fn check_title_bar(files: &Files, cfg: &GameConfig, songs: &[audio::m
         return Ok(());
     }
     // Without a song for the title there is nothing to begin.
-    if let Some(file) = title_song(cfg, songs)
+    if let Some(file) = title_song(cfg)
         && let Some(song) = files.read_to_string(file).ok().and_then(|t| audio::music::parse(&t).ok())
         && let Some(wrong) = song.timing(file).bar_mistake(at)
     {
@@ -97,8 +97,7 @@ pub struct NewMusic {
 
 impl<G: Game> Session<G> {
     /// The files of `c.audio.music` that are songs, not studios
-    /// (`Song::studio`): the engine's title plays the first unless
-    /// `c.title_screen.music` names one, `voxcade music GAME` writes it.
+    /// (`Song::studio`): `voxcade music GAME` writes the first.
     pub fn player_songs(&self) -> Vec<&str> {
         heard(&self.cfg, &self.songs)
     }
@@ -299,7 +298,7 @@ impl<G: Game> Session<G> {
 
     /// The title's song, begun at `c.title_screen.music_at`'s bar.
     pub fn title_music(&self) -> Option<audio::music::Player> {
-        let mut player = self.song(title_song(&self.cfg, &self.songs)?)?;
+        let mut player = self.song(title_song(&self.cfg)?)?;
         let at = self.cfg.title_screen.music_at;
         if at > 1 {
             player.seek(player.at_bar(at));

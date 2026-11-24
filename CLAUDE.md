@@ -1743,8 +1743,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (what plays goes on, silence stays); no song of the player's (SETTINGS'
   song row, its preview, the maker's keys 1 to 9 and `Settings::song`
   are gone; `music:play()` without a song is a mistake saying so), only
-  the engine's title has a song of its own (`c.title_screen.music`, else
-  the first of `c.audio.music`); `music:pause()` and `music:resume()`
+  the engine's title has a song of its own (`c.title_screen.music`;
+  unset the title is silent, its attract mode too: the owner, 2026-11-24,
+  "still wenn keine musik gewählt"; the upgrade step "the title's song
+  named" writes the first song a player heard into an older game's
+  `conf.lua`); `music:pause()` and `music:resume()`
   hold the song and its clock (`music.paused`; `host::Music::paused`, in
   the hash only once set; the mixer fades 5 ms each way and the song
   goes on from the sample it held at, `Mixer::hold_music`'s

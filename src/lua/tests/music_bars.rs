@@ -152,7 +152,8 @@ fn a_run_round_a_loop_replays_the_same() {
 /// range, is a mistake naming the setting.
 #[test]
 fn the_title_song_begins_at_its_bar() {
-    let dir = bars_folder("title-music-at", "function on_tick() end\n", "  c.title_screen.music_at = 4");
+    let named = "  c.title_screen.music = \"song\"\n";
+    let dir = bars_folder("title-music-at", "function on_tick() end\n", &format!("{named}  c.title_screen.music_at = 4"));
     let g = game_in(&dir);
     let mut title = g.title_music().unwrap();
     let second = crate::audio::SAMPLE_RATE as usize;
@@ -161,7 +162,7 @@ fn the_title_song_begins_at_its_bar() {
     let left: Vec<f32> = out.iter().step_by(2).copied().collect();
     let bars: Vec<usize> = (0..3).map(|n| bar_heard(&left, n * second + second / 2)).collect();
     assert_eq!(bars, [4, 3, 4], "from bar 4, round bars 3 and 4");
-    let plain = bars_folder("title-music-plain", "function on_tick() end\n", "");
+    let plain = bars_folder("title-music-plain", "function on_tick() end\n", named);
     let mut out = vec![0.0f32; second * 2];
     game_in(&plain).title_music().unwrap().mix(&mut out);
     assert_eq!(bar_heard(&out.iter().step_by(2).copied().collect::<Vec<_>>(), second / 2), 1, "from its start unless said");
@@ -170,10 +171,14 @@ fn the_title_song_begins_at_its_bar() {
         ("  c.title_screen.music_at = 5", "c.title_screen.music_at = 5 lies after the loop of \"song\" (#loop 3 4)"),
         ("  c.title_screen.music_at = 0", "c.title_screen.music_at"),
     ] {
-        let dir = bars_folder("title-music-wrong", "function on_tick() end\n", line);
+        let dir = bars_folder("title-music-wrong", "function on_tick() end\n", &format!("{named}{line}"));
         assert!(start_error(&dir).contains(says), "{line}: {}", start_error(&dir));
     }
     // Without a song for the title there is nothing to begin: no mistake.
     let silent = bars_folder("title-music-none", "function on_tick() end\n", "  c.audio.music = nil\n  c.title_screen.music_at = 2");
     assert_eq!(start_error(&silent), "");
+    // Songs but none named for the title: a silent title, no mistake.
+    let unnamed = bars_folder("title-music-unnamed", "function on_tick() end\n", "  c.title_screen.music_at = 6");
+    assert_eq!(start_error(&unnamed), "");
+    assert!(game_in(&unnamed).title_music().is_none());
 }
