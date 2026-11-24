@@ -289,26 +289,42 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
     let boxes: Vec<(Vec3, Vec3)> = members.iter().map(|m| m.iter().fold((Vec3::MAX, Vec3::MIN), |(l, h), &k| (l.min(frame[k as usize].0.as_vec3()), h.max(frame[k as usize].0.as_vec3())))).collect();
     let point_gap = |v: Vec3, q: usize| (boxes[q].0 - v).max(v - boxes[q].1).max(Vec3::ZERO).length_squared();
     let box_gap = |p: usize, q: usize| (boxes[q].0 - boxes[p].1).max(boxes[p].0 - boxes[q].1).max(Vec3::ZERO).length_squared();
+    // Each part's voxels made searchable the first time another comes
+    // near it (`Near`): a voxel of `p` asks only the cells about it, not
+    // every voxel of `q` (19 marks over a case of 300,000 voxels took a
+    // second, half as many parts eleven).
+    let near: Vec<std::cell::OnceCell<Near>> = (0..count).map(|_| Default::default()).collect();
     // Between the nearest voxels of `p` and `q` nearer than `bound` (the
     // first pair found of the nearest), and how near squared; `bound`
     // itself if none is.
     let nearest_pair = |p: usize, q: usize, bound: f32| {
         let mut best = (bound, Vec3::ZERO);
+        let near = near[q].get_or_init(|| Near::of(members[q].iter().map(|&b| frame[b as usize].0)));
         for &a in &members[p] {
-            if point_gap(frame[a as usize].0.as_vec3(), q) >= best.0 {
+            let va = frame[a as usize].0;
+            if point_gap(va.as_vec3(), q) >= best.0 {
                 continue;
             }
-            for &b in &members[q] {
-                let (va, vb) = (frame[a as usize].0.as_vec3(), frame[b as usize].0.as_vec3());
-                let d = va.distance_squared(vb);
-                if d < best.0 {
-                    best = (d, (va + vb) * 0.5 + 0.5);
-                }
+            if let Some((d, vb)) = near.nearest(va, best.0) {
+                best = (d, (va.as_vec3() + vb.as_vec3()) * 0.5 + 0.5);
             }
         }
         best
     };
+    // Each part's hung part it touches most (the first of those), and the
+    // part hung last, not yet looked at: the choice below asks each free
+    // part once, never every pair (a figure of parts by the hundred).
+    let mut most: Vec<(u32, usize)> = (0..count).map(|p| (touch[p][root].0, root)).collect();
+    let mut fresh: Option<usize> = None;
     for _ in 1..count {
+        if let Some(q) = fresh.take() {
+            for (p, m) in most.iter_mut().enumerate() {
+                let t = touch[p][q].0;
+                if t > m.0 || (t == m.0 && q < m.1) {
+                    *m = (t, q);
+                }
+            }
+        }
         // A part whose parent the file names, once that one hangs: on it,
         // about the middle of where they meet, else between their nearest
         // voxels.
@@ -323,7 +339,7 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
                 _ => nearest_pair(p, q, f32::MAX).1,
             };
             how[p] = Hung::ByHand;
-            (parent[p], joint[p], hung[p]) = (Some(q), stated[p].1.unwrap_or(at), true);
+            (parent[p], joint[p], hung[p], fresh) = (Some(q), stated[p].1.unwrap_or(at), true, Some(p));
             continue;
         }
         // Of the rest, the part touching the hung ones most; touching none,
@@ -333,10 +349,10 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
         // where it stands.
         if let Some(p) = (0..count).find(|&p| free(p) && empty_at(p).is_some()) {
             how[p] = Hung::Nearest { touches: Vec::new(), as_near: None };
-            (parent[p], joint[p], hung[p]) = (Some(root), stated[p].1.unwrap_or_else(|| point(p).unwrap_or_default()), true);
+            (parent[p], joint[p], hung[p], fresh) = (Some(root), stated[p].1.unwrap_or_else(|| point(p).unwrap_or_default()), true, Some(p));
             continue;
         }
-        let touching = (0..count).filter(|&p| free(p)).flat_map(|p| (0..count).filter(|&q| hung[q]).map(move |q| (p, q))).max_by_key(|&(p, q)| (touch[p][q].0, std::cmp::Reverse((p, q))));
+        let touching = (0..count).filter(|&p| free(p)).map(|p| (p, most[p].1)).max_by_key(|&(p, q)| (touch[p][q].0, std::cmp::Reverse((p, q))));
         let Some((p, q)) = touching else { break };
         let (p, q, at) = if touch[p][q].0 > 0 {
             let next = (0..count).filter(|&r| hung[r] && r != q && touch[p][r].0 > 0).max_by_key(|&r| (touch[p][r].0, std::cmp::Reverse(r))).map(|r| (r, touch[p][r].0));
@@ -361,11 +377,12 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
                 best = (best.0, best.1, root, joint[root]);
             }
             let (p, q) = (best.1, best.2);
-            let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && box_gap(p, r) <= best.0 && nearest_pair(p, r, f32::MAX).0 <= best.0);
+            // (Nearer than the float after `best.0`: as near or nearer.)
+            let as_near = (0..count).filter(|&r| hung[r] && r != q).find(|&r| best.0 < f32::MAX && box_gap(p, r) <= best.0 && nearest_pair(p, r, best.0.next_up()).0 <= best.0);
             how[p] = Hung::Nearest { touches: (0..count).filter(|&r| touch[p][r].0 > 0).collect(), as_near };
             (p, q, best.3)
         };
-        (parent[p], joint[p], hung[p]) = (Some(q), stated[p].1.unwrap_or(at), true);
+        (parent[p], joint[p], hung[p], fresh) = (Some(q), stated[p].1.unwrap_or(at), true, Some(p));
     }
     // Voxels of two parts in one place (`cells` holds the later part's).
     let mut overlap = vec![vec![0u32; count]; count];
@@ -387,6 +404,108 @@ pub(crate) fn parts_of(frame: &[(IVec3, [u8; 4])], owner: &[usize], names: Vec<S
             Part { name: names[p].clone(), voxels: members[p].clone(), parent: parent[p], joint: joint[p] - pivot, joint_by_hand: stated[p].1.is_some(), rest: [0.0; 3], offset: Vec3::ZERO, visible, glass, covered, bank: 0..0, baked: Default::default(), hung: how[p].clone(), overlaps, empty: empty_at(p).map(|c| c - pivot.as_ivec3()) }
         })
         .collect()
+}
+
+/// A part's voxels as `parts_of` asks which of them lies nearest a cell:
+/// the cells it holds, and its voxels on its surface (a face beside no
+/// voxel of its own) in buckets `Near::SIDE` cells each way, each with its
+/// place in the part's list. The nearest voxel to a cell the part does not
+/// hold lies on its surface (from one inside, a step towards the cell is
+/// nearer and still the part's), so the rest are never asked; a search
+/// goes out from the cell's bucket ring by ring until no farther ring can
+/// come as near.
+struct Near {
+    cells: crate::world::DenseCells<()>,
+    /// The buckets' box (its low corner and size, in buckets); bucket `i`'s
+    /// voxels are `surface[starts[i]..starts[i + 1]]`, in the part's order.
+    low: IVec3,
+    size: IVec3,
+    starts: Vec<u32>,
+    surface: Vec<(u32, IVec3)>,
+}
+
+impl Near {
+    const SIDE: i32 = 8;
+
+    fn of(voxels: impl Iterator<Item = IVec3> + Clone) -> Self {
+        let cells = crate::world::DenseCells::of(voxels.clone().map(|v| (v, ())));
+        let held = |c: IVec3| cells.get(c).is_some();
+        let surface: Vec<(u32, IVec3)> = voxels.enumerate().filter(|(_, v)| crate::mesh::DIRS.iter().any(|d| !held(*v + *d))).map(|(i, v)| (i as u32, v)).collect();
+        let bucket = |v: IVec3| v.div_euclid(IVec3::splat(Self::SIDE));
+        let (low, high) = surface.iter().fold((IVec3::MAX, IVec3::MIN), |(l, h), (_, v)| (l.min(bucket(*v)), h.max(bucket(*v))));
+        let size = if surface.is_empty() { IVec3::ZERO } else { high - low + 1 };
+        let slot = |v: IVec3| {
+            let d = bucket(v) - low;
+            (d.x + d.y * size.x + d.z * size.x * size.y) as usize
+        };
+        // Counted, then laid in place in the part's order.
+        let mut starts = vec![0u32; (size.x * size.y * size.z) as usize + 1];
+        for (_, v) in &surface {
+            starts[slot(*v) + 1] += 1;
+        }
+        let mut sum = 0;
+        for s in &mut starts {
+            sum += *s;
+            *s = sum;
+        }
+        let mut next = starts.clone();
+        let mut laid = vec![(0, IVec3::ZERO); surface.len()];
+        for &(i, v) in &surface {
+            let s = &mut next[slot(v)];
+            laid[*s as usize] = (i, v);
+            *s += 1;
+        }
+        Self { cells, low, size, starts, surface: laid }
+    }
+
+    /// The part's voxel nearest `a` and nearer (squared) than `bound`, the
+    /// first in the part's list of the nearest, and how near squared; none
+    /// if none is.
+    fn nearest(&self, a: IVec3, bound: f32) -> Option<(f32, IVec3)> {
+        if self.cells.get(a).is_some() {
+            return (0.0 < bound).then_some((0.0, a));
+        }
+        if self.surface.is_empty() {
+            return None;
+        }
+        let side = Self::SIDE;
+        let (at, high) = (a.div_euclid(IVec3::splat(side)), self.low + self.size - 1);
+        let reach = (at - self.low).abs().max((high - at).abs()).max_element();
+        let va = a.as_vec3();
+        // (How near, the place in the part's list, the voxel.)
+        let mut best: Option<(f32, u32, IVec3)> = None;
+        for r in 0..=reach {
+            // A bucket `r` away lies `side * r - side + 1` cells away at
+            // least along one axis.
+            let gap = if r == 0 { 0.0 } else { (side * r - side + 1) as f32 };
+            let least = gap * gap;
+            if least >= bound || best.is_some_and(|(d, ..)| least > d) {
+                break;
+            }
+            let (lo, hi) = ((at - r).max(self.low), (at + r).min(high));
+            let mut visit = |x: i32, y: i32, z: i32| {
+                let d = IVec3::new(x, y, z) - self.low;
+                let i = (d.x + d.y * self.size.x + d.z * self.size.x * self.size.y) as usize;
+                for &(k, v) in &self.surface[self.starts[i] as usize..self.starts[i + 1] as usize] {
+                    let d = va.distance_squared(v.as_vec3());
+                    if d < bound && best.is_none_or(|(bd, bk, _)| d < bd || (d == bd && k < bk)) {
+                        best = Some((d, k, v));
+                    }
+                }
+            };
+            for z in lo.z..=hi.z {
+                for y in lo.y..=hi.y {
+                    // Inside the ring's shell only its two ends of a row.
+                    if (z - at.z).abs() == r || (y - at.y).abs() == r {
+                        (lo.x..=hi.x).for_each(|x| visit(x, y, z));
+                    } else {
+                        [at.x - r, at.x + r].into_iter().filter(|x| (lo.x..=hi.x).contains(x)).for_each(|x| visit(x, y, z));
+                    }
+                }
+            }
+        }
+        best.map(|(d, _, v)| (d, v))
+    }
 }
 
 /// For each voxel of smooth glass on the surface (open space beside it),
@@ -744,6 +863,148 @@ mod tests {
             let now: Vec<(Option<usize>, Vec3)> = parts_of(&frame, &owner, names, size, &vec![(None, None); count], &[]).iter().map(|p| (p.parent, p.joint)).collect();
             assert_eq!(now, rig_before(&frame, &owner, count, size));
         }
+    }
+
+    /// The same of parts held apart inside a hollow one (a tray, its rim
+    /// round them, so every one lies within its box): what the nearest
+    /// voxels decide, every voxel against every other as before.
+    #[test]
+    fn parts_apart_in_a_tray_hang_as_before() {
+        let mut seed = 0x9e37_79b9_u64;
+        let mut next = |n: i32| {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) % n as u64) as i32
+        };
+        for _ in 0..200 {
+            let (mut frame, mut owner) = (Vec::new(), Vec::new());
+            let tray = IVec3::new(8 + next(10), 6 + next(8), 4 + next(5));
+            for z in 0..tray.z {
+                for y in 0..tray.y {
+                    for x in 0..tray.x {
+                        if z == 0 || x == 0 || y == 0 || x == tray.x - 1 || y == tray.y - 1 {
+                            frame.push((IVec3::new(x, y, z), [0, 0, 0, 255]));
+                            owner.push(0);
+                        }
+                    }
+                }
+            }
+            let count = 2 + next(6) as usize;
+            for p in 1..count {
+                // Standing on the floor or held over it, a box or its shell.
+                let size = IVec3::new(1 + next(3), 1 + next(3), 1 + next(3));
+                let low = IVec3::new(1 + next(tray.x - 2), 1 + next(tray.y - 2), 1 + next(3));
+                let shell = next(2) == 0;
+                for z in 0..size.z {
+                    for y in 0..size.y {
+                        for x in 0..size.x {
+                            let edge = x == 0 || y == 0 || z == 0 || x == size.x - 1 || y == size.y - 1 || z == size.z - 1;
+                            if !shell || edge {
+                                frame.push((low + IVec3::new(x, y, z), [p as u8, 0, 0, 255]));
+                                owner.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+            let size = frame.iter().fold(IVec3::ZERO, |s, (v, _)| s.max(*v + 1));
+            let names = (0..count).map(|p| format!("p{p}")).collect();
+            let now: Vec<(Option<usize>, Vec3)> = parts_of(&frame, &owner, names, size, &vec![(None, None); count], &[]).iter().map(|p| (p.parent, p.joint)).collect();
+            assert_eq!(now, rig_before(&frame, &owner, count, size));
+        }
+    }
+
+    /// `Near` finds what looking at every voxel finds: the nearest nearer
+    /// than the bound, of those the first in the list (ties are many on a
+    /// grid), inside the part or far from it, on solid, hollow and
+    /// scattered parts and with negative places.
+    #[test]
+    fn the_nearest_voxel_is_the_one_every_voxel_looked_at_finds() {
+        let mut seed = 0x2545_f491_u64;
+        let mut next = |n: i32| {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) % n as u64) as i32
+        };
+        let every = |voxels: &[IVec3], a: IVec3, bound: f32| {
+            let mut best = (bound, None);
+            for &b in voxels {
+                let d = a.as_vec3().distance_squared(b.as_vec3());
+                if d < best.0 {
+                    best = (d, Some(b));
+                }
+            }
+            best.1.map(|b| (best.0, b))
+        };
+        for round in 0..300 {
+            let size = IVec3::new(1 + next(40), 1 + next(30), 1 + next(20));
+            let low = IVec3::new(next(30) - 15, next(30) - 15, next(10) - 5);
+            let mut voxels = Vec::new();
+            for z in 0..size.z {
+                for y in 0..size.y {
+                    for x in 0..size.x {
+                        let edge = x == 0 || y == 0 || z == 0 || x == size.x - 1 || y == size.y - 1 || z == size.z - 1;
+                        let keep = match round % 3 {
+                            0 => true,
+                            1 => edge,
+                            _ => next(9) == 0,
+                        };
+                        if keep {
+                            voxels.push(low + IVec3::new(x, y, z));
+                        }
+                    }
+                }
+            }
+            // Shuffled a little, so the list's order is not the buckets'.
+            for i in (1..voxels.len()).rev() {
+                voxels.swap(i, next(i as i32 + 1) as usize);
+            }
+            let near = Near::of(voxels.iter().copied());
+            for _ in 0..40 {
+                let a = low + IVec3::new(next(size.x + 40) - 20, next(size.y + 40) - 20, next(size.z + 30) - 15);
+                for bound in [f32::MAX, 1.0 + next(200) as f32, next(6) as f32, (next(30) as f32).next_up()] {
+                    assert_eq!(near.nearest(a, bound), every(&voxels, a, bound), "round {round}, from {a} under {bound}");
+                }
+            }
+        }
+    }
+
+    /// A figure of 200 parts in a box 512 by 300 by 30 (a case, buttons on
+    /// it, every tenth a mark held a voxel over it, touching nothing) is
+    /// read, and a game holding it in its level loads, in a time that
+    /// grows with its voxels: it took 3.4 s to read when every mark asked
+    /// every voxel of the case for the nearest, under 100 ms now.
+    #[test]
+    fn a_big_figure_of_parts_loads_quickly() {
+        use crate::game::Game as _;
+        let (width, depth, parts) = (512, 300, 200);
+        let (px, py) = (width / 2, depth / 2);
+        let part = |name: &str, at: (i32, i32, i32), layers: &str| format!("[[part]]\nname = \"{name}\"\nat = [{}, {}, {}]\nlayers = \"\"\"\n{layers}\"\"\"\n\n", at.0 - px, at.1 - py, at.2);
+        let mut text = format!("format = \"voxcade voxel 1\"\nsize = [{width}, {depth}, 30]\n\n[palette]\na = \"#34343a\"\nb = \"#d6d4cc\"\nc = \"#c8382a\"\n\n");
+        // The case: a tray, its floor two voxels thick, its rim 24 high.
+        let (full, rim) = ("a".repeat(width as usize), format!("aa{}aa", ".".repeat(width as usize - 4)));
+        text += &part("case", (0, 0, 0), &format!("{full} *{depth}\n*2\n\n{full} *2\n{rim} *{}\n{full} *2\n*22\n", depth - 4));
+        let cols = 18;
+        for i in 0..parts {
+            let (x, y) = (2 + (i % cols) * (width - 12) / cols, 6 + (i / cols) * (depth - 12) / ((parts + cols - 1) / cols));
+            text += &if i % 10 == 9 { part(&format!("mark_{i}"), (x, y, 3), &format!("{} *8\n", "c".repeat(8))) } else { part(&format!("button_{i}"), (x, y, 2), &format!("{} *6\n*3\n", "b".repeat(6))) };
+        }
+        let started = std::time::Instant::now();
+        let model = crate::vvx::read(&text).unwrap();
+        let read = started.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(model.parts.len(), parts as usize + 1);
+        let marks = model.parts.iter().filter(|p| p.name.starts_with("mark")).collect::<Vec<_>>();
+        assert!(marks.len() == 20 && marks.iter().all(|p| p.parent == Some(0) && matches!(p.hung, Hung::Nearest { .. })), "the marks hang on the case by their nearest voxels");
+        let dir = crate::scratch::Scratch::new("big-figure");
+        std::fs::create_dir_all(dir.join("levels")).unwrap();
+        std::fs::write(dir.join("machine.vvx"), &text).unwrap();
+        std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.voxcade = \"{}\"\n  c.world.size = nil\nend\n", env!("CARGO_PKG_VERSION"))).unwrap();
+        std::fs::write(dir.join("main.lua"), "function on_level_start() end\n").unwrap();
+        std::fs::write(dir.join("levels/room.toml"), "format = \"voxcade level 1\"\nsize = [580, 340, 40]\n\n[[thing]]\nname = \"machine\"\nmodel = \"machine.vvx\"\nat = [290, 170, 1]\n\n[[place]]\nname = \"start\"\nat = [290, 156, 1]\n").unwrap();
+        let started = std::time::Instant::now();
+        let game = crate::session::Session::<crate::Voxcade>::load(&dir).unwrap();
+        let loaded = started.elapsed().as_secs_f64() * 1000.0;
+        assert!(game.game.halted().is_none());
+        println!("a figure of {} parts, {} voxels: read in {read:.1} ms, its game loaded in {loaded:.1} ms", model.parts.len(), model.frames[0].len());
+        assert!(read < 600.0 && loaded < 1200.0, "read in {read:.1} ms, loaded in {loaded:.1} ms");
     }
 
     /// Parents and joints set in the file win: a parent named hangs the
