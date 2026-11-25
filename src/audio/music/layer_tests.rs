@@ -167,7 +167,7 @@ fn the_mistakes_of_layers_say_their_line() {
         ("@k sine\n+ sine\n+ sine\n+ sine\n+ sine\nA: @k c\n", "line 5: @k has 4 layers already"),
         ("@k sine\n+ sine\n= drive=3\n= volume=0.5\nA: @k c\n", "line 4: @k has its sum (=) on line 3 already: an instrument takes one"),
         ("@k sine\n= drive=3\n+ sine\nA: @k c\n", "line 3: @k has its sum (=) on line 2 already, and its layers come before it"),
-        ("@k sine\n+ sine\n= decay=0.3\nA: @k c\n", "line 3: @k's sum (=): the sum takes drive, volume, filter, cutoff, resonance, crush_rate, crush_bits, not decay"),
+        ("@k sine\n+ sine\n= decay=0.3\nA: @k c\n", "line 3: @k's sum (=): the sum takes drive, drive_end, drive_time, volume, filter, cutoff, resonance, crush_rate, crush_bits, not decay"),
         ("@k sine\n= drve=3\nA: @k c\n", "not drve (did you mean drive?)"),
         ("@v singer\n+ sine\nA: @v \"l a\" c\n", "line 2: @v sings, and a voice takes no layers"),
         ("@k sine\n+ voice\nA: @k c\n", "line 2: @k's layer 2: a layer is a wave"),

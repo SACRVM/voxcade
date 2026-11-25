@@ -49,7 +49,9 @@
 //! `sweep_time`), `freq` (a fixed pitch, for drums), `lowpass` (a gentle
 //! fixed one), `volume`; for every wave `drive` (decibels into a soft
 //! clipper, before the filters, as an amp before its speaker; 0 clean; a
-//! voice's breath and hiss join past it) and
+//! voice's breath and hiss join past it; `drive_end` slides it there on
+//! every note, evenly in dB over `drive_time`, `attack + decay` unless
+//! set, the clipper then working the whole note, 0 dB a gentle rounding) and
 //! a bit crusher, `crush_rate` (Hz the sound is held at) and `crush_bits`
 //! (1 to 16, after the envelope).
 //!
@@ -94,7 +96,8 @@
 //! whole, on its own line). Every note sounds all of them, each with its
 //! own envelope, added at their volumes; it is over when the last has
 //! rung out. One line beginning with `=` after them is what the sum goes
-//! through: `drive` (the soft clipper, as an instrument's), `filter`,
+//! through: `drive` (the soft clipper, as an instrument's, `drive_end` and
+//! `drive_time` too), `filter`,
 //! `cutoff`, `resonance`, the crusher and `volume` (1 unless set), in
 //! that order. A voice takes no layers.
 //!
@@ -148,6 +151,8 @@ mod tempo_tests;
 mod knob_tests;
 #[cfg(test)]
 mod layer_tests;
+#[cfg(test)]
+mod motion_tests;
 mod voice;
 pub mod shift;
 mod clear;

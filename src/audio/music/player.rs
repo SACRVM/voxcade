@@ -176,15 +176,16 @@ pub(super) struct Tone {
 #[derive(Clone, Default)]
 struct Summed {
     drive: f32,
+    drive_sweep: Option<(f32, f32)>,
     dc: (f32, f32),
     filter: Svf,
     crush: Crusher,
 }
 
 /// A note's shape, kept from start to end: its envelope's times and how
-/// they fall, its pitch's sweep or fall from a start, its cutoff's sweep
-/// (how far, as a ratio, and over how long), its rates, and how far it
-/// ducks the other channels.
+/// they fall, its pitch's sweep or fall from a start, its cutoff's and its
+/// drive's sweeps (how far, as a ratio, and over how long), its rates, and
+/// how far it ducks the other channels.
 #[derive(Clone, Copy, Default)]
 struct Shape {
     attack: f32,
@@ -197,6 +198,7 @@ struct Shape {
     pitch_start: Option<f32>,
     pitch_decay: f32,
     cutoff_sweep: Option<(f32, f32)>,
+    drive_sweep: Option<(f32, f32)>,
     vibrato_speed: f32,
     vibrato_delay: f32,
     pwm_speed: f32,
@@ -235,6 +237,8 @@ mod at {
     pub const ARP_SPEED: usize = place(&NEXT_NOTE, "arp_speed");
     pub const LOWPASS: usize = place(&NEXT_NOTE, "lowpass");
     pub const DRIVE: usize = place(&NEXT_NOTE, "drive");
+    pub const DRIVE_END: usize = place(&NEXT_NOTE, "drive_end");
+    pub const DRIVE_TIME: usize = place(&NEXT_NOTE, "drive_time");
     pub const CRUSH_RATE: usize = place(&NEXT_NOTE, "crush_rate");
     pub const CRUSH_BITS: usize = place(&NEXT_NOTE, "crush_bits");
     pub const SIDECHAIN: usize = place(&NEXT_NOTE, "sidechain");
@@ -298,6 +302,21 @@ fn fallen(x: f32, seconds: f32) -> f32 {
     if x > 1.0 - taper { left * (1.0 - x) / taper } else { left }
 }
 
+/// A drive's gain `t` seconds into a note: `gain` as it began, moved by
+/// its sweep (the ratio it reaches, over how long) evenly in decibels.
+fn driven(gain: f32, sweep: Option<(f32, f32)>, t: f32) -> f32 {
+    match sweep {
+        Some((ratio, span)) => gain * libm::powf(ratio, (t / span).min(1.0)),
+        None => gain,
+    }
+}
+
+/// What a soft clipper at `gain` raises a voice's vowels by (`SUNG` their
+/// level, or the clear voice's), and so its noise joining past it.
+fn raised(gain: f32, vowels: f32) -> f32 {
+    libm::tanhf(gain * vowels) / vowels
+}
+
 impl Tone {
     /// Takes up a note of layer `ins` from its start, the words a strip
     /// turned from the next note (`next`) laid over it, a word only where
@@ -316,6 +335,11 @@ impl Tone {
             };
             (depth, next[at::CUTOFF_TIME].or(ins.cutoff_time).unwrap_or(attack + decay).max(1e-3))
         });
+        // The drive's gain, sliding evenly in dB where it has an end: then
+        // the clipper works the whole note, 0 dB its gentlest.
+        let (drive, drive_end) = (word(at::DRIVE, ins.drive), part(at::DRIVE_END, ins.drive_end));
+        self.drive = if drive > 0.0 || drive_end.is_some() { libm::powf(10.0, drive / 20.0) } else { 0.0 };
+        let drive_sweep = drive_end.map(|end| (libm::powf(10.0, (end - drive) / 20.0), next[at::DRIVE_TIME].or(ins.drive_time).unwrap_or(attack + decay).max(1e-3)));
         self.shape = Shape {
             attack,
             decay,
@@ -328,6 +352,7 @@ impl Tone {
             pitch_start: part(at::PITCH_START, ins.pitch_start),
             pitch_decay: word(at::PITCH_DECAY, ins.pitch_decay),
             cutoff_sweep,
+            drive_sweep,
             vibrato_speed: word(at::VIBRATO_SPEED, ins.vibrato_speed),
             vibrato_delay: word(at::VIBRATO_DELAY, ins.vibrato_delay),
             pwm_speed: word(at::PWM_SPEED, ins.pwm_speed),
@@ -347,8 +372,6 @@ impl Tone {
             (self.shape.root, self.shape.stretch, self.head) = (word(at::ROOT, s.root).max(1.0), (first, end - first), 0.0);
         }
         self.alpha = part(at::LOWPASS, ins.lowpass).map_or(0.0, OnePole::alpha);
-        let drive = word(at::DRIVE, ins.drive);
-        self.drive = if drive > 0.0 { libm::powf(10.0, drive / 20.0) } else { 0.0 };
         let bits = ins.crush_bits.map(|b| next[at::CRUSH_BITS].map_or(b, |v| v as u32));
         self.crush.set(part(at::CRUSH_RATE, ins.crush_rate), bits);
     }
@@ -433,7 +456,7 @@ impl Tone {
         // before its speaker; a wave not even above and below zero
         // (a voice's) clips to a middle off zero, taken off again.
         if self.drive > 0.0 {
-            let x = libm::tanhf(s * self.drive);
+            let x = libm::tanhf(s * driven(self.drive, self.shape.drive_sweep, t));
             s = x - self.dc.0 + DC_BLOCK * self.dc.1;
             self.dc = (x, s);
         }
@@ -546,21 +569,25 @@ impl Tone {
 }
 
 impl Summed {
-    /// Takes up a note whose layers go through `sum`, its drive turned to
-    /// `drive` dB by a strip (None: the sum's own).
-    fn take_up(&mut self, sum: &Sum, drive: Option<f32>) {
-        let drive = drive.unwrap_or(sum.drive);
-        self.drive = if drive > 0.0 { libm::powf(10.0, drive / 20.0) } else { 0.0 };
+    /// Takes up a note whose layers go through `sum`, the words a strip
+    /// turned for the sum from the next note (`next`, the rest None) laid
+    /// over its own; its drive slides over `span` unless it says how long
+    /// (the instrument's own line's attack and decay).
+    fn take_up(&mut self, sum: &Sum, next: &[Option<f32>; NEXT_NOTE.len()], span: f32) {
+        let drive = next[at::DRIVE].unwrap_or(sum.drive);
+        let end = sum.drive_end.map(|own| next[at::DRIVE_END].unwrap_or(own));
+        self.drive = if drive > 0.0 || end.is_some() { libm::powf(10.0, drive / 20.0) } else { 0.0 };
+        self.drive_sweep = end.map(|end| (libm::powf(10.0, (end - drive) / 20.0), next[at::DRIVE_TIME].or(sum.drive_time).unwrap_or(span).max(1e-3)));
         self.crush.set(sum.crush_rate, sum.crush_bits);
     }
 
-    /// The layers' sum `s` through the soft clipper (as a layer's own
-    /// drive, its DC taken off again), the filter at `cutoff` and
-    /// `resonance`, the crusher and the volume.
-    fn next(&mut self, s: f32, sum: &Sum, cutoff: f32, resonance: f32) -> f32 {
+    /// The layers' sum `s` `t` seconds into the note through the soft
+    /// clipper (as a layer's own drive, its DC taken off again), the
+    /// filter at `cutoff` and `resonance`, the crusher and the volume.
+    fn next(&mut self, s: f32, sum: &Sum, cutoff: f32, resonance: f32, t: f32) -> f32 {
         let mut s = s;
         if self.drive > 0.0 {
-            let x = libm::tanhf(s * self.drive);
+            let x = libm::tanhf(s * driven(self.drive, self.drive_sweep, t));
             s = x - self.dc.0 + DC_BLOCK * self.dc.1;
             self.dc = (x, s);
         }
@@ -601,9 +628,11 @@ impl Voice {
         (self.age, self.gate) = (time.wrapping_sub(n.start), None);
         // A word the sum states the strip turns there, not on the first layer.
         let sum = ins.sum.as_ref();
-        let mut first = *next;
+        let (mut first, mut to_sum) = (*next, [None; NEXT_NOTE.len()]);
         if sum.is_some_and(|s| s.drive_stated) {
-            first[at::DRIVE] = None;
+            for w in [at::DRIVE, at::DRIVE_END, at::DRIVE_TIME] {
+                to_sum[w] = first[w].take();
+            }
         }
         let cutoff = if sum.is_some_and(|s| s.cutoff_stated) { ins.cutoff } else { cutoff };
         self.tone.take_up(ins, &first, cutoff);
@@ -619,13 +648,12 @@ impl Voice {
             }
         }
         if let Some(sum) = sum {
-            self.sum.take_up(sum, next[at::DRIVE].filter(|_| sum.drive_stated));
+            self.sum.take_up(sum, &to_sum, self.tone.shape.attack + self.tone.shape.decay);
         }
         let angle = (n.pan + 1.0) * std::f32::consts::FRAC_PI_4;
         self.pan = (libm::cosf(angle), libm::sinf(angle));
-        let vowels = if ins.voice == Some(Voicing::Clear) { clear::SUNG } else { SUNG };
         let drive = self.tone.drive;
-        self.noise_gain = if drive > 0.0 { libm::tanhf(drive * vowels) / vowels } else { 1.0 };
+        self.noise_gain = if drive > 0.0 { raised(drive, vowels(ins)) } else { 1.0 };
         if ins.consonants != 0.0 {
             self.noise_gain *= libm::powf(10.0, ins.consonants / 20.0);
         }
@@ -676,7 +704,12 @@ impl Voice {
                     None => tone.source(ins, freq, duty).map(|s| (s, 0.0)),
                 };
                 sourced.map(|(s, noise)| {
-                    let noise = ins.voice.is_some().then_some(noise * self.noise_gain);
+                    // A drive that slides raises the noise as it goes.
+                    let raise = match tone.shape.drive_sweep {
+                        Some(sweep) if ins.voice.is_some() => raised(driven(tone.drive, Some(sweep), t), vowels(ins)) / raised(tone.drive, vowels(ins)),
+                        _ => 1.0,
+                    };
+                    let noise = ins.voice.is_some().then_some(noise * self.noise_gain * raise);
                     let cutoff = if sum_cutoff { ins.cutoff } else { knob(CUTOFF, ins.cutoff) };
                     let resonance = if sum_resonance { ins.resonance } else { knob(at::RESONANCE, ins.resonance) };
                     let s = tone.color(ins, s, noise, t, cutoff, resonance);
@@ -709,7 +742,7 @@ impl Voice {
             if let Some(sum) = sum {
                 let cutoff = if sum_cutoff { knob(CUTOFF, sum.cutoff) } else { sum.cutoff };
                 let resonance = if sum_resonance { knob(at::RESONANCE, sum.resonance) } else { sum.resonance };
-                s = self.sum.next(s, sum, cutoff, resonance);
+                s = self.sum.next(s, sum, cutoff, resonance, t);
             }
             s * n.volume * volume * duck * fade * loud
         };
@@ -859,6 +892,11 @@ const DC_BLOCK: f32 = 1.0 - std::f32::consts::TAU * 10.0 / SAMPLE_RATE as f32;
 /// A sung vowel's typical level (its RMS before the volumes): what the
 /// clipper raises a voice by at that level raises its noise past it.
 const SUNG: f32 = 0.4;
+
+/// The vowels' typical level of the voice `ins` sings with.
+fn vowels(ins: &Instrument) -> f32 {
+    if ins.voice == Some(Voicing::Clear) { clear::SUNG } else { SUNG }
+}
 
 /// Samples a jump fades in over (5 ms), so it does not click.
 const FADE_IN: u32 = SAMPLE_RATE / 200;

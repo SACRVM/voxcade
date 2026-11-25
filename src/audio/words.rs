@@ -186,6 +186,8 @@ pub const WORDS: &[Word] = &[
     Word { name: "duck", sound: None, mml: mml(Share, Some((0.0, 1.0)), "1", "how far this instrument follows the ducking") },
     Word { name: "consonants", sound: None, mml: mml(Decibels, Some((-24.0, 12.0)), "0", "a voice's consonants against its vowels: their hiss, bursts and breath louder or softer; only a voice takes it") },
     Word { name: "drive", sound: None, mml: mml(Decibels, Some((0.0, 36.0)), "0", "how hard the sound is pushed into a soft clipper before the filters: 0 leaves it clean, 12 rough, 20 a megaphone's shout") },
+    Word { name: "drive_end", sound: None, mml: mml(Decibels, Some((0.0, 36.0)), "none", "where drive slides to on every note, evenly in dB: 18 to 3 a kick that strikes hard and dies away clean; with it the clipper works the whole note, 0 dB a gentle rounding, not clean") },
+    Word { name: "drive_time", sound: None, mml: mml(Seconds, SONG_TIMES, "attack + decay", "how long the drive slides") },
     Word { name: "crush_rate", sound: None, mml: mml(Hz, Some((100.0, 44_100.0)), "none", "a bit crusher: the sound held at this rate, as an early sampler played it; 6000 the speech of old games") },
     Word { name: "crush_bits", sound: None, mml: mml(Bits, Some((1.0, 16.0)), "none", "a bit crusher: the sound rounded to this many bits, after the envelope; 4 a grainy 8-bit voice") },
     Word { name: "pitch_start", sound: None, mml: mml(Hz, Some(PITCHES), "none", "the pitch each note begins at, falling fast to the note's own, evenly in Hz: a drum's thump; not with sweep") },

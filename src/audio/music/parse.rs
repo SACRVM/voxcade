@@ -185,6 +185,8 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             "duck" => ins.duck = num()?.clamp(0.0, 1.0),
             "volume" => ins.volume = num()?,
             "drive" => ins.drive = num()?,
+            "drive_end" => ins.drive_end = Some(num()?),
+            "drive_time" => ins.drive_time = Some(num()?),
             "consonants" => (ins.consonants, sung) = (num()?, Some(key)),
             "crush_rate" => ins.crush_rate = Some(num()?),
             "crush_bits" => {
@@ -262,13 +264,15 @@ fn parse_sum(spec: &str) -> Result<Sum> {
     let stated = |word: &str| keys(spec).any(|k| k == word);
     Ok(Sum {
         drive: ins.drive,
+        drive_end: ins.drive_end,
+        drive_time: ins.drive_time,
         volume: if stated("volume") { ins.volume } else { 1.0 },
         filter: ins.filter,
         cutoff: ins.cutoff,
         resonance: ins.resonance,
         crush_rate: ins.crush_rate,
         crush_bits: ins.crush_bits,
-        drive_stated: stated("drive"),
+        drive_stated: stated("drive") || stated("drive_end"),
         cutoff_stated: stated("cutoff"),
         resonance_stated: stated("resonance"),
     })

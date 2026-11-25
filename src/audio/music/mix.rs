@@ -88,14 +88,15 @@ pub(super) const fn place(words: &[&str], word: &str) -> usize {
 /// would jump), or what the voice takes up as a note begins
 /// (`player::Voice::take_up`). The note that sounds keeps its own. In this
 /// order in `Strip::next`. Of a layered instrument (`+` lines) a strip
-/// turns the first layer's, but drive the sum's where its `=` line states
-/// a drive, as `GLIDING`'s cutoff and resonance. A sample's `root` (held
-/// as Hz), `start` and `end` (`SAMPLE_KNOBS`) are among them: a break cut
-/// up by the game, note by note.
-pub const NEXT_NOTE: [&str; 23] = [
+/// turns the first layer's, but drive (its end and time with it) the sum's
+/// where its `=` line states a drive or its end, as `GLIDING`'s cutoff and
+/// resonance. A sample's `root` (held as Hz), `start` and `end`
+/// (`SAMPLE_KNOBS`) are among them: a break cut up by the game, note by
+/// note.
+pub const NEXT_NOTE: [&str; 25] = [
     "attack", "decay", "release", "freq", "sweep", "sweep_time", "pitch_start", "pitch_decay", "cutoff_end", "cutoff_time", "vibrato_speed",
-    "vibrato_delay", "pwm_speed", "arp_speed", "lowpass", "drive", "crush_rate", "crush_bits", "sidechain", "sidechain_release", "root", "start",
-    "end",
+    "vibrato_delay", "pwm_speed", "arp_speed", "lowpass", "drive", "drive_end", "drive_time", "crush_rate", "crush_bits", "sidechain",
+    "sidechain_release", "root", "start", "end",
 ];
 
 /// `NEXT_NOTE`'s words of the wave `sample` alone.

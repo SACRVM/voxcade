@@ -45,6 +45,11 @@ pub struct Instrument {
     /// How hard the sound is pushed into a soft clipper, in decibels (0:
     /// not at all).
     pub drive: f32,
+    /// Where the drive slides to on every note, evenly in decibels, and
+    /// over how long (None: `attack + decay`); with an end the clipper
+    /// works the whole note, a drive of 0 its gentlest.
+    pub drive_end: Option<f32>,
+    pub drive_time: Option<f32>,
     /// The bit crusher: the rate the sound is held at (Hz) and the bits it
     /// is rounded to, each off when None.
     pub crush_rate: Option<f32>,
@@ -106,10 +111,13 @@ pub enum Curve {
 }
 
 /// What a layered instrument's layers go through once added (`=`): a soft
-/// clipper (`drive`, its gain 0 off), the filter, the crusher, a volume.
+/// clipper (`drive`, its gain 0 off, sliding to `drive_end` as an
+/// instrument's), the filter, the crusher, a volume.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sum {
     pub drive: f32,
+    pub drive_end: Option<f32>,
+    pub drive_time: Option<f32>,
     pub volume: f32,
     pub filter: Option<FilterMode>,
     pub cutoff: f32,
@@ -117,14 +125,15 @@ pub struct Sum {
     pub crush_rate: Option<f32>,
     pub crush_bits: Option<u32>,
     /// Which of the words a strip turns (`music:mix`) the line states:
-    /// drive, cutoff, resonance turn the sum's then, not the first layer's.
+    /// drive, cutoff, resonance turn the sum's then, not the first layer's
+    /// (the drive's end and time with the drive, where it states either).
     pub drive_stated: bool,
     pub cutoff_stated: bool,
     pub resonance_stated: bool,
 }
 
 /// The words a sum line (`=`) takes.
-pub const SUM_WORDS: [&str; 7] = ["drive", "volume", "filter", "cutoff", "resonance", "crush_rate", "crush_bits"];
+pub const SUM_WORDS: [&str; 9] = ["drive", "drive_end", "drive_time", "volume", "filter", "cutoff", "resonance", "crush_rate", "crush_bits"];
 
 /// Which voice sings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,6 +183,8 @@ impl Default for Instrument {
             duck: 1.0,
             volume: 0.5,
             drive: 0.0,
+            drive_end: None,
+            drive_time: None,
             crush_rate: None,
             crush_bits: None,
             pitch_start: None,

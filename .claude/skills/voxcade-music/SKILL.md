@@ -110,7 +110,11 @@ For every wave: `drive` (0 to 36 dB into tanh, before the filters, its
 DC taken off again; 12 rough, 19 the shout through a megaphone with
 `filter=bandpass cutoff=1150`; a voice's consonants join past the
 clipper, so they stay as far under the vowels as without it: the
-megaphone's band still takes about 12 dB off an s) and the bit crusher `crush_rate` (Hz the
+megaphone's band still takes about 12 dB off an s; `drive_end` slides
+it there on every note, evenly in dB over `drive_time`, attack + decay
+unless set, the clipper then working the whole note, 0 dB a gentle
+rounding: `drive=18 drive_end=3` a kick hard on the strike, clean in its
+tail) and the bit crusher `crush_rate` (Hz the
 sound is held at, 6300 the speech of old games) and `crush_bits` (1 to
 16, after the envelope; 4 grainy). Checking a voice: render a copy of
 the song with only its channel, then its formants (LPC on the vowels),
@@ -123,7 +127,8 @@ are more layers of it (four with its own line at most; any instrument
 word but `sidechain`, `sidechain_release`, `duck`, which its own line
 says for the whole note), every note sounding them all, each with its
 own envelope, over when the last has rung out; one line beginning with
-`=` after them is what their sum goes through: `drive`, `filter`,
+`=` after them is what their sum goes through: `drive` (with
+`drive_end`, `drive_time`), `filter`,
 `cutoff`, `resonance`, the crusher, `volume` (1 unless set). No
 layers on a voice. `pitch_start` (Hz) begins each note there, falling
 exponentially in Hz to the note's pitch, `pitch_decay` its time

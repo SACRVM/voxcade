@@ -133,6 +133,8 @@
 ---@field arp_speed? number|false From the next note: arpeggio steps a second.
 ---@field lowpass? number|false From the next note: the gentle filter's pitch, Hz.
 ---@field drive? number|false From the next note: dB into the soft clipper (a layered instrument's sum's where its = line states drive).
+---@field drive_end? number|false From the next note: dB the drive slides to (where the instrument has drive_end; a layered instrument's sum's where its = line states drive or drive_end).
+---@field drive_time? number|false From the next note: seconds the drive slides.
 ---@field crush_rate? number|false From the next note: the crusher's rate, Hz.
 ---@field crush_bits? integer|false From the next note: the crusher's bits, 1 to 16.
 ---@field sidechain? number|false From the next note: how far its notes duck the others.
