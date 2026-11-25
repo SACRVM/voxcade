@@ -58,7 +58,17 @@ pub struct Drawing<'a> {
     pub(super) thing: Option<u32>,
     /// What is drawn with a thing, for the pointer to find (`pick`).
     pub(super) picks: Vec<super::Pick>,
+    /// The models drawn whole on the HUD (`hud_model`), from the bank, and
+    /// the HUD's plane they stand on (`c.ui.depth`).
+    pub(super) hud_models: Vec<ModelDraw>,
+    pub(super) hud_depth: f32,
 }
+
+/// How a model drawn whole on the HUD faces you unturned: its front (+y)
+/// towards the eye (the HUD's +z), its up (+z) the HUD's up (+y), its
+/// right (+x) on your left, as the flat picture shows it: half a turn
+/// about (0, 1, 1).
+const FACING_YOU: Quat = Quat::from_xyzw(0.0, std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2, 0.0);
 
 impl<'a> Drawing<'a> {
     /// This picture's daylight, as the game sets it.
@@ -213,6 +223,26 @@ impl<'a> Drawing<'a> {
         let turns: Vec<PartPose> = m.parts.iter().map(|p| swung(&p.name)).collect();
         self.picked(name, frame, origin, look, turn, &turns);
         self.put_posed(&m, frame, origin, look, turn, &turns, tint);
+    }
+
+    /// Frame `frame` of the model `name` whole on the HUD (`frame:draw`
+    /// turned by a table, or posed): its box's top left at (`x`, `y`) from
+    /// the HUD's top left as it faces you unturned, turned `turn`
+    /// (`turning`'s degrees) about `render::turn_centre`, which stays where
+    /// the flat picture lays that voxel, on the HUD's plane; a figure posed
+    /// by `pose`. Its opaque voxels only, from the bank (a model new to it
+    /// comes the next picture, `Session::bank_fresh`).
+    pub fn hud_model(&mut self, name: &str, frame: usize, x: f32, y: f32, [round, pitch, roll]: [f32; 3], pose: &[PoseEntry]) {
+        let models = self.models;
+        let Some(m) = models.drawn(name) else { return };
+        let size = m.size;
+        let turn = FACING_YOU * turning(round, pitch, roll);
+        // The voxel it turns about: its column and row of the flat picture
+        // (the model's right on your left, its top row first).
+        let middle = Vec3::new(x + (size.x - 1 - size.x / 2) as f32 + 0.5, self.hud.height - y - (size.z - size.z / 2) as f32 + 0.5, self.hud_depth);
+        let posed = posing_alone(pose);
+        let turns: Vec<PartPose> = m.parts.iter().map(|p| posed(&p.name)).collect();
+        draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut self.hud_models), &m, frame, middle - crate::render::turn_centre(size), IVec2::Y, turn, &turns, None);
     }
 
     pub(super) fn put_model(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {

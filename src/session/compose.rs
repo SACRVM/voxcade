@@ -92,6 +92,8 @@ impl<G: Game> Session<G> {
             gather_movers: false,
             movers: Vec::new(),
             thing: None,
+            hud_models: Vec::new(),
+            hud_depth: self.cfg.ui.depth as f32,
         }
     }
 
@@ -278,7 +280,7 @@ impl<G: Game> Session<G> {
             return self.compose(alpha, aspect, scene, ui);
         }
         draw_particles(&mut out, &sim.particles, alpha);
-        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, fog, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, movers, picks, .. } = out;
+        let Drawing { mut voxels, draws: models, lights: game_lights, daylight, fog, camera: picture, cull, bounds, cast_top, pieces: lamp_pieces, movers, picks, hud_models, .. } = out;
         // Models only casting a shadow above the world (a ceiling over a
         // room standing higher): the shadows' box reaches up to them.
         let high = cast_top > world_size.z;
@@ -326,7 +328,8 @@ impl<G: Game> Session<G> {
         // such a lamp's reach.
         let reaches: Vec<(Vec3, Vec3)> = lights.iter().filter(|l| stopped && l.stopped_by_movers()).map(|l| (l.pos - l.radius, l.pos + l.radius)).collect();
         let lamp_movers: Vec<crate::render::Mover> = movers.into_iter().filter(|((lo, hi), _)| reaches.iter().any(|(a, b)| lo.cmple(*b).all() && hi.cmpge(*a).all())).map(|(_, m)| m).collect();
-        let (ui, ui_models, ui_view_proj) = self.ui_of(ui, alpha, aspect);
+        let (ui, ui_models, ui_view_proj, hud_models) = self.ui_of(ui, hud_models, alpha, aspect);
+        let layout = crate::ui::Layout::of(&self.cfg.ui, aspect);
 
         let fx = &self.cfg.effects;
         let haze_start = eye.distance(target);
@@ -373,6 +376,8 @@ impl<G: Game> Session<G> {
             fade: self.fade.as_ref().map_or([0.0; 4], Fade::look),
             models,
             ui_models,
+            hud_models,
+            hud_eye: crate::ui::eye(&layout, self.cfg.ui.slant, self.cfg.ui.depth as f32),
             bank: self.bank(),
             instances,
             see_through,
@@ -501,11 +506,13 @@ impl<G: Game> Session<G> {
         lights
     }
 
-    /// The UI layer: `ui` (the menus) when given, else the game's HUD; what
+    /// The UI layer: `ui` (the menus) when given, else the game's HUD with
+    /// the models it draws whole (`hud_models`, none under a menu); what
     /// stopped the game or a reload over everything until mended (in place
     /// of the HUD).
-    fn ui_of(&self, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>, alpha: f32, aspect: f32) -> (Vec<Instance>, Vec<ModelDraw>, Mat4) {
+    fn ui_of(&self, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>, hud_models: Vec<ModelDraw>, alpha: f32, aspect: f32) -> (Vec<Instance>, Vec<ModelDraw>, Mat4, Vec<ModelDraw>) {
         let problem = self.game.halted().or_else(|| self.problem.clone());
+        let hud_models = if ui.is_none() && problem.is_none() { hud_models } else { Vec::new() };
         let (mut ui, ui_models, ui_view_proj) = ui.unwrap_or_else(|| {
             let ui = &self.cfg.ui;
             let layout = crate::ui::Layout::of(ui, aspect);
@@ -517,7 +524,7 @@ impl<G: Game> Session<G> {
         if let Some(problem) = problem.filter(|_| self.problem_shown) {
             ui.extend(crate::ui::error_panel(&problem, &self.cfg.ui, aspect));
         }
-        (ui, ui_models, ui_view_proj)
+        (ui, ui_models, ui_view_proj, hud_models)
     }
 }
 

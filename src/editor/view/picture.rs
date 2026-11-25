@@ -334,6 +334,8 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         fade: [0.0; 4],
         models: drawn.0,
         ui_models: Vec::new(),
+        hud_models: Vec::new(),
+        hud_eye: Vec3::ZERO,
         bank: drawn.1,
         instances,
         see_through,

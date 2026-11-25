@@ -302,23 +302,34 @@ impl UserData for Frame {
         m.add_method_mut("draw", |_, o, (file, x, y, options): (String, f32, f32, Option<Given>)| {
             const WHAT: &str = "frame:draw";
             let (mut frame, mut quarters) = (0, 0);
+            // A rotation given as a table, or a pose: the model whole.
+            let (mut turn, mut pose) = (None, None);
             if let Some(t) = &options {
-                super::menus::known_keys(t, &["frame", "rotation"], WHAT)?;
-                let whole = |key: &str| -> mlua::Result<Option<f64>> {
-                    match t.raw_get::<Value>(key)? {
+                super::menus::known_keys(t, &["frame", "rotation", "pose"], WHAT)?;
+                let whole = |v: Value, key: &str| -> mlua::Result<Option<f64>> {
+                    match v {
                         Value::Nil => Ok(None),
                         Value::Integer(n) => Ok(Some(n as f64)),
                         Value::Number(n) if n.is_finite() && n.fract() == 0.0 => Ok(Some(n)),
                         _ => Err(mlua::Error::runtime(format!("{WHAT}: {key} is a whole number"))),
                     }
                 };
-                if let Some(r) = whole("rotation")? {
-                    if r % 90.0 != 0.0 {
-                        return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r}: quarter turns only (0, 90, 180, 270)")));
+                pose = t.raw_get::<Option<Given>>("pose")?;
+                match t.raw_get::<GivenValue>("rotation")?.0 {
+                    Value::Table(r) => turn = Some(turning(&r, WHAT)?),
+                    v => {
+                        if let Some(r) = whole(v, "rotation")? {
+                            if pose.is_some() {
+                                return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r} turns the flat picture; posed, the model is drawn whole and its rotation is a table, rotation = {{ rotation = {r} }}")));
+                            }
+                            if r % 90.0 != 0.0 {
+                                return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r}: quarter turns only (0, 90, 180, 270); to turn it freely, a table: rotation = {{ rotation = {r} }}")));
+                            }
+                            quarters = (r / 90.0).rem_euclid(4.0) as u8;
+                        }
                     }
-                    quarters = (r / 90.0).rem_euclid(4.0) as u8;
                 }
-                frame = match whole("frame")? {
+                frame = match whole(t.raw_get("frame")?, "frame")? {
                     Some(n) if n >= 0.0 => n as usize,
                     Some(n) => return Err(mlua::Error::runtime(format!("{WHAT}: frame = {n}: its frames count from 0"))),
                     None => 0,
@@ -329,6 +340,15 @@ impl UserData for Frame {
             let model = needed.load(&file).map_err(|e| mlua::Error::runtime(format!("{WHAT}: {e:#}")))?;
             if frame >= model.frames.len() {
                 return Err(mlua::Error::runtime(format!("{WHAT}: frame = {frame}, but \"{file}\" has {} (from 0)", model.frames.len())));
+            }
+            if turn.is_some() || pose.is_some() {
+                let parts: Vec<String> = model.parts.iter().map(|p| p.name.clone()).collect();
+                let pose = match &pose {
+                    Some(p) => pose_of(p, &file, Some(&parts).filter(|p| !p.is_empty()), WHAT)?,
+                    None => Vec::new(),
+                };
+                o.cmds.push(Cmd::Whole { file, frame, x, y, turn: turn.unwrap_or_default(), pose });
+                return Ok(());
             }
             // One voxel of the model one of the HUD's.
             let thumb = super::menus::front(&model, frame, quarters, 1);

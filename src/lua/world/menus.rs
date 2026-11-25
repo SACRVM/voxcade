@@ -33,6 +33,10 @@ pub enum Cmd {
     /// A model on the HUD as a grid's slot shows it (`frame:draw`), from
     /// its top left in UI voxels.
     Draw { thumb: Arc<Thumb>, x: f32, y: f32 },
+    /// A model drawn whole on the HUD (`frame:draw` turned by a table or
+    /// posed), from its top left in UI voxels as it faces you unturned:
+    /// `turn` degrees round, nose up, rolled (`session::turning`).
+    Whole { file: String, frame: usize, x: f32, y: f32, turn: [f32; 3], pose: Vec<crate::session::PoseEntry> },
 }
 
 /// `frame:menu`: a list in the engine's look, the game's to move.

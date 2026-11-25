@@ -1815,7 +1815,22 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the UI pass through `Session::hud_cubes`: covered faces hidden, the
   cubes nothing of which shows from the UI's eye left out
   (`render::leave_out_unseen`: a plate's back layer, half of BunnyFarm's
-  HUD), worked out once while `on_draw` gives the same.
+  HUD), worked out once while `on_draw` gives the same. `frame:draw`
+  with its `rotation` a table or a `pose` (the owner's, 2026-11-25; the
+  type switches, never the value) draws a model whole
+  (`lua::world::Cmd::Whole`, `Drawing::hud_model`: `figures::draw` from
+  the bank, `FACING_YOU` times `turning`, its turn's centre on the plane
+  `c.ui.depth` where the flat picture lays that voxel), in a pass of its
+  own after the UI's (`Renderer::hud_model_pass`: the `ui` and `glow`
+  targets loaded, depth cleared, so it lies over every flat HUD voxel and
+  whole ones meet by depth; text drawn after it does not show over it),
+  lit by the UI's sun, its globals the UI's with the real eye
+  (`FrameData::hud_eye`, `hud_globals`: `ui_globals` unchanged, so the
+  logo and HUD pictures stay); `FrameData::hud_models`, none under a menu
+  or a mistake (`Session::ui_of`). Tests
+  `a_whole_model_faces_you_where_the_flat_one_lies`,
+  `a_whole_model_turns_and_poses`, `no_whole_model_under_a_menu_or_a_mistake`,
+  `a_whole_model_lies_over_the_flat_hud`.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,

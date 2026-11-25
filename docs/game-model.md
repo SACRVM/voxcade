@@ -520,6 +520,22 @@ settings. Several players: `player` is seat 1, the others are in
   the picture. On the HUD what is drawn first keeps a voxel two things
   share (a box drawn later does not cover an icon drawn before); what is
   deeper stands in front (`c.ui.depth` above 2, a model's two).
+  `rotation` as a table (`frame:model`'s `Rotation`) or a `pose` (the
+  owner, 2026-11-25) draws the model whole instead: its full depth,
+  turned at any angle about `render::turn_centre`, a figure of parts
+  posed by `PoseEntry`s, lit by the HUD's own light (its sun and
+  ambient, no shadow, no lamps, not the level's), one model voxel one HUD
+  voxel, glass left out, glow the file's or the pose's. The type
+  switches, never the value: `{ rotation = 90 }` is whole, `rotation =
+  90` flat, so a turning animation never jumps at a quarter turn; a
+  number with a pose is a mistake naming the table form. Unturned, `{
+  rotation = {} }`, it lies on the flat picture's columns and rows, its
+  turn's centre on the plane `c.ui.depth`. Drawn from the model bank in
+  a pass of its own after the HUD's (`render::passes`, "hud models"),
+  its depth its own: it lies over every flat voxel of the HUD whenever
+  it was drawn (text drawn after it does not show over it: a stated
+  limit), and two drawn whole meet by depth. Nothing of it under a menu
+  or a mistake.
 - **A model's pivot** is the cell `size / 2` (whole voxels, rounded
   down) across and deep of the model's own box, on the floor: a thing's
   position is that cell, and a model turns about its middle. For an odd

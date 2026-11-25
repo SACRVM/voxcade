@@ -230,7 +230,8 @@ const TYPES: &str = "\
 
 ---@class DrawOptions How a model is drawn on the HUD (frame:draw).
 ---@field frame? integer Which of its frames, from 0 (0 unless given).
----@field rotation? integer Which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side.
+---@field rotation? integer|Rotation A number: which side faces you, seen flat, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side. A table: the model drawn whole, turned at any angle about its middle ({} faces you unturned).
+---@field pose? table<string, PoseEntry> A figure of parts posed, as frame:model's pose: the model drawn whole.
 
 ---@class SaveInfo What lies in a save slot.
 ---@field level string The level it was saved in.
@@ -932,11 +933,15 @@ pub const API: &[Item] = &[
     Item { of: "frame", name: "draw", what: Method { params: &[("file", "string"), ("x", "number"), ("y", "number"), ("options?", "DrawOptions")], returns: "" },
         doc: "Draws a model file of the game on the screen, its top left at x, y, in UI voxels: a key in the corner, a face beside what a \
             figure says. file is any model file of the game by its path in the game folder (\"items/key.vvx\"), loaded the first time it is \
-            drawn; a file that is not there is a mistake. One voxel of the model is one of the HUD's, seen from one side and 2 voxels \
-            deep, as a grid's slot shows it (frame:grid): not lit by the level, its see-through voxels left out.\n- frame: which of \
-            its frames, from 0.\n- rotation: which side faces you, degrees clockwise seen from above, quarter turns only: 0 its front \
-            (+y), 90 its left side, 180 its back, 270 its right side.\nWhat is drawn first on the HUD lies on top: draw the model \
-            before the box it sits on. With c.ui.depth above 2, what is drawn deeper stands in front of it." },
+            drawn; a file that is not there is a mistake. One voxel of the model is one of the HUD's, not lit by the level, its \
+            see-through voxels left out.\n- frame: which of its frames, from 0.\n- rotation: a number is the side facing you in quarter \
+            turns, degrees clockwise seen from above (0 its front, +y, 90 its left side, 180 its back, 270 its right side), seen flat: \
+            2 voxels deep, as a grid's slot shows it (frame:grid). A table ({ rotation =, pitch =, roll = }, as frame:model's) draws \
+            the model whole, as deep as it is, turned at any angle about its middle, lit by the HUD's own light; {} faces you \
+            unturned where the flat picture lies.\n- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.\n\
+            What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what \
+            is drawn deeper stands in front of it. A model drawn whole lies over the rest of the HUD, text drawn after it too; two \
+            drawn whole meet by depth." },
     Item { of: "frame", name: "drop_in", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("ticks", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME \
             OVER, a stage's name. Before 0 nothing shows. color and size as frame:text's." },

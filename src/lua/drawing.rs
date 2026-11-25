@@ -127,6 +127,9 @@ impl<K: Kit> LuaGame<K> {
                     }
                 }
                 Cmd::Camera(cam) => out.camera(*cam),
+                // A model whole on the HUD, from the bank in a pass of its
+                // own over the flat HUD.
+                Cmd::Whole { file, frame, x, y, turn, pose } => out.hud_model(file, *frame, *x, *y, *turn, pose),
                 // The pieces' (`picture_pose`); the HUD's, drawn by `hud`.
                 _ => {}
             }
