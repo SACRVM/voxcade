@@ -32,6 +32,8 @@ pub enum Unit {
     Name,
     /// A whole number of things (oscillators).
     Count,
+    /// Beats of the song: 1 a beat, 0.5 half of one.
+    Beats,
 }
 
 impl Unit {
@@ -43,6 +45,7 @@ impl Unit {
             Unit::Semitones => " semitones",
             Unit::Decibels => " dB",
             Unit::Bits => " bits",
+            Unit::Beats => " beats",
             _ => "",
         }
     }
@@ -202,6 +205,11 @@ pub const WORDS: &[Word] = &[
     Word { name: "reverse", sound: None, mml: mml(YesNo, None, "no", "yes: a sample plays backwards, from its end to its start") },
     Word { name: "curve", sound: None, mml: mml(Choice, None, "linear", "how decay and release fall: linear, a straight line, or exp, as a drum dies away, their time then the fall to -60 dB") },
     Word { name: "unison", sound: None, mml: mml(Count, Some((1.0, 7.0)), "1", "how many oscillators play each note together, spread evenly over detune: thick pads and fat basses; a square, saw, triangle or sine only") },
+    Word { name: "lfo_speed", sound: None, mml: mml(Hz, Some((0.01, 50.0)), "5", "how often the LFO turns in a second, from each note's start: what lfo_cutoff and lfo_volume move by") },
+    Word { name: "lfo_beats", sound: None, mml: mml(Beats, Some((0.0625, 64.0)), "none", "in place of lfo_speed: one turn of the LFO lasts so many of the song's beats, on the song's beat wherever a note begins and with the game's tempo; 0.5 a wobble each eighth") },
+    Word { name: "lfo_wave", sound: None, mml: mml(Choice, None, "sine", "the LFO's wave: sine, triangle, square, saw (falling, a pump) or noise (a new random value each turn)") },
+    Word { name: "lfo_cutoff", sound: None, mml: mml(Semitones, Some((0.0, 60.0)), "0", "how far the LFO moves the filter's cutoff up and down: 24 two octaves each way, a wobble; the line needs a filter") },
+    Word { name: "lfo_volume", sound: None, mml: mml(Share, Some((0.0, 1.0)), "0", "how far the LFO takes the volume down at its lowest, never up: 1 to silence, a tremolo") },
     Word { name: "detune", sound: None, mml: mml(Semitones, Some((0.0, 1.0)), "0.1", "how far the outermost unison oscillators lie from the note, below and above it") },
 ];
 
@@ -303,6 +311,7 @@ mod tests {
                 "arp" => "0,4,7".to_string(),
                 "filter" => "lowpass".to_string(),
                 "curve" => "exp".to_string(),
+                "lfo_wave" => "triangle".to_string(),
                 "name" => "thump".to_string(),
                 "root" => "f#3".to_string(),
                 "loop" | "reverse" => "yes".to_string(),
@@ -317,6 +326,8 @@ mod tests {
                 "consonants" => ("voice ", "\"l a\" c"),
                 "name" => ("sample ", "c"),
                 "root" | "start" | "end" | "loop" | "reverse" => ("sample name=thump ", "c"),
+                // The LFO's cutoff moves a filter, which the line needs.
+                "lfo_cutoff" => ("filter=lowpass ", "c"),
                 _ => ("", "c"),
             };
             crate::audio::music::parse(&format!("@x {wave}{}={value}\nA: {note}", w.name)).unwrap_or_else(|e| panic!("{}: {e:#}", w.name));

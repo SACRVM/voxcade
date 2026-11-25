@@ -72,6 +72,8 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
     let mut swept = false;
     // A word of unison's, which only a wave of a pitch has.
     let mut spread = None;
+    // The LFO's speeds written (Hz, beats), and whether its cutoff.
+    let (mut timed, mut lfo_cut) = ((false, false), false);
     // The wave `sample`, and the words of a sample read (the first one
     // written, for a mistake on another wave).
     let mut sampled = false;
@@ -206,6 +208,14 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
                 (ins.unison, spread) = (n as u32, Some(key));
             }
             "detune" => (ins.detune, spread) = (num()?, Some(key)),
+            "lfo_speed" => (ins.lfo.speed, timed.0) = (num()?, true),
+            "lfo_beats" => (ins.lfo.beats, timed.1) = (Some(num()?), true),
+            "lfo_wave" => {
+                let v = value.context("lfo_wave needs sine, triangle, square, saw or noise")?;
+                ins.lfo.wave = Wave::ALL.iter().find(|(n, _)| *n == v).map(|(_, w)| *w).with_context(|| format!("lfo_wave={v}: sine, triangle, square, saw or noise"))?;
+            }
+            "lfo_cutoff" => (ins.lfo.cutoff, lfo_cut) = (num()?, true),
+            "lfo_volume" => ins.lfo.volume = num()?,
             "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine, noise, sample, voice or {} (like @lead square duty=0.25)", clear::WAVE),
             other => {
                 let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse", "sample", "voice", clear::WAVE]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
@@ -230,6 +240,12 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
             None => wave,
         };
         bail!("{word} means nothing on a {what}: unison spreads the oscillators of a square, saw, triangle or sine");
+    }
+    if timed == (true, true) {
+        bail!("lfo_speed and lfo_beats both say how fast the LFO turns: take one (lfo_speed in Hz from each note's start, lfo_beats in the song's beats)");
+    }
+    if lfo_cut && ins.filter.is_none() {
+        bail!("lfo_cutoff moves the filter's cutoff, and this line has no filter: write filter=lowpass (or bandpass, highpass) or a cutoff with it");
     }
     if swept && ins.pitch_start.is_some() {
         bail!("pitch_start and sweep both bend the pitch: take one (pitch_start falls in Hz to the note's pitch, sweep slides in semitones)");
@@ -290,9 +306,11 @@ fn parse_sum(spec: &str) -> Result<Sum> {
         resonance: ins.resonance,
         crush_rate: ins.crush_rate,
         crush_bits: ins.crush_bits,
+        lfo: ins.lfo,
         drive_stated: stated("drive") || stated("drive_end"),
         cutoff_stated: stated("cutoff"),
         resonance_stated: stated("resonance"),
+        lfo_stated: keys(spec).any(|k| k.starts_with("lfo_")),
     })
 }
 

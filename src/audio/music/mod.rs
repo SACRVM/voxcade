@@ -59,6 +59,18 @@
 //! above, begun at fixed places spread over their turn, their sum over the
 //! root of how many; envelope, filters and drive stay one for them all.
 //!
+//! An LFO on every line (`@`, `+`, `=`): `lfo_cutoff` moves the filter's
+//! cutoff that many semitones up and down (0 to 60; a line without a
+//! filter refuses it), `lfo_volume` takes the volume down at its lowest,
+//! never up (0 to 1, 1 to silence), `lfo_speed` turns it so often a
+//! second from each note's start (5 unless set) or `lfo_beats` once in so
+//! many of the song's beats (1/16 to 64; not both), by where the song is,
+//! so it sits on the beat wherever a note begins and follows the game's
+//! tempo; `lfo_wave` sine (unless set; from the middle rising, as the
+//! triangle), triangle, square, saw (falling) or noise (a value hashed
+//! from the turn's number). On the sum it moves the sum's filter and
+//! volume. `lfo_beats=0.5 lfo_cutoff=24` on a resonant low-pass: a wobble.
+//!
 //! Two voices sing: `@vox singer ...` the clear one, made for words to be
 //! understood (`clear.rs`, a cascade/parallel formant synthesizer after
 //! Klatt with a glottal pulse, formants gliding by their loci, voice onset

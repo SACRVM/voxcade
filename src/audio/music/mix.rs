@@ -58,8 +58,9 @@ impl Glide {
 /// depths the voice reads every sample (`player::Voice::sound`), so they
 /// glide under it. In this order in `Strip::knobs`. Of a layered
 /// instrument a strip turns the first layer's, but cutoff and resonance
-/// the sum's where its `=` line states them.
-pub const GLIDING: [&str; 8] = ["duty", "pwm", "vibrato", "sustain", "cutoff", "resonance", "duck", "detune"];
+/// the sum's where its `=` line states them, and the LFO's the sum's where
+/// it states an LFO's word.
+pub const GLIDING: [&str; 10] = ["duty", "pwm", "vibrato", "sustain", "cutoff", "resonance", "duck", "detune", "lfo_cutoff", "lfo_volume"];
 /// `GLIDING`'s cutoff, which glides in octaves (its glide holds log2 Hz).
 pub const CUTOFF: usize = place(&GLIDING, "cutoff");
 
@@ -90,20 +91,22 @@ pub(super) const fn place(words: &[&str], word: &str) -> usize {
 /// order in `Strip::next`. Of a layered instrument (`+` lines) a strip
 /// turns the first layer's, but drive (its end and time with it) the sum's
 /// where its `=` line states a drive or its end, as `GLIDING`'s cutoff and
-/// resonance. A sample's `root` (held as Hz), `start` and `end`
+/// resonance, and the LFO's speeds the sum's where it states an LFO's
+/// word; a turned `lfo_beats` turns by beats, a turned `lfo_speed`
+/// without it by Hz. A sample's `root` (held as Hz), `start` and `end`
 /// (`SAMPLE_KNOBS`) are among them: a break cut up by the game, note by
 /// note.
-pub const NEXT_NOTE: [&str; 25] = [
+pub const NEXT_NOTE: [&str; 27] = [
     "attack", "decay", "release", "freq", "sweep", "sweep_time", "pitch_start", "pitch_decay", "cutoff_end", "cutoff_time", "vibrato_speed",
     "vibrato_delay", "pwm_speed", "arp_speed", "lowpass", "drive", "drive_end", "drive_time", "crush_rate", "crush_bits", "sidechain",
-    "sidechain_release", "root", "start", "end",
+    "sidechain_release", "root", "start", "end", "lfo_speed", "lfo_beats",
 ];
 
 /// `NEXT_NOTE`'s words of the wave `sample` alone.
 pub const SAMPLE_KNOBS: [&str; 3] = ["root", "start", "end"];
 
 /// An instrument's words that are no knob, and why.
-pub const NO_KNOB: [(&str, &str); 9] = [
+pub const NO_KNOB: [(&str, &str); 10] = [
     ("wave", "the wave is another sound, not a knob: set it in the instrument"),
     ("filter", "the filter's kind is a choice of the instrument, not a knob: its cutoff and resonance turn"),
     ("arp", "an arpeggio is a list of steps, not a knob: arp_speed turns"),
@@ -113,6 +116,7 @@ pub const NO_KNOB: [(&str, &str); 9] = [
     ("loop", "whether a sample goes round is a choice of the instrument, not a knob: its start and end turn"),
     ("reverse", "which way a sample plays is a choice of the instrument, not a knob: its start, end and root turn"),
     ("unison", "how many oscillators play is a choice of the instrument, not a knob: its detune turns"),
+    ("lfo_wave", "the LFO's wave is a choice of the instrument, not a knob: its speed, beats and depths turn"),
 ];
 
 /// One of a strip's `GLIDING` words: the value asked (None: the

@@ -1899,6 +1899,31 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   them; `curve` no knob. Tests in `audio/music/layer_tests.rs`. A
   layered kick is checked by the owner's kick meters (KNALL, BALLERN,
   BRUSTKORB; `ide::instrument::kick_meters`).
+  Instruments that move (the owner's yes, 2026-11-25, to
+  `shots/reviews/synth-lfo-unison-drive-draft.md`; on `@`, `+` and `=`
+  lines; an instrument writing none of them renders as before to the
+  sample): `drive_end`/`drive_time` slide the drive evenly in dB over
+  each note (`attack + decay` unless set; with an end the clipper works
+  the whole note, 0 dB a tanh at gain 1; `Shape::drive_sweep`, a voice's
+  noise raised along); `unison` (1 to 7, `song::UNISON`; square, saw,
+  triangle, sine, refused elsewhere and on `=`) and `detune` (semitones
+  0 to 1, 0.1) play so many oscillators of a line spread evenly from
+  -detune to +detune, begun at fixed phases spread by the golden ratio,
+  their sum over the root of how many, one envelope, filter and drive
+  (`Tone::unison`, a fixed array; seven sines on four layers of eight
+  voices 4 s in 193 ms here, test `unison_at_its_worst_is_quick`); an
+  LFO (`song::Lfo`, `player::Turn`): `lfo_cutoff` (semitones each way,
+  0 to 60, a line without a filter refuses it), `lfo_volume` (a share,
+  only down), `lfo_speed` (Hz from the note's start, 5) or `lfo_beats`
+  (`words::Unit::Beats`, 1/16 to 64, not both; by `Player::position`,
+  the song's beats as written played on, so on the beat wherever a note
+  begins and with the tempo's ratio), `lfo_wave` sine, triangle (both
+  from the middle rising), square, saw (falling), noise (the turn's
+  number hashed by SplitMix64's finaliser); on `=` the sum's filter and
+  volume. `music:mix`: `detune`, `lfo_cutoff`, `lfo_volume` glide,
+  `drive_end`, `drive_time`, `lfo_speed`, `lfo_beats` from the next note
+  (the sum's where `=` states a drive or its end, an LFO's word),
+  `unison`, `lfo_wave` no knob. Tests in `audio/music/motion_tests.rs`.
   The MML pulse wave is centred (no DC offset off duty 0.5, the owner's D6,
   2026-11-13; it changed the sound of End Boss slightly), so no song has
   thumps or lost headroom. MML refuses out-of-range values and names its

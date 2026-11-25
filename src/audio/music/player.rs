@@ -1,13 +1,13 @@
 //! The player: renders a song's voices, sidechain, layers, filter and the game's mix.
 
-use super::SAMPLE_RATE;
+use super::{SAMPLE_RATE, Wave};
 use super::parse::LOOP_SLACK;
 use super::mix::{CUTOFF, GLIDING, Glide, Knob, LETTERS, Mix, NEXT_NOTE, SHORTEST, Strip, letter_index, muffle_cutoff, place};
 use super::clear::{self, Seg};
-use super::song::{Curve, FilterMode, Instrument, LAYERS, Note, Song, Sum, UNISON, Voicing};
+use super::song::{Curve, FilterMode, Instrument, LAYERS, Lfo, Note, Song, Sum, UNISON, Voicing};
 use super::voice::{Segment, Singer};
 use crate::audio::STEAL_FADE;
-use crate::audio::synth::{OnePole, Oscillator, ratio};
+use crate::audio::synth::{OnePole, Oscillator, ratio, shape};
 
 /// Channels a game laid, made on the main thread to be swapped in by the
 /// audio (`Player::pend`): the song and a voice for each of its channels
@@ -65,7 +65,7 @@ pub(super) struct Voice {
     pub(super) tone: Tone,
     more: [Tone; LAYERS - 1],
     /// What a layered note's sum goes through (`Instrument::sum`, `=`).
-    sum: Summed,
+    pub(super) sum: Summed,
     /// The note's pan's share of each side, kept from start to end.
     pan: (f32, f32),
     /// Where a voice's attack starts from (the level it was at: a sung
@@ -178,13 +178,15 @@ pub(super) struct Tone {
 }
 
 /// What a layered note's layers go through once added (`Sum`): the soft
-/// clipper's gain (0 off) and its DC blocker, the filter, the crusher.
+/// clipper's gain (0 off) and its DC blocker, the filter, the crusher, how
+/// its LFO turns.
 #[derive(Clone, Default)]
-struct Summed {
+pub(super) struct Summed {
     drive: f32,
     drive_sweep: Option<(f32, f32)>,
     dc: (f32, f32),
-    filter: Svf,
+    pub(super) filter: Svf,
+    lfo: Turn,
     crush: Crusher,
 }
 
@@ -205,6 +207,7 @@ struct Shape {
     pitch_decay: f32,
     cutoff_sweep: Option<(f32, f32)>,
     drive_sweep: Option<(f32, f32)>,
+    lfo: Turn,
     vibrato_speed: f32,
     vibrato_delay: f32,
     pwm_speed: f32,
@@ -228,6 +231,8 @@ mod at {
     pub const RESONANCE: usize = place(&GLIDING, "resonance");
     pub const DUCK: usize = place(&GLIDING, "duck");
     pub const DETUNE: usize = place(&GLIDING, "detune");
+    pub const LFO_CUTOFF: usize = place(&GLIDING, "lfo_cutoff");
+    pub const LFO_VOLUME: usize = place(&GLIDING, "lfo_volume");
     pub const ATTACK: usize = place(&NEXT_NOTE, "attack");
     pub const DECAY: usize = place(&NEXT_NOTE, "decay");
     pub const RELEASE: usize = place(&NEXT_NOTE, "release");
@@ -253,6 +258,8 @@ mod at {
     pub const ROOT: usize = place(&NEXT_NOTE, "root");
     pub const START: usize = place(&NEXT_NOTE, "start");
     pub const END: usize = place(&NEXT_NOTE, "end");
+    pub const LFO_SPEED: usize = place(&NEXT_NOTE, "lfo_speed");
+    pub const LFO_BEATS: usize = place(&NEXT_NOTE, "lfo_beats");
 }
 
 /// How long a looped sample's seam is faded across (`loop=yes`), and an
@@ -307,6 +314,77 @@ fn fallen(x: f32, seconds: f32) -> f32 {
     let left = libm::expf(-LN_1000 * x);
     let taper = (TAPER / seconds).min(1.0);
     if x > 1.0 - taper { left * (1.0 - x) / taper } else { left }
+}
+
+/// How a line's LFO turns as a note took it up: its speed (Hz from the
+/// note's start) or its beats (a turn in so many of the song's), with
+/// what a strip turned from the next note, and its wave.
+#[derive(Clone, Copy)]
+pub(super) struct Turn {
+    speed: f32,
+    beats: Option<f32>,
+    wave: Wave,
+}
+
+impl Default for Turn {
+    fn default() -> Self {
+        Turn::of(&Lfo::default(), &[None; NEXT_NOTE.len()])
+    }
+}
+
+impl Turn {
+    /// `lfo` with a strip's words from the next note (`next`) over it: its
+    /// beats over all, then its speed, which turns by Hz.
+    fn of(lfo: &Lfo, next: &[Option<f32>; NEXT_NOTE.len()]) -> Turn {
+        let beats = match (next[at::LFO_BEATS], next[at::LFO_SPEED]) {
+            (Some(beats), _) => Some(beats),
+            (None, Some(_)) => None,
+            (None, None) => lfo.beats,
+        };
+        Turn { speed: next[at::LFO_SPEED].unwrap_or(lfo.speed), beats, wave: lfo.wave }
+    }
+
+    /// Where it is, -1 to 1, `t` seconds into a note and at `beat` of the
+    /// song (beats as written, on and on round its loop): the sine and the
+    /// triangle from the middle rising, the square high first, the saw
+    /// falling from its top, the noise a value of its own each turn.
+    fn at(&self, t: f32, beat: f64) -> f32 {
+        let turns = match self.beats {
+            Some(beats) => beat / f64::from(beats),
+            None => f64::from(t) * f64::from(self.speed),
+        };
+        let whole = libm::floor(turns);
+        let phase = (turns - whole) as f32;
+        match self.wave {
+            Wave::Noise => drawn(whole as i64),
+            Wave::Saw => -shape(Wave::Saw, phase, 0.5),
+            Wave::Triangle => shape(Wave::Triangle, (phase + 0.25).fract(), 0.5),
+            wave => shape(wave, phase, 0.5),
+        }
+    }
+
+    /// What it does at `t` and `beat` (as `at`) with `depths` (its
+    /// cutoff's semitones each way, its volume's share): the cutoff's
+    /// ratio and the volume's gain, never above 1; None where neither
+    /// moves.
+    fn moves(&self, (cut, vol): (f32, f32), t: f32, beat: f64) -> Option<(f32, f32)> {
+        if cut <= 0.0 && vol <= 0.0 {
+            return None;
+        }
+        let v = self.at(t, beat);
+        Some((libm::exp2f(cut * v / 12.0), 1.0 - vol * (1.0 - v) / 2.0))
+    }
+}
+
+/// The noise LFO's value for its turn: the turn's number hashed (the
+/// finaliser of SplitMix64, Steele, Lea and Flood 2014), the same on every
+/// machine and wherever a note begins.
+fn drawn(turn: i64) -> f32 {
+    let mut z = (turn as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^= z >> 31;
+    (z >> 32) as f32 / u32::MAX as f32 * 2.0 - 1.0
 }
 
 /// A drive's gain `t` seconds into a note: `gain` as it began, moved by
@@ -366,6 +444,7 @@ impl Tone {
             pitch_decay: word(at::PITCH_DECAY, ins.pitch_decay),
             cutoff_sweep,
             drive_sweep,
+            lfo: Turn::of(&ins.lfo, next),
             vibrato_speed: word(at::VIBRATO_SPEED, ins.vibrato_speed),
             vibrato_delay: word(at::VIBRATO_DELAY, ins.vibrato_delay),
             pwm_speed: word(at::PWM_SPEED, ins.pwm_speed),
@@ -505,14 +584,16 @@ impl Tone {
     }
 
     /// The next sample of a further layer `ins` of note `n` (`t`, `gate`
-    /// as `envelope`'s), before its volume; None once it has rung out.
-    fn next(&mut self, ins: &Instrument, n: &Note, t: f32, gate: Option<f32>) -> Option<f32> {
+    /// as `envelope`'s, `beat` the song's), before its volume; None once
+    /// it has rung out.
+    fn next(&mut self, ins: &Instrument, n: &Note, t: f32, gate: Option<f32>, beat: f64) -> Option<f32> {
         let level = self.envelope(t, gate, ins.sustain, None)?;
         let freq = self.pitch(ins, n, t, ins.vibrato);
         let duty = self.duty(t, ins.duty, ins.pwm);
         let s = self.source(ins, freq, duty, ins.detune)?;
-        let s = self.color(ins, s, None, t, ins.cutoff, ins.resonance);
-        Some(self.crushed(s, level))
+        let moved = self.shape.lfo.moves((ins.lfo.cutoff, ins.lfo.volume), t, beat);
+        let s = self.color(ins, s, None, t, moved.map_or(ins.cutoff, |(c, _)| ins.cutoff * c), ins.resonance);
+        Some(self.crushed(s, moved.map_or(level, |(_, g)| level * g)))
     }
 
     /// The next sample of its source at `freq`: its wave's (its unison's,
@@ -613,6 +694,7 @@ impl Summed {
         self.drive = if drive > 0.0 || end.is_some() { libm::powf(10.0, drive / 20.0) } else { 0.0 };
         self.drive_sweep = end.map(|end| (libm::powf(10.0, (end - drive) / 20.0), next[at::DRIVE_TIME].or(sum.drive_time).unwrap_or(span).max(1e-3)));
         self.crush.set(sum.crush_rate, sum.crush_bits);
+        self.lfo = Turn::of(&sum.lfo, next);
     }
 
     /// The layers' sum `s` `t` seconds into the note through the soft
@@ -663,8 +745,9 @@ impl Voice {
         // A word the sum states the strip turns there, not on the first layer.
         let sum = ins.sum.as_ref();
         let (mut first, mut to_sum) = (*next, [None; NEXT_NOTE.len()]);
-        if sum.is_some_and(|s| s.drive_stated) {
-            for w in [at::DRIVE, at::DRIVE_END, at::DRIVE_TIME] {
+        if let Some(sum) = sum {
+            let drive = [at::DRIVE, at::DRIVE_END, at::DRIVE_TIME].into_iter().filter(|_| sum.drive_stated);
+            for w in drive.chain([at::LFO_SPEED, at::LFO_BEATS].into_iter().filter(|_| sum.lfo_stated)) {
                 to_sum[w] = first[w].take();
             }
         }
@@ -705,16 +788,19 @@ impl Voice {
     /// ducked by `ducked` and scaled by the song's `volume`, a jump's
     /// `fade` and the channel's layer (`loud`), its strip's gliding words
     /// laid over its first layer's (the sum's cutoff and resonance where
-    /// the sum states them) where it turns any (`turned`); its layers
-    /// added and through their sum (`Summed`), if it has any; None once
-    /// every layer is silent.
-    fn sound(&mut self, song: &Song, time: u64, ducked: f32, (volume, fade, loud): (f32, f32, f32), turned: Option<&Turned>) -> Option<[f32; 2]> {
+    /// the sum states them, its LFO's where it has one) where it turns any
+    /// (`turned`); its layers added and through their sum (`Summed`), if
+    /// it has any; None once every layer is silent. `beat` is where the
+    /// song is in its beats, for an LFO that turns by them.
+    fn sound(&mut self, song: &Song, time: u64, beat: f64, ducked: f32, (volume, fade, loud): (f32, f32, f32), turned: Option<&Turned>) -> Option<[f32; 2]> {
         let sr = SAMPLE_RATE as f32;
         let n = self.note?;
         let ins = song.instruments.get(n.instrument)?;
         let knob = |w: usize, own: f32| turned.map_or(own, |k| over(own, k[w], w == CUTOFF));
         let sum = ins.sum.as_ref();
-        let (sum_cutoff, sum_resonance) = sum.map_or((false, false), |s| (s.cutoff_stated, s.resonance_stated));
+        let (sum_cutoff, sum_resonance, sum_lfo) = sum.map_or((false, false, false), |s| (s.cutoff_stated, s.resonance_stated, s.lfo_stated));
+        // The LFO's depths a strip turns: the sum's, or the first line's.
+        let lfo_knob = |own: &Lfo, here: bool| if here { (knob(at::LFO_CUTOFF, own.cutoff), knob(at::LFO_VOLUME, own.volume)) } else { (own.cutoff, own.volume) };
         // The key is held for a length of the song; the sound's shape goes
         // by the samples heard (the same at the song's own tempo).
         let into = time.wrapping_sub(self.started);
@@ -746,8 +832,9 @@ impl Voice {
                     let noise = ins.voice.is_some().then_some(noise * self.noise_gain * raise);
                     let cutoff = if sum_cutoff { ins.cutoff } else { knob(CUTOFF, ins.cutoff) };
                     let resonance = if sum_resonance { ins.resonance } else { knob(at::RESONANCE, ins.resonance) };
-                    let s = tone.color(ins, s, noise, t, cutoff, resonance);
-                    tone.crushed(s, level)
+                    let moved = tone.shape.lfo.moves(lfo_knob(&ins.lfo, !sum_lfo), t, beat);
+                    let s = tone.color(ins, s, noise, t, moved.map_or(cutoff, |(c, _)| cutoff * c), resonance);
+                    tone.crushed(s, moved.map_or(level, |(_, g)| level * g))
                 })
             }
         };
@@ -764,7 +851,7 @@ impl Voice {
             let mut sounding = first.is_some();
             let mut s = first.map_or(0.0, |s| s * ins.volume);
             for (tone, layer) in self.more.iter_mut().zip(&ins.layers) {
-                if let Some(l) = tone.next(layer, &n, t, gate) {
+                if let Some(l) = tone.next(layer, &n, t, gate, beat) {
                     s += l * layer.volume;
                     sounding = true;
                 }
@@ -776,7 +863,11 @@ impl Voice {
             if let Some(sum) = sum {
                 let cutoff = if sum_cutoff { knob(CUTOFF, sum.cutoff) } else { sum.cutoff };
                 let resonance = if sum_resonance { knob(at::RESONANCE, sum.resonance) } else { sum.resonance };
-                s = self.sum.next(s, sum, cutoff, resonance, t);
+                let moved = self.sum.lfo.moves(lfo_knob(&sum.lfo, sum_lfo), t, beat);
+                s = self.sum.next(s, sum, moved.map_or(cutoff, |(c, _)| cutoff * c), resonance, t);
+                if let Some((_, g)) = moved {
+                    s *= g;
+                }
             }
             s * n.volume * volume * duck * fade * loud
         };
@@ -1482,6 +1573,8 @@ impl Player {
                 }
             }
             let ducked = self.duck.map_or(0.0, |d| d.amount(self.heard));
+            // Where the song is in its beats as written, played on and on.
+            let beat = self.position / self.at_beat(1.0);
             for (loud, &from) in self.loud.iter_mut().zip(&self.song.layers) {
                 let want = if self.intensity >= from { 1.0 } else { 0.0 };
                 *loud = if *loud < want { (*loud + step).min(want) } else { (*loud - step).max(want) };
@@ -1525,14 +1618,14 @@ impl Player {
                 }
                 let scale = (self.volume, fade, self.loud[ch]);
                 for x in [v, tail, giving] {
-                    if let Some([l, r]) = x.sound(&self.song, self.time, ducked, scale, knobs(x)).map(|s| strip(x, s)) {
+                    if let Some([l, r]) = x.sound(&self.song, self.time, beat, ducked, scale, knobs(x)).map(|s| strip(x, s)) {
                         (x.last, sum[0], sum[1]) = ([l, r], sum[0] + l, sum[1] + r);
                     }
                 }
             }
             // The notes of channels laid no more, ringing out.
             for tail in &mut self.tails[self.voices.len()..] {
-                if let Some([l, r]) = tail.sound(&self.song, self.time, ducked, (self.volume, fade, 1.0), knobs(tail)).map(|s| strip(tail, s)) {
+                if let Some([l, r]) = tail.sound(&self.song, self.time, beat, ducked, (self.volume, fade, 1.0), knobs(tail)).map(|s| strip(tail, s)) {
                     (tail.last, sum[0], sum[1]) = ([l, r], sum[0] + l, sum[1] + r);
                 }
             }

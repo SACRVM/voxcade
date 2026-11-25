@@ -1057,6 +1057,21 @@ mod tests {
         assert!(long.iter().any(|v| v.abs() > 0.1), "the samples sound");
         assert_eq!(taken_by(|| mixer.follow_music(7.0, 1.0, 0.0)), 0, "memory taken jumping into a sample");
         assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken with samples playing after a jump");
+        // Instruments that move: a drive sliding, seven saws in unison on
+        // four layers, LFOs by Hz and by beats on a layer and on the sum,
+        // their knobs turned, at another tempo.
+        let text = "#tempo 128\n@w saw unison=7 detune=0.3 drive=12 drive_end=0 filter=lowpass cutoff=900 lfo_beats=0.5 lfo_cutoff=24 lfo_wave=noise\n+ square unison=5 lfo_speed=6 lfo_volume=0.5\n+ sine unison=7 lfo_wave=saw lfo_volume=1\n+ triangle unison=3\n= filter=lowpass cutoff=2000 lfo_beats=2 lfo_cutoff=12 drive=6 drive_end=0\n@v singer drive=18 drive_end=3 lfo_speed=5 lfo_volume=0.4\nA: @w o2 l8 c e g e c e g b\nV: @v o3 \"l a\" c2 \"s i ng\" e2\n";
+        let mut mixer = Mixer::default();
+        mixer.set_music(Some(music::Player::new(music::parse(text).unwrap(), 1.0)));
+        let mut mix = music::Mix::default();
+        let strip = Arc::make_mut(&mut mix.strips).entry('A').or_default();
+        strip.turn("detune", Some(0.6), 0.5);
+        strip.turn("lfo_cutoff", Some(6.0), 0.5);
+        strip.turn("lfo_beats", Some(1.0), 0.0);
+        mixer.music_mix(&mix);
+        mixer.follow_music(0.0, 1.5, 0.0);
+        assert_eq!(taken_by(|| mixer.mix(&mut long)), 0, "memory taken with instruments that move");
+        assert!(long.iter().any(|v| v.abs() > 0.1), "they sound");
     }
 
     /// Two songs sound at most, the second only while a fade asked for

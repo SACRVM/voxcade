@@ -63,10 +63,6 @@ impl Oscillator {
         let wrapped = self.phase >= 1.0;
         self.phase = self.phase.fract();
         match wave {
-            Wave::Square => (if self.phase < duty { 1.0 } else { -1.0 }) - (2.0 * duty - 1.0),
-            Wave::Saw => 2.0 * self.phase - 1.0,
-            Wave::Sine => libm::sinf(std::f32::consts::TAU * self.phase),
-            Wave::Triangle => 1.0 - 4.0 * (self.phase - 0.5).abs(),
             Wave::Noise => {
                 if wrapped || draw {
                     self.seed ^= self.seed << 13;
@@ -76,7 +72,20 @@ impl Oscillator {
                 }
                 self.held
             }
+            _ => shape(wave, self.phase, duty),
         }
+    }
+}
+
+/// A wave's value at `phase` of its turn (0 to 1), a pulse high for `duty`
+/// of it and swinging round zero; noise has no shape of its own (0).
+pub(crate) fn shape(wave: Wave, phase: f32, duty: f32) -> f32 {
+    match wave {
+        Wave::Square => (if phase < duty { 1.0 } else { -1.0 }) - (2.0 * duty - 1.0),
+        Wave::Saw => 2.0 * phase - 1.0,
+        Wave::Sine => libm::sinf(std::f32::consts::TAU * phase),
+        Wave::Triangle => 1.0 - 4.0 * (phase - 0.5).abs(),
+        Wave::Noise => 0.0,
     }
 }
 

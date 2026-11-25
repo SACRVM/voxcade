@@ -64,6 +64,8 @@ pub struct Instrument {
     /// above it; one plays as ever.
     pub unison: u32,
     pub detune: f32,
+    /// Its LFO, moving its filter's cutoff and its volume.
+    pub lfo: Lfo,
     /// How `decay` and `release` fall: a straight line, or exponentially
     /// to -60 dB in their time.
     pub curve: Curve,
@@ -106,6 +108,26 @@ pub const LAYERS: usize = 4;
 /// each layer holds them in a fixed array (`player::Tone`).
 pub const UNISON: usize = 7;
 
+/// A line's LFO (`lfo_*`): how fast it turns (`speed` Hz from each note's
+/// start, or one turn in `beats` of the song's), its wave, and how far it
+/// moves the filter's cutoff (semitones up and down) and takes the volume
+/// down (a share: 1 to silence at its lowest). Unless written it moves
+/// nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lfo {
+    pub speed: f32,
+    pub beats: Option<f32>,
+    pub wave: Wave,
+    pub cutoff: f32,
+    pub volume: f32,
+}
+
+impl Default for Lfo {
+    fn default() -> Self {
+        Self { speed: 5.0, beats: None, wave: Wave::Sine, cutoff: 0.0, volume: 0.0 }
+    }
+}
+
 /// How an envelope's falls go (`curve`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Curve {
@@ -133,16 +155,23 @@ pub struct Sum {
     pub resonance: f32,
     pub crush_rate: Option<f32>,
     pub crush_bits: Option<u32>,
+    /// Its LFO, on the sum's filter and its volume.
+    pub lfo: Lfo,
     /// Which of the words a strip turns (`music:mix`) the line states:
     /// drive, cutoff, resonance turn the sum's then, not the first layer's
     /// (the drive's end and time with the drive, where it states either).
     pub drive_stated: bool,
     pub cutoff_stated: bool,
     pub resonance_stated: bool,
+    /// The line states an LFO's word: a strip's turn the sum's LFO.
+    pub lfo_stated: bool,
 }
 
 /// The words a sum line (`=`) takes.
-pub const SUM_WORDS: [&str; 9] = ["drive", "drive_end", "drive_time", "volume", "filter", "cutoff", "resonance", "crush_rate", "crush_bits"];
+pub const SUM_WORDS: [&str; 14] = [
+    "drive", "drive_end", "drive_time", "volume", "filter", "cutoff", "resonance", "crush_rate", "crush_bits", "lfo_speed", "lfo_beats", "lfo_wave",
+    "lfo_cutoff", "lfo_volume",
+];
 
 /// Which voice sings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,6 +229,7 @@ impl Default for Instrument {
             pitch_decay: 0.02,
             unison: 1,
             detune: 0.1,
+            lfo: Lfo::default(),
             curve: Curve::Linear,
             layers: Vec::new(),
             sum: None,

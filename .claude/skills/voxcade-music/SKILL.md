@@ -119,7 +119,14 @@ sound is held at, 6300 the speech of old games) and `crush_bits` (1 to
 16, after the envelope; 4 grainy). `unison` (1 to 7, a square, saw,
 triangle or sine only) plays so many oscillators together, spread evenly
 from `detune` semitones (0 to 1, 0.1) below the note to as far above, as
-loud as one; the envelope, filters and drive stay one for them all. Checking a voice: render a copy of
+loud as one; the envelope, filters and drive stay one for them all.
+An LFO on every line, `+` and `=` too: `lfo_cutoff` (semitones up and
+down, 0 to 60, the line needs a filter), `lfo_volume` (down only, 0 to
+1), `lfo_speed` (Hz from each note's start, 5) or `lfo_beats` (a turn in
+so many of the song's beats, 1/16 to 64, on the beat and with the
+tempo; not both), `lfo_wave` sine, triangle, square, saw (falling) or
+noise. A wobble bass: `saw filter=lowpass cutoff=400 resonance=0.5
+lfo_beats=0.5 lfo_cutoff=24`. Checking a voice: render a copy of
 the song with only its channel, then its formants (LPC on the vowels),
 its noise bands, the levels of its syllables and its steps at the joins;
 the voice peaks near 1 before its volume, a driven one at about 0.4 of

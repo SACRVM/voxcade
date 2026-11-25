@@ -46,6 +46,8 @@ fn a_gliding_knob_turned_at_once_does_not_click() {
     let square = "#tempo 120\n@s square attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.8 pwm_speed=3\nA: @s o3 a1\n";
     let filtered = "#tempo 120\n@s saw filter=lowpass cutoff=500 resonance=0.5 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.5\nA: @s o2 a1\n";
     // B ducked under A's silent kick on every beat.
+    let wobbled = "#tempo 120\n@s saw filter=lowpass cutoff=500 lfo_speed=3 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.5\nA: @s o2 a1\n";
+    let tremolo = "#tempo 120\n@s sine freq=20 lfo_speed=3 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.8\nA: @s o4 a1\n";
     let spread = "#tempo 120\n@s saw unison=5 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.5\nA: @s o2 a1\n";
     let ducked = "#tempo 120\n@k sine freq=60 sidechain=0.8 sidechain_release=0.3 volume=0 decay=0.1 sustain=0\n@s sine freq=20 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.8\nA: @k c4 c4 c4 c4\nB: @s o4 a1\n";
     for (song, letter, word, from, to) in [
@@ -57,6 +59,8 @@ fn a_gliding_knob_turned_at_once_does_not_click() {
         (filtered, 'A', "resonance", 0.0, 0.9),
         (ducked, 'B', "duck", 0.0, 1.0),
         (spread, 'A', "detune", 0.05, 0.8),
+        (wobbled, 'A', "lfo_cutoff", 0.0, 24.0),
+        (tremolo, 'A', "lfo_volume", 0.0, 0.8),
     ] {
         let (a, b) = (turned(Mix::default(), letter, word, from, 0.0), turned(Mix::default(), letter, word, to, 0.0));
         let at = 0.6125;
@@ -77,7 +81,7 @@ fn a_gliding_knob_turned_at_once_does_not_click() {
 /// in place of a sweep for the start's words), exponential falls too.
 #[test]
 fn a_word_from_the_next_note_leaves_the_sounding_note_alone() {
-    let swept = "#tempo 120\n@k square pwm=0.1 freq=110 sweep=-12 sweep_time=0.2 filter=lowpass cutoff=800 cutoff_end=200 cutoff_time=0.2 vibrato=0.01 vibrato_speed=5 vibrato_delay=0.05 pwm_speed=2 arp=0,12 arp_speed=20 lowpass=5000 drive=6 drive_end=2 crush_rate=20000 crush_bits=12 sidechain=0.3 sidechain_release=0.1 attack=0.01 decay=0.2 sustain=0.5 release=0.05\n@s sine volume=0.5\nA: @k c4 c4 c4 c4\nB: @s o4 a1\n";
+    let swept = "#tempo 120\n@k square pwm=0.1 freq=110 sweep=-12 sweep_time=0.2 filter=lowpass cutoff=800 cutoff_end=200 cutoff_time=0.2 vibrato=0.01 vibrato_speed=5 vibrato_delay=0.05 pwm_speed=2 arp=0,12 arp_speed=20 lowpass=5000 drive=6 drive_end=2 lfo_cutoff=12 crush_rate=20000 crush_bits=12 sidechain=0.3 sidechain_release=0.1 attack=0.01 decay=0.2 sustain=0.5 release=0.05\n@s sine volume=0.5\nA: @k c4 c4 c4 c4\nB: @s o4 a1\n";
     let falling = swept.replace("sweep=-12 sweep_time=0.2", "pitch_start=900 pitch_decay=0.05 curve=exp");
     let next = SR / 2;
     // (A sample's own words: `sample_tests`.)
@@ -140,19 +144,21 @@ fn a_cutoff_keeps_a_notes_sweep_as_deep() {
 /// `music:mix` says why.
 #[test]
 fn a_choice_of_the_instrument_is_no_knob() {
-    let word = "unison";
-    assert!(NO_KNOB.iter().any(|(w, _)| *w == word), "{word} is said to be no knob");
-    assert!(!Strip::default().turn(word, Some(3.0), 0.0), "{word} is turned");
+    for word in ["unison", "lfo_wave"] {
+        assert!(NO_KNOB.iter().any(|(w, _)| *w == word), "{word} is said to be no knob");
+        assert!(!Strip::default().turn(word, Some(3.0), 0.0), "{word} is turned");
+    }
 }
 
 /// A word the note's instrument lacks does nothing on it: a fixed pitch on
 /// a pitched instrument, a cutoff without a filter, a low-pass, a
-/// crusher and a drive's end it does not have, a sample's words on a wave.
+/// crusher and a drive's end it does not have, an LFO's cutoff without a
+/// filter and its speeds without a depth, a sample's words on a wave.
 #[test]
 fn a_word_the_instrument_lacks_does_nothing() {
     let song = "#tempo 120\n@s square attack=0.01 decay=0.1 sustain=0.6\nA: @s c4 e4 g4 c4\n";
     let plain = played(song, 1.5, &Mix::default(), None);
-    for (word, value) in [("freq", 300.0), ("cutoff", 300.0), ("resonance", 0.9), ("cutoff_end", 3000.0), ("lowpass", 400.0), ("crush_rate", 2000.0), ("crush_bits", 3.0), ("drive_end", 12.0), ("drive_time", 0.05), ("pitch_start", 300.0), ("pitch_decay", 0.1), ("root", 300.0), ("start", 0.1), ("end", 0.2)] {
+    for (word, value) in [("freq", 300.0), ("cutoff", 300.0), ("resonance", 0.9), ("cutoff_end", 3000.0), ("lowpass", 400.0), ("crush_rate", 2000.0), ("crush_bits", 3.0), ("drive_end", 12.0), ("drive_time", 0.05), ("lfo_cutoff", 12.0), ("lfo_speed", 3.0), ("lfo_beats", 1.0), ("pitch_start", 300.0), ("pitch_decay", 0.1), ("root", 300.0), ("start", 0.1), ("end", 0.2)] {
         let mix = turned(Mix::default(), 'A', word, value, 0.0);
         assert!(played(song, 1.5, &mix, None) == plain, "{word} changed an instrument without its part");
     }
