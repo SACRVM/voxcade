@@ -671,14 +671,17 @@ pub const API: &[Item] = &[
     Item { of: "input", name: "dir", what: Field { ty: "Way", set: false }, doc: "The directions held as a way: x and y each -1, 0 or 1. \
             The keys as pressed, whichever way the level's camera looks (level.camera.yaw)." },
     Item { of: "input", name: "move", what: Field { ty: "Stick", set: false }, doc: "Where the left stick leans, { x, y }: x right, y up, \
-            each -1 to 1, never longer than 1 (a light lean is small, a full one 1). Without a stick it is the directions held: 1 one way, \
+            each -1 to 1, never longer than 1 (a light lean is small, a full one 1); the right stick's where the left moves the \
+            pointer (c.pointer_stick = \"left\"). Without a stick it is the directions held: 1 one way, \
             about 0.71 each on a diagonal. A shooter that walks at any angle, a car's steering." },
     Item { of: "input", name: "aim", what: Field { ty: "Stick", set: false }, doc: "Where the right stick leans, { x, y } as input.move; \
-            with a mouse in a game with a pointer (c.pointer) the way on the screen from the player's figure to the pointer, length 1; \
-            { x = 0, y = 0 } with keys alone. A twin-stick shooter's aim, the same code for the pad and the mouse." },
+            with a mouse in a game with a pointer (c.pointer) the way on the screen from the player's figure to the pointer, length 1, \
+            and so with a pad whose stick moves the pointer (c.pointer_stick); { x = 0, y = 0 } with keys alone. A twin-stick \
+            shooter's aim, the same code for the pad and the mouse." },
     Item { of: "input", name: "pointer", what: Field { ty: "PointerAt|nil", set: false }, doc: "Where the pointer is this tick and what \
-            it is over, in a game with one (c.pointer): nil without, off the picture, for a player on a pad, and when the pad was used \
-            last.\n- x, y: where it is, in UI voxels from the screen's top left, as frame:text's and frame.pointer's (frame.width by \
+            it is over, in a game with one (c.pointer): nil without, and off the picture. A pad moves it only where the game gives it a \
+            stick (c.pointer_stick, with c.pointer = \"own\"): then it answers for the pad as for the mouse, the button pressed \
+            carrying what was under it; else it is nil for a player on a pad and when the pad was used last.\n- x, y: where it is, in UI voxels from the screen's top left, as frame:text's and frame.pointer's (frame.width by \
             frame.height). The player's own screen: its width may differ on another machine, so ask hud what it is over.\n- moved: true when it is elsewhere than the tick before, or was not there then (the first tick, the mouse \
             back on the picture or used again after the pad); what it is over changing alone is no move. Show your own cursor again \
             when it moved after the keys were used.\n- hud: the name of the HUD \
@@ -880,7 +883,9 @@ pub const API: &[Item] = &[
             on top. A name is a word of letters, digits and _, up to 16 long. A menu or grid with a name is one too." },
     Item { of: "frame", name: "pointer", what: Field { ty: "PointerNow|nil", set: false }, doc: "This machine's pointer in this \
             picture, in a game with one (c.pointer): x and y in UI voxels as frame:text's, and hud and index, thing, part and area of \
-            what it is over in the picture before (a name over a thing as the pointer rests on it). Nil with the pad used last. To draw your own cursor (c.pointer = \"own\") or light the row under it. Only \
+            what it is over in the picture before (a name over a thing as the pointer rests on it). Nil with the pad used last, unless its \
+            stick moves the pointer (c.pointer_stick). One pointer a machine, its player's who has the mouse, moved by \
+            the mouse or that player's pad; another seat's crosshair is drawn from what on_tick keeps of p.input.pointer in p.state. To draw your own cursor (c.pointer = \"own\") or light the row under it. Only \
             for drawing: on_tick reads input.pointer." },
     Item { of: "frame", name: "menu", what: Method { params: &[("menu", "Menu")], returns: "" },
         doc: "Draws a menu in the engine's look, on a plate. In the middle of the screen unless x and y say where (its top left), as wide as \

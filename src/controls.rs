@@ -9,6 +9,8 @@ use sdl3::gamepad::{Axis, Button, Gamepad};
 use sdl3::keyboard::{KeyboardState, Keycode, Scancode};
 use serde::{Deserialize, Serialize};
 
+use crate::config::Stick;
+
 /// Which kind of controller something came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -365,17 +367,43 @@ impl KeyState for WithHeld<'_> {
     }
 }
 
+/// A stick's dead zone: leaning less is no lean.
+pub const DEAD: f32 = 0.3;
+
 /// What the player holds: moving on the arrows and WASD, the d-pad and the
-/// left stick; the rest as the settings bind it.
-pub fn read_input(keys: Option<&dyn KeyState>, pads: &[Gamepad], settings: &crate::settings::Settings, actions: &[&str]) -> crate::input::Input {
-    read_seat(keys, crate::seating::Keys::Whole, &pads.iter().collect::<Vec<_>>(), &settings.pad, settings, actions)
+/// left stick (the right one where `pointer` gives the left to the
+/// pointer); the rest as the settings bind it. With it the pointer's
+/// stick's lean (`sticks`).
+pub fn read_input(keys: Option<&dyn KeyState>, pads: &[Gamepad], settings: &crate::settings::Settings, actions: &[&str], pointer: Option<Stick>) -> (crate::input::Input, [f32; 2]) {
+    read_seat(keys, crate::seating::Keys::Whole, &pads.iter().collect::<Vec<_>>(), &settings.pad, settings, actions, pointer)
+}
+
+/// What the sticks hold, `left` and `right` as SDL gives them (-1 to 1, y
+/// down): the four directions (`DIRECTIONS`' order), `input.move` and
+/// `input.aim`, and the lean of the stick `pointer` gives the pointer
+/// (`c.pointer_stick`; 0, 0 without), which then holds no directions: the
+/// other walks, and the aim is the pointer's (`Session::mouse_aim`).
+pub fn sticks(left: [f32; 2], right: [f32; 2], pointer: Option<Stick>) -> ([bool; 4], [i8; 2], [i8; 2], [f32; 2]) {
+    let (walk, aim, lean) = match pointer {
+        None => (left, right, [0.0; 2]),
+        Some(Stick::Left) => (right, [0.0; 2], left),
+        Some(Stick::Right) => (left, [0.0; 2], right),
+    };
+    // Eight ways from the stick: past a dead zone, and a direction only when
+    // the stick leans that way enough (not every diagonal wobble).
+    let leans = |a: f32, b: f32| a.abs() > DEAD && a.abs() > b.abs() * 0.4;
+    let [x, y] = walk;
+    let dirs = [x < 0.0 && leans(x, y), x > 0.0 && leans(x, y), y < 0.0 && leans(y, x), y > 0.0 && leans(y, x)];
+    // The sticks as values, past the same dead zone.
+    (dirs, crate::input::stick(x, y, DEAD), crate::input::stick(aim[0], aim[1], DEAD), lean)
 }
 
 /// What one seat holds (`docs/game-model.md`, "Several players"): its part
 /// of the keyboard (`half`: all of it as the settings bind it, moving on
 /// the arrows and WASD; a half by its own keys, its directions too) and
-/// its pads by their buttons (`pad`, `Settings::pad_of`).
-pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: &[&Gamepad], pad: &Bindings, settings: &crate::settings::Settings, actions: &[&str]) -> crate::input::Input {
+/// its pads by their buttons (`pad`, `Settings::pad_of`); with it the lean
+/// of the stick `pointer` gives the pointer (`sticks`).
+pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: &[&Gamepad], pad: &Bindings, settings: &crate::settings::Settings, actions: &[&str], pointer: Option<Stick>) -> (crate::input::Input, [f32; 2]) {
     use crate::seating::Keys;
     // (No keyboard: the pads alone, while the keys are elsewhere.)
     let keys = keys.filter(|_| half != Keys::Nothing);
@@ -395,27 +423,20 @@ pub fn read_seat(keys: Option<&dyn KeyState>, half: crate::seating::Keys, pads: 
     let bound = |action: &str| own.is_some_and(|b| named(b.get(action))) || pads.iter().any(|p| pad.get(action).iter().any(|n| pad_held(p, n)));
     let stick = |axis: Axis| pads.iter().map(|p| p.axis(axis) as f32 / 32767.0).fold(0.0f32, |a, v| if v.abs() > a.abs() { v } else { a });
     let dpad = |button: Button| pads.iter().any(|p| p.button(button));
-    let (sx, sy) = (stick(Axis::LeftX), stick(Axis::LeftY));
-    let (rx, ry) = (stick(Axis::RightX), stick(Axis::RightY));
-    // Eight ways from the stick: past a dead zone, and a direction only when
-    // the stick leans that way enough (not every diagonal wobble).
-    const DEAD: f32 = 0.3;
-    let lean = |a: f32, b: f32| a.abs() > DEAD && a.abs() > b.abs() * 0.4;
+    let ([sl, sr, su, sd], moves, aim, lean) = sticks([stick(Axis::LeftX), stick(Axis::LeftY)], [stick(Axis::RightX), stick(Axis::RightY)], pointer);
     let mut input = crate::input::Input {
-        left: any(&[Scancode::Left, Scancode::A], "left") || dpad(Button::DPadLeft) || (sx < 0.0 && lean(sx, sy)),
-        right: any(&[Scancode::Right, Scancode::D], "right") || dpad(Button::DPadRight) || (sx > 0.0 && lean(sx, sy)),
-        up: any(&[Scancode::Up, Scancode::W], "up") || dpad(Button::DPadUp) || (sy < 0.0 && lean(sy, sx)),
-        down: any(&[Scancode::Down, Scancode::S], "down") || dpad(Button::DPadDown) || (sy > 0.0 && lean(sy, sx)),
-        // The sticks as values (`input.move`, `input.aim`), past the same
-        // dead zone.
-        moves: crate::input::stick(sx, sy, DEAD),
-        aim: crate::input::stick(rx, ry, DEAD),
+        left: any(&[Scancode::Left, Scancode::A], "left") || dpad(Button::DPadLeft) || sl,
+        right: any(&[Scancode::Right, Scancode::D], "right") || dpad(Button::DPadRight) || sr,
+        up: any(&[Scancode::Up, Scancode::W], "up") || dpad(Button::DPadUp) || su,
+        down: any(&[Scancode::Down, Scancode::S], "down") || dpad(Button::DPadDown) || sd,
+        moves,
+        aim,
         ..Default::default()
     };
     for (n, action) in actions.iter().enumerate() {
         input.hold(n, bound(action));
     }
-    input
+    (input, lean)
 }
 
 /// The keys' names as this keyboard prints them (a German keyboard's Y
@@ -465,6 +486,22 @@ mod tests {
         let mut saved = Bindings::new(&[("previous", &["p"]), (PAUSE, &["Escape", "P"])]);
         saved.pause_gives_way();
         assert_eq!(saved.get(PAUSE), ["Escape"]);
+    }
+
+    /// The stick a game gives the pointer (`c.pointer_stick`) holds no
+    /// directions and no `input.move`: the other walks, and the aim is
+    /// left to the pointer; without one, the left walks and the right aims.
+    #[test]
+    fn a_stick_given_to_the_pointer_holds_no_directions() {
+        let (left, right) = ([-1.0, 0.0], [0.0, -1.0]);
+        let (dirs, moves, aim, lean) = sticks(left, right, None);
+        assert_eq!((dirs, moves, aim, lean), ([true, false, false, false], [-127, 0], [0, 127], [0.0, 0.0]));
+        let (dirs, moves, aim, lean) = sticks(left, right, Some(Stick::Left));
+        assert_eq!((dirs, moves, aim, lean), ([false, false, true, false], [0, 127], [0, 0], left), "the right stick walks");
+        let (dirs, moves, aim, lean) = sticks(left, right, Some(Stick::Right));
+        assert_eq!((dirs, moves, aim, lean), ([true, false, false, false], [-127, 0], [0, 0], right), "the left stick walks");
+        let (dirs, moves, ..) = sticks([0.2, 0.1], [0.0; 2], Some(Stick::Right));
+        assert_eq!((dirs, moves), ([false; 4], [0, 0]), "a wobble in the dead zone is none");
     }
 
     /// Every default gamepad button has a short label on every kind of

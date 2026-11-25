@@ -569,7 +569,9 @@ mod tests {
                 let dir = crate::scratch::Scratch::new("conf-edge");
                 let line = setting(b.key, &v.to_string());
                 let size = if b.key.starts_with("world.size") { "" } else { "c.world.size = { 32, 32, 8 }" };
-                std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  {size}\n  {line}\nend\n")).unwrap();
+                // A setting that means something only with others.
+                let with = if b.key == "pointer_speed" { "c.pointer = \"own\"\n  c.pointer_stick = \"left\"" } else { "" };
+                std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  {size}\n  {with}\n  {line}\nend\n")).unwrap();
                 std::fs::write(dir.join("main.lua"), main).unwrap();
                 match crate::session::Session::<crate::Voxcade>::load(&dir) {
                     // Ends that cannot all hold at once: a world as long

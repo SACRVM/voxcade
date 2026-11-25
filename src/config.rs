@@ -124,6 +124,17 @@ pub struct GameConfig {
     /// Takes effect after a restart (F5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pointer: Option<PointerStyle>,
+    /// The pad's stick that moves the pointer as the mouse does
+    /// (`c.pointer_stick = "left"` or `"right"`, with `c.pointer = "own"`:
+    /// the game draws it): the other stick and the d-pad walk. Unset: a pad
+    /// has no pointer. Takes effect after a restart (F5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer_stick: Option<Stick>,
+    /// How fast the pad's stick moves the pointer (`c.pointer_stick`), in
+    /// UI voxels a second leaning all the way; a light lean creeps. Unset:
+    /// `c.ui.height` a second, the picture's height.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer_speed: Option<f32>,
     /// The sections the game adds (the shooter's `[weapons]`): it reads
     /// them itself, and a section nobody reads is an error there.
     #[serde(flatten)]
@@ -166,6 +177,8 @@ impl Default for GameConfig {
             team_score: false,
             start: None,
             pointer: None,
+            pointer_stick: None,
+            pointer_speed: None,
         }
     }
 }
@@ -179,6 +192,14 @@ pub enum PointerStyle {
     /// The system's arrow hidden while the game plays: the game draws its
     /// own (`frame.pointer`), or none.
     Own,
+}
+
+/// A pad's stick (`c.pointer_stick`).
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Stick {
+    Left,
+    Right,
 }
 
 fn is_one(n: &u32) -> bool {
@@ -717,6 +738,7 @@ pub const RANGES: &[Bound] = &[
     within("items.*.stack", 1.0, 1_000_000.0),
     within("saves.slots", 0.0, 9.0),
     within("players", 1.0, MOST_PLAYERS as f64),
+    above("pointer_speed", 0.0, 100_000.0),
 ];
 
 /// The numbers of `conf.lua` that may be any number of their type: a
@@ -1366,6 +1388,7 @@ impl GameConfig {
             ("title_screen.level", self.title_screen.level != new.title_screen.level),
             ("camera.rotates", self.camera.rotates != new.camera.rotates),
             ("pointer", self.pointer != new.pointer),
+            ("pointer_stick", self.pointer_stick != new.pointer_stick),
         ] {
             if differs {
                 changed.push(name);
@@ -1390,6 +1413,7 @@ impl GameConfig {
         new.players = self.players;
         new.start = self.start.clone();
         new.pointer = self.pointer;
+        new.pointer_stick = self.pointer_stick;
         new.title_screen.level = self.title_screen.level.clone();
         new.camera.rotates = self.camera.rotates;
     }

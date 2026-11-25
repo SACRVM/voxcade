@@ -162,14 +162,34 @@ settings. Several players: `player` is seat 1, the others are in
     0.71 each); `aim` with a mouse in a game with a pointer the way on
     the screen from the player's figure as drawn to the pointer, length 1
     (`Session::mouse_aim`), else `{ 0, 0 }`. In every game; the kits read
-    the directions as before (a stick past half holds one).
+    the directions as before (a stick past half holds one). The stick a
+    game gives its pointer (`c.pointer_stick`, below) holds neither
+    directions nor `move`: the other stick walks (`move` the right one
+    where the left points), and `aim` is the pointer's, as the mouse's.
   - `input.pointer`, in a game with a pointer (`c.pointer = "system"`, the
     system's arrow, or `"own"`, the arrow hidden while the game plays and
     the game draws its own from `frame.pointer`; restart-only, in the
     fingerprint only when set; unset, no pointer, as every game before):
     where it is and what it is over, nil without one, off the picture (the
-    mouse out of the window or on the black bars), for a player on a pad
-    and when the pad was used last. `x` and `y` where it is, whole UI
+    mouse out of the window or on the black bars), and for a player on a
+    pad and when the pad was used last, unless the game gives the pad a
+    stick for it (`c.pointer_stick = "left" | "right"`, with `c.pointer
+    = "own"`, a mistake at load without it; the owner's yes,
+    2026-11-25). Then that stick moves the pointer as the mouse does, the
+    other stick and the d-pad walk, and `input.pointer` and
+    `frame.pointer` answer for the pad as for the mouse: the window glides
+    a place in the HUD's measure by the stick's lean
+    (`input::glide`: `c.pointer_speed` UI voxels a second leaning all the
+    way, `c.ui.height` unless set, times the lean past the dead zone and
+    its length again, so a light lean creeps; never off the picture) and
+    answers it through `Session::point` as the mouse's place, so replays,
+    the network and `inspect` carry it as they carry the mouse's, with no
+    word of their own. It is there before the stick first moves (where
+    the mouse was, else the picture's middle), so a pad's button has an
+    answer; a button bound to one of the game's actions carries the
+    answers of its moment as a click does; the mouse moved takes it back.
+    Both settings are the input's mapping, like `c.keys`: neither is in
+    the fingerprint. The game draws the crosshair. `x` and `y` where it is, whole UI
     voxels from the screen's top left, the HUD's measure (`frame.width` by
     `frame.height`, `c.ui.height`; rounded to the nearest, as
     `frame.pointer`'s, which says the same of the tick played); `moved`
@@ -178,8 +198,8 @@ settings. Several players: `player` is seat 1, the others are in
     back on the picture or used again after the pad), false where it
     stayed, whatever it is over: a thing walking under it, another level's
     picture or a button pressed where it stands is no move (a click's
-    place is the press's, as its answers), and a pad's stick never moves
-    it (a
+    place is the press's, as its answers), and a pad's stick moves it
+    only where it is the game's `c.pointer_stick` (a
     point-and-click game shows its own cursor again once it moved after
     the keys were used; the owner's yes, 2026-11-21). `hud` the name of
     the HUD panel under it, the topmost (`frame:hud(name, x, y, width, height)` names a rectangle of
@@ -457,8 +477,12 @@ settings. Several players: `player` is seat 1, the others are in
   a STOP that lets notes ring out, export. `games/drums` is the example.
 - `frame.pointer`: this machine's pointer in this picture (`x`, `y` in
   the HUD's measure, `hud`, `index`, `thing`, `part` and `area` of what
-  it is over in the picture before), nil with the pad used last or no
-  pointer: for the game's own
+  it is over in the picture before), nil with the pad used last (unless
+  `c.pointer_stick` gives it a stick) or no pointer. One a machine, the
+  pointer of the seat with the mouse, by mouse or by its pad: another
+  seat's crosshair (a second pad's stick) the game draws from what
+  `on_tick` copies of `p.input.pointer` into `p.state`, a limit for now.
+  For the game's own
   cursor and hover marks; nothing of it may go into a state, the rules
   read `input.pointer`. Played back, the pointer the replay kept.
 - `frame`, `on_draw`'s parameter: this picture alone (`frame:text`,

@@ -249,7 +249,14 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   say where it is (the HUD's measure, as `frame.pointer`'s), `.moved`
   whether it moved since the tick before (a cursor of your own shown
   again once it moved after the keys were used; the rules ask `hud`
-  what it is over, since screens differ in width). A grid's slot shows an
+  what it is over, since screens differ in width). A pad moves the
+  pointer too with `c.pointer_stick = "left"` (or `"right"`; only with
+  `c.pointer = "own"`): that stick moves it as the mouse does, the other
+  and the d-pad walk, a pad button bound to an action (`c.pad.click = {
+  "south" }`) clicks; `c.pointer_speed` UI voxels a second at full lean
+  (`c.ui.height` unless set). Draw the crosshair from `frame.pointer`;
+  it is the mouse seat's alone, so another seat's the game draws from
+  what `on_tick` keeps of `p.input.pointer` in `p.state`. A grid's slot shows an
   item's model with `model = "key.vvx"`. A name typed:
   `player.state.typing = true`, then `input.typed.text` (add it),
   `.erase` (Backspace), `.done` (Enter: set typing back to false),

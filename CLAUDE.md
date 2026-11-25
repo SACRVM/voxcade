@@ -1271,7 +1271,27 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `at=X,Y,Z,FACE`. Tests `src/lua/tests/pointer.rs`,
   `a_click_carries_its_answer_and_text_comes_once_over_a_bad_network`,
   `a_pointer_is_answered_quickly_on_a_big_scene`.
-  Not yet: the IDE's PLAY takes no mouse or typing.
+  A pad's stick moves the pointer (the owner's yes, 2026-11-25):
+  `c.pointer_stick = "left" | "right"` (only with `c.pointer = "own"`,
+  restart-only) and `c.pointer_speed` (UI voxels a second at full lean,
+  `c.ui.height` unless set; live), mistakes at load naming the `c.` keys,
+  neither in the fingerprint (input's mapping, as `c.keys`); that stick
+  holds no directions, `move` or `aim` (`controls::sticks`, `DEAD`), the
+  window glides a place in the HUD's measure by its lean
+  (`input::glide`: `v·|v|` past the dead zone, on the picture) and
+  answers it through `Session::point` as the mouse's, so no wire, replay
+  or Lua word is new (`app::mouse::StickPointer`, `App::glide_sticks`,
+  `pointer_place`: the mouse while the keyboard was used last, back to it
+  when it moves; the stick's from where the mouse was, else the middle);
+  a pad button bound to one of the seat's actions carries the answers of
+  its moment (`App::stick_press`); CONTROLS says which stick points.
+  `frame.pointer` stays the mouse seat's alone. Tests
+  `a_pointer_stick_glides_at_its_speed_and_stays_on_the_picture`,
+  `a_stick_given_to_the_pointer_holds_no_directions`,
+  `a_pad_button_carries_the_pointers_answer_of_its_moment`,
+  `a_pads_pointer_is_answered_as_the_mouses`.
+  Not yet: the IDE's PLAY takes no mouse, typing or pad's pointer, and a
+  player's POINTER SPEED setting.
 - Every game can be tried late without playing there (the user: without
   it testing a game is hardly possible): scenarios and the console are
   part of every game (`docs/game-model.md`, "Scenarios and the console").

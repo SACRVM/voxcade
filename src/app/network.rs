@@ -109,7 +109,7 @@ impl<G: Game> App<G> {
                 let pad = if local == 1 { &settings.pad } else { settings.pad_of(local) };
                 let its_pads = pads_of(pads, seating, local);
                 let keys: &dyn crate::controls::KeyState = if local == mouse_seat { &typing } else { keyboard };
-                let mut input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keys), seating.keys(local), &its_pads, pad, settings, game.actions()) };
+                let mut input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keys), seating.keys(local), &its_pads, pad, settings, game.actions(), game.cfg.pointer_stick).0 };
                 // The mouse's and the text typed, once a reading.
                 if local == mouse_seat && !away {
                     mouse.add_to(&mut input, &settings.keys, game.actions(), now.clone());

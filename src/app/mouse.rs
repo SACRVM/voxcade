@@ -125,6 +125,43 @@ impl Mouse {
     }
 }
 
+/// A seat's pointer that a pad's stick moves (`c.pointer_stick`), as the
+/// mouse's: where it is, the lean read last, and the answers of a pad
+/// button pressed since the last tick took them.
+#[derive(Default)]
+pub(super) struct StickPointer {
+    /// Where it is in the HUD's measure; None before the game had one.
+    pub at: Option<[f32; 2]>,
+    /// The stick's lean as read last (`controls::sticks`).
+    pub lean: [f32; 2],
+    press: Option<Pointer>,
+}
+
+impl StickPointer {
+    /// A button bound to one of the game's actions went down where
+    /// `answer` says the pointer is: the first since the last tick is kept.
+    pub fn down(&mut self, answer: Option<Pointer>) {
+        if self.press.is_none() {
+            self.press = answer.map(|a| Pointer { press: true, ..a });
+        }
+    }
+
+    /// Nothing waiting any more (the window lost the focus).
+    pub fn let_go(&mut self) {
+        self.press = None;
+    }
+
+    /// The press's answers into the next tick's (or reading's) `input`,
+    /// unless the mouse's press came first. Taken: the next gets the next.
+    pub fn add_to(&mut self, input: &mut Input) {
+        if let Some(p) = self.press.take()
+            && !input.pointer.as_ref().is_some_and(|p| p.press)
+        {
+            input.pointer = Some(Box::new(p));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +193,30 @@ mod tests {
         m.add_to(&mut i, &keys, &actions, Some(at(40)));
         assert!(!i.held(1));
         assert_eq!(i.pointer.map(|p| p.x), Some(40));
+    }
+
+    /// A pad's button pressed while its stick moves the pointer carries
+    /// the answers of its moment, as a click does, however far the stick
+    /// moved it before the tick; the tick after has the pointer where it is.
+    #[test]
+    fn a_pad_button_carries_the_pointers_answer_of_its_moment() {
+        let at = |x| Pointer { x, picture: Some(1), ..Pointer::default() };
+        let mut s = StickPointer::default();
+        s.down(Some(at(5)));
+        s.down(Some(at(9)));
+        let mut i = Input { pointer: Some(Box::new(at(40))), ..Input::default() };
+        s.add_to(&mut i);
+        assert_eq!(i.pointer.as_ref().map(|p| (p.x, p.press)), Some((5, true)), "the first press's answers");
+        let mut i = Input { pointer: Some(Box::new(at(40))), ..Input::default() };
+        s.add_to(&mut i);
+        assert_eq!(i.pointer.map(|p| (p.x, p.press)), Some((40, false)), "taken once");
+        // The mouse's click came first: it is kept.
+        let mut m = Mouse::default();
+        m.down(0, Some(at(3)));
+        s.down(Some(at(7)));
+        let mut i = Input::default();
+        m.add_to(&mut i, &Bindings::default(), &[], Some(at(40)));
+        s.add_to(&mut i);
+        assert_eq!(i.pointer.map(|p| p.x), Some(3));
     }
 }

@@ -31,6 +31,7 @@ impl<G: Game> App<G> {
             Event::Window { win_event: WindowEvent::FocusLost, .. } => {
                 self.front.look_away(self.net.is_some());
                 self.mouse.let_go();
+                self.sticks.iter_mut().for_each(super::mouse::StickPointer::let_go);
             }
             Event::Window { win_event: WindowEvent::FocusGained, .. } => {
                 self.front.look_back();
@@ -322,6 +323,7 @@ impl<G: Game> App<G> {
         } else if front.playing && watching.is_none() {
             front.played_with = Device::Gamepad;
             match keys::play_button(button, name, settings, phase_over, game.fading()) {
+                PlayKey::Game => self.stick_press(which, name),
                 PlayKey::ToTitle => commands.push(Command::ToTitle),
                 // A pad no seat has takes one; a seat's START pauses (a
                 // fade seen out first), offering LEAVE to a player after
@@ -334,8 +336,20 @@ impl<G: Game> App<G> {
                         Start::Full => {}
                     }
                 }
-                PlayKey::Pause | PlayKey::Game => {}
+                PlayKey::Pause => {}
             }
+        }
+    }
+
+    /// A pad's button that is one of the game's actions for its seat, the
+    /// seat's stick moving the pointer (`c.pointer_stick`): it carries the
+    /// pointer's answers of this moment, as a mouse's click does.
+    fn stick_press(&mut self, which: JoystickId, name: &str) {
+        let Some(seat) = self.seating.pad_seat(which.raw()).filter(|&s| s == 1 && s == self.mouse_seat()) else { return };
+        let bound = self.settings.pad_of(seat).action_of(name).is_some_and(|a| self.game.actions().contains(&a));
+        if bound && !self.sticks.is_empty() {
+            let answer = self.pointer_now();
+            self.sticks[seat - 1].down(answer);
         }
     }
 

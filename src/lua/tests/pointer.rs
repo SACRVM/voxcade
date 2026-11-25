@@ -196,6 +196,20 @@ fn pointer_mistakes_are_named() {
     let mouse = pointing("pointer-mouse", "  c.keys.click = { \"mouse_left\" }", "");
     let e = start_error(&mouse);
     assert!(e.contains("c.keys.click") && e.contains("mouse_left") && e.contains("c.pointer"), "{e}");
+    // A pad's stick moves a pointer only the game draws, at a speed only
+    // where one does.
+    let stick = pointing("pointer-stick-system", "  c.pointer = \"system\"\n  c.pointer_stick = \"left\"", "");
+    let e = start_error(&stick);
+    assert!(e.contains("c.pointer_stick") && e.contains("c.pointer = \"own\""), "{e}");
+    let speed = pointing("pointer-speed-alone", "  c.pointer = \"own\"\n  c.pointer_speed = 50", "");
+    let e = start_error(&speed);
+    assert!(e.contains("c.pointer_speed") && e.contains("c.pointer_stick"), "{e}");
+    let odd = pointing("pointer-stick-odd", "  c.pointer = \"own\"\n  c.pointer_stick = \"middle\"", "");
+    let e = start_error(&odd);
+    assert!(e.contains("pointer_stick") && e.contains("left") && e.contains("right"), "{e}");
+    let still = pointing("pointer-speed-zero", "  c.pointer = \"own\"\n  c.pointer_stick = \"left\"\n  c.pointer_speed = 0", "");
+    let e = start_error(&still);
+    assert!(e.contains("c.pointer_speed"), "{e}");
     for (draw, want) in [
         ("frame:hud(\"a b\", 0, 0, 5, 5)", "frame:hud: name = \"a b\""),
         ("frame:hud(\"\", 0, 0, 5, 5)", "frame:hud: a name first"),
@@ -269,6 +283,83 @@ end
     let got = g.game.eval("return table.concat(world.state.got, ' ')").unwrap();
     assert!(got.ends_with("1=yes 2=nil+click\""), "{got}");
     assert!(g.typing(1) && !g.typing(2));
+}
+
+/// A pointer moved by a pad's stick (`c.pointer_stick`) as the window
+/// moves it, frame by frame from the picture's middle (`input::glide`),
+/// to where the mouse points.
+fn glided_to(g: &Session<LuaGame>, to: [f32; 2], aspect: f32) -> Input {
+    let layout = crate::ui::Layout::of(&g.cfg.ui, g.picture_aspect(aspect));
+    let speed = g.cfg.pointer_speed.unwrap_or(g.cfg.ui.height);
+    let mut at = [layout.width / 2.0, layout.height / 2.0];
+    loop {
+        let (dx, dy) = (to[0] - at[0], to[1] - at[1]);
+        let far = (dx * dx + dy * dy).sqrt();
+        if far < 1e-3 {
+            break;
+        }
+        // Leaning all the way, the last frame only as long as is left.
+        let seconds = (far / speed).min(1.0 / 60.0);
+        at = crate::input::glide(at, [dx / far, dy / far], seconds, speed, layout.width, layout.height);
+    }
+    Input { pointer: Some(Box::new(g.point(at[0], at[1], aspect))), ..Input::default() }
+}
+
+/// The stick a game gives its pointer (`c.pointer_stick`) moves it as the
+/// mouse does: led to where the mouse points, it is answered the same,
+/// the thing, its part, the area, the panel and its row; a run of it
+/// replays and goes back as recorded. The stick and its speed are input's
+/// mapping: no part of the fingerprint.
+#[test]
+fn a_pads_pointer_is_answered_as_the_mouses() {
+    let pad = "  c.pointer = \"own\"\n  c.pointer_stick = \"left\"\n  c.pointer_speed = 150";
+    let dir = pointing_room("pad-pointer");
+    let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap().replace("  c.pointer = \"system\"", pad);
+    std::fs::write(dir.join("conf.lua"), conf).unwrap();
+    let mut g = game_in(&dir);
+    assert_eq!(halted(&g), "");
+    g.look();
+    let aspect = 16.0 / 9.0;
+    let mut places = Vec::new();
+    for p in [glam::Vec3::new(32.5, 30.5, 7.9), glam::Vec3::new(36.5, 36.5, 9.9), glam::Vec3::new(42.0, 28.0, 4.0)] {
+        let [x, y] = g.to_hud(p, aspect).expect("in view");
+        places.push([x, y]);
+        g.step(&Input { pointer: Some(Box::new(g.point(x, y, aspect))), ..Input::default() });
+        g.step(&glided_to(&g, [x, y], aspect));
+    }
+    let s = seen(&mut g);
+    let said = |line: &str| line.split('|').take(3).collect::<Vec<_>>().join("|");
+    for (n, want) in ["crate|nil|nil", "doll|head|nil", "piece|nil|door"].iter().enumerate() {
+        assert_eq!((said(&s[2 * n]), said(&s[2 * n + 1])), (want.to_string(), want.to_string()), "the mouse, then the pad: {s:?}");
+    }
+    // A run of it from the start: recorded, played back, gone back.
+    let mut g = game_in(&dir);
+    g.look();
+    let mut recorder = crate::replay::Recorder::default();
+    for tick in 0..90 {
+        let input = glided_to(&g, places[tick % places.len()], aspect);
+        g.step(&input);
+        g.look();
+        recorder.record(&g);
+    }
+    std::fs::create_dir_all(dir.join("replays")).unwrap();
+    recorder.replay(&g).unwrap().save(&dir.join("replays/pad.toml")).unwrap();
+    assert_eq!(crate::replay::play_through::<LuaGame>(&dir, &crate::replay::Replay::load(&dir.join("replays/pad.toml")).unwrap()).unwrap(), crate::replay::Verdict::Same);
+    assert!(crate::replay::check_going_back::<LuaGame>(&dir, 3).unwrap());
+    // A panel and its row, alike.
+    let panels = pointing("pad-pointer-panels", &POINTER.replace("\"system\"", "\"own\"\n  c.pointer_stick = \"right\""), NOTES);
+    let mut g = game_in(&panels);
+    g.look();
+    let shop = crate::ui::menu_place(&menu_of(&g), &crate::ui::Layout::of(&g.cfg.ui, aspect), &Default::default());
+    let (_, rx, ry, rw, rh) = shop.parts[1];
+    let row = [rx + rw / 2.0, ry + rh / 2.0];
+    g.step(&Input { pointer: Some(Box::new(g.point(row[0], row[1], aspect))), ..Input::default() });
+    g.step(&glided_to(&g, row, aspect));
+    let s = seen(&mut g);
+    assert!(s[0].starts_with("shop|2|") && s[0] == s[1], "the mouse, then the pad: {s:?}");
+    // Not in the fingerprint.
+    let mouse = pointing("pad-pointer-mouse", &POINTER.replace("\"system\"", "\"own\""), NOTES);
+    assert_eq!(game_in(&panels).fingerprint().unwrap(), game_in(&mouse).fingerprint().unwrap());
 }
 
 /// A figure of parts: an empty root, a body, a head on it.

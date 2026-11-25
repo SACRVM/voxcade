@@ -40,6 +40,9 @@ pub struct MenuView<'a> {
     pub logo_bob: f32,
     /// The title's scene is dark: its rows and hint in light letters.
     pub light_menu: bool,
+    /// The pad's stick that moves the pointer (`c.pointer_stick`), the
+    /// other walking.
+    pub pointer_stick: Option<crate::config::Stick>,
 }
 
 thread_local! {
@@ -319,8 +322,11 @@ fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
     let x0 = (pen.layout.width / 2.0 - 110.0).round();
     let (kx, px) = binding_heads(out, pen, x0);
     let items = menu.items(Page::Controls, view.settings);
+    // The lines under the rows: how one walks, and the pointer's stick.
+    let (walk, pointer) = sticks_said(view.pointer_stick);
+    let under = if pointer.is_some() { 10.0 } else { 0.0 };
     // Down to above the hint at the bottom, closer where there are many.
-    let apart = ((top - 70.0 - 30.0) / (items.len().max(2) - 1) as f32).floor().min(12.0);
+    let apart = ((top - 70.0 - 30.0 - under) / (items.len().max(2) - 1) as f32).floor().min(12.0);
     for (i, &item) in items.iter().enumerate() {
         let y = top - 70.0 - i as f32 * apart;
         pen.row(out, i, &item.label_in(pen.lang), x0, y, 1);
@@ -335,7 +341,21 @@ fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
         pen.text(out, &pads, px, y, TEXT);
     }
     let y = top - 70.0 - items.len() as f32 * apart - 4.0;
-    pen.text(out, pen.say("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD"), x0, y, MUTED_LIGHT);
+    pen.text(out, pen.say(walk), x0, y, MUTED_LIGHT);
+    if let Some(pointer) = pointer {
+        pen.text(out, pen.say(pointer), x0, y - 10.0, MUTED_LIGHT);
+    }
+}
+
+/// How the whole keyboard's and a pad's player walks, and which stick is
+/// the pointer (`c.pointer_stick`), as CONTROLS says them.
+fn sticks_said(pointer: Option<crate::config::Stick>) -> (&'static str, Option<&'static str>) {
+    use crate::config::Stick;
+    match pointer {
+        None => ("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD", None),
+        Some(Stick::Left) => ("MOVE: ARROWS OR WASD, RIGHT STICK OR D-PAD", Some("POINTER: LEFT STICK")),
+        Some(Stick::Right) => ("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD", Some("POINTER: RIGHT STICK")),
+    }
 }
 
 /// A heading for each seat with its three rows under it, then SWAP, RUMBLE
