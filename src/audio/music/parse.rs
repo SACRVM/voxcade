@@ -70,6 +70,8 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
     // a voice's, which a wave has none of.
     let (mut pulse, mut sung) = (None, None);
     let mut swept = false;
+    // A word of unison's, which only a wave of a pitch has.
+    let mut spread = None;
     // The wave `sample`, and the words of a sample read (the first one
     // written, for a mistake on another wave).
     let mut sampled = false;
@@ -196,6 +198,14 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
                 }
                 ins.crush_bits = Some(bits as u32);
             }
+            "unison" => {
+                let n = num()?;
+                if n.fract() != 0.0 {
+                    bail!("unison={} is no whole number of oscillators", value.unwrap_or(""));
+                }
+                (ins.unison, spread) = (n as u32, Some(key));
+            }
+            "detune" => (ins.detune, spread) = (num()?, Some(key)),
             "wave" => bail!("the wave is a bare word, not wave=...: square, pulse, saw, triangle, sine, noise, sample, voice or {} (like @lead square duty=0.25)", clear::WAVE),
             other => {
                 let known = words::WORDS.iter().filter(|w| w.mml.is_some() && w.name != "wave" && w.name != other).map(|w| w.name).chain(["pulse", "sample", "voice", clear::WAVE]).chain(Wave::ALL.iter().map(|(n, _)| *n)).filter(|w| *w != other);
@@ -212,6 +222,14 @@ fn parse_instrument(spec: &str) -> Result<Instrument> {
     let wave = if sampled { "sample" } else { ins.wave.name() };
     if let Some(word) = sung.filter(|_| ins.voice.is_none()) {
         bail!("{word} means nothing on a {wave}: only a voice (voice or {}) sings consonants", clear::WAVE);
+    }
+    if let Some(word) = spread.filter(|_| ins.voice.is_some() || sampled || ins.wave == Wave::Noise) {
+        let what = match ins.voice {
+            Some(Voicing::Clear) => clear::WAVE,
+            Some(Voicing::Formants) => "voice",
+            None => wave,
+        };
+        bail!("{word} means nothing on a {what}: unison spreads the oscillators of a square, saw, triangle or sine");
     }
     if swept && ins.pitch_start.is_some() {
         bail!("pitch_start and sweep both bend the pitch: take one (pitch_start falls in Hz to the note's pitch, sweep slides in semitones)");

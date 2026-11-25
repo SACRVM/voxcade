@@ -4,10 +4,10 @@ use super::SAMPLE_RATE;
 use super::parse::LOOP_SLACK;
 use super::mix::{CUTOFF, GLIDING, Glide, Knob, LETTERS, Mix, NEXT_NOTE, SHORTEST, Strip, letter_index, muffle_cutoff, place};
 use super::clear::{self, Seg};
-use super::song::{Curve, FilterMode, Instrument, LAYERS, Note, Song, Sum, Voicing};
+use super::song::{Curve, FilterMode, Instrument, LAYERS, Note, Song, Sum, UNISON, Voicing};
 use super::voice::{Segment, Singer};
 use crate::audio::STEAL_FADE;
-use crate::audio::synth::{OnePole, Oscillator};
+use crate::audio::synth::{OnePole, Oscillator, ratio};
 
 /// Channels a game laid, made on the main thread to be swapped in by the
 /// audio (`Player::pend`): the song and a voice for each of its channels
@@ -169,6 +169,12 @@ pub(super) struct Tone {
     /// plays (`Shape::stretch`), counted the way it plays (from its end
     /// when reversed).
     head: f64,
+    /// Its further unison oscillators (`osc` the first), each one's pitch
+    /// against the note's, and the detune those were worked out for (NaN:
+    /// none yet).
+    unison: [Oscillator; UNISON - 1],
+    ratios: [f32; UNISON],
+    detuned: f32,
 }
 
 /// What a layered note's layers go through once added (`Sum`): the soft
@@ -221,6 +227,7 @@ mod at {
     pub const SUSTAIN: usize = place(&GLIDING, "sustain");
     pub const RESONANCE: usize = place(&GLIDING, "resonance");
     pub const DUCK: usize = place(&GLIDING, "duck");
+    pub const DETUNE: usize = place(&GLIDING, "detune");
     pub const ATTACK: usize = place(&NEXT_NOTE, "attack");
     pub const DECAY: usize = place(&NEXT_NOTE, "decay");
     pub const RELEASE: usize = place(&NEXT_NOTE, "release");
@@ -325,6 +332,12 @@ impl Tone {
     /// cutoff now, from which a turned `cutoff_end` sweeps.
     fn take_up(&mut self, ins: &Instrument, next: &[Option<f32>; NEXT_NOTE.len()], cutoff: f32) {
         self.osc.phase = 0.0;
+        // Unison's oscillators begin spread over their wave's turn (by the
+        // golden ratio), so no edge of theirs falls together on the beat.
+        for (i, o) in self.unison.iter_mut().enumerate() {
+            o.phase = ((i + 1) as f32 * 0.618_034).fract();
+        }
+        self.detuned = f32::NAN;
         let word = |w: usize, own: f32| next[w].unwrap_or(own);
         let part = |w: usize, own: Option<f32>| own.map(|o| word(w, o));
         let (attack, decay) = (word(at::ATTACK, ins.attack), word(at::DECAY, ins.decay));
@@ -497,19 +510,40 @@ impl Tone {
         let level = self.envelope(t, gate, ins.sustain, None)?;
         let freq = self.pitch(ins, n, t, ins.vibrato);
         let duty = self.duty(t, ins.duty, ins.pwm);
-        let s = self.source(ins, freq, duty)?;
+        let s = self.source(ins, freq, duty, ins.detune)?;
         let s = self.color(ins, s, None, t, ins.cutoff, ins.resonance);
         Some(self.crushed(s, level))
     }
 
-    /// The next sample of its source at `freq`: its wave's, or its
-    /// recording's (None once a stretch that does not go round has played
-    /// out, or where there is no recording to play).
-    fn source(&mut self, ins: &Instrument, freq: f32, duty: f32) -> Option<f32> {
+    /// The next sample of its source at `freq`: its wave's (its unison's,
+    /// `detune` apart), or its recording's (None once a stretch that does
+    /// not go round has played out, or where there is no recording to
+    /// play).
+    fn source(&mut self, ins: &Instrument, freq: f32, duty: f32, detune: f32) -> Option<f32> {
         match &ins.sample {
+            None if ins.unison > 1 => Some(self.unison(ins, freq / SAMPLE_RATE as f32, duty, detune)),
             None => Some(self.osc.next(ins.wave, freq / SAMPLE_RATE as f32, duty, false)),
             Some(s) => self.play(s, freq),
         }
+    }
+
+    /// The next sample of `ins.unison` oscillators of its wave, `step` of
+    /// a turn on, spread evenly from `detune` semitones below to as far
+    /// above, their sum as loud as one (over the root of how many: they
+    /// beat apart, uncorrelated).
+    fn unison(&mut self, ins: &Instrument, step: f32, duty: f32, detune: f32) -> f32 {
+        let n = (ins.unison as usize).min(UNISON);
+        if detune != self.detuned {
+            for (i, r) in self.ratios[..n].iter_mut().enumerate() {
+                *r = ratio(f64::from(detune) * (2.0 * i as f64 / (n - 1) as f64 - 1.0));
+            }
+            self.detuned = detune;
+        }
+        let mut s = self.osc.next(ins.wave, step * self.ratios[0], duty, false);
+        for (o, r) in self.unison[..n - 1].iter_mut().zip(&self.ratios[1..n]) {
+            s += o.next(ins.wave, step * r, duty, false);
+        }
+        s / libm::sqrtf(n as f32)
     }
 
     /// The next frame of sample `s` at `freq`: its recording read at `freq`
@@ -701,7 +735,7 @@ impl Voice {
                     Some(Voicing::Formants) => Some(self.singer.next(sung(&n, &song.segments), time.wrapping_sub(self.started), freq)),
                     Some(Voicing::Clear) => Some(self.clear.next(sung(&n, &song.clear), time.wrapping_sub(self.started), freq)),
                     // (A sample played out is silent from here.)
-                    None => tone.source(ins, freq, duty).map(|s| (s, 0.0)),
+                    None => tone.source(ins, freq, duty, knob(at::DETUNE, ins.detune)).map(|s| (s, 0.0)),
                 };
                 sourced.map(|(s, noise)| {
                     // A drive that slides raises the noise as it goes.

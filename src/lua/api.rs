@@ -140,7 +140,7 @@ const TYPES: &str = "\
 ---@field from? string When: now (unless said), at the next beat or bar of the song that plays.
 ---@field fade? number Seconds it fades out over, 0 to 60 (0, unless said: at once, still without a click).
 
----@class MusicMix A channel's strip on the mixing desk (music:mix): its fader, mute and pan, and its instrument's words in their MML ranges over the instrument's own (false: the instrument's again). Of an instrument of layers, its first layer's, but drive, cutoff and resonance its sum's where its = line states them. wave, filter, arp, curve, consonants and a sample's name, loop and reverse do not turn: another sound, not a knob.
+---@class MusicMix A channel's strip on the mixing desk (music:mix): its fader, mute and pan, and its instrument's words in their MML ranges over the instrument's own (false: the instrument's again). Of an instrument of layers, its first layer's, but drive, cutoff and resonance its sum's where its = line states them. wave, filter, arp, curve, consonants, unison and a sample's name, loop and reverse do not turn: another sound, not a knob.
 ---@field volume? number|false Its fader, 0 (silent) to 1 (as written); false: 1.
 ---@field mute? boolean true silences it, the fader kept.
 ---@field pan? number|false -1 (left) to 1 (right), 0 the middle; false: the middle.
@@ -151,6 +151,7 @@ const TYPES: &str = "\
 ---@field vibrato? number|false Glides: how far the pitch wobbles, 0 to 1.
 ---@field sustain? number|false Glides: the level a held note stays at, 0 to 1.
 ---@field duck? number|false Glides: how far it follows the ducking, 0 to 1.
+---@field detune? number|false Glides: semitones the outermost unison oscillators lie from the note, 0 to 1 (where the instrument has unison).
 ---@field attack? number|false From the next note: seconds to the peak.
 ---@field decay? number|false From the next note: seconds down to the sustain.
 ---@field release? number|false From the next note: seconds of fading once let go.
@@ -755,12 +756,12 @@ pub const API: &[Item] = &[
             volume: its fader, from 0 (silent) to 1 (as written, the start).\n- mute: true silences it, the fader kept; false lets it sound \
             again.\n- pan: from -1 (left) to 1 (right), 0 the middle: the other side turned down, never a side louder than written.\n- \
             an instrument's word, over the instrument's own for every note of the channel, whatever instrument it plays: cutoff, \
-            resonance, duty, pwm, vibrato, sustain and duck glide under a sounding note (a note's cutoff sweep goes as deep from the \
+            resonance, duty, pwm, vibrato, sustain, duck and detune glide under a sounding note (a note's cutoff sweep goes as deep from the \
             cutoff turned); attack, decay, release, freq, sweep, pitch_start, the other times and rates, lowpass, drive, the crusher \
             and sidechain count from the channel's next note, and a sample's root (a note, \"c4\"), start and [\"end\"] (seconds into its recording) too. false gives one back to the instrument. A word a note's instrument lacks \
             does nothing on it (a cutoff without a filter, freq on a pitched one, pitch_start, lowpass, cutoff_end or the crusher it has \
             not). Of an instrument of layers (+ lines) a word turns its first layer, but drive, cutoff and resonance its sum where its \
-            = line states them. wave, filter, arp, curve, consonants and a sample's name, loop and reverse do not turn.\nIt gets there smoothly over seconds (0.3 unless you say; 0 at once, still without a click), a \
+            = line states them. wave, filter, arp, curve, consonants, unison and a sample's name, loop and reverse do not turn.\nIt gets there smoothly over seconds (0.3 unless you say; 0 at once, still without a click), a \
             mute too: music:mix(\"K\", { mute = true }, 0). A key you leave out stays as it was; false for volume or pan gives it back \
             (1, the middle), and music:mix(\"K\", false) the whole strip. Without settings it gives what you asked for last. It holds by letter, whichever \
             song plays, through a stop and from level to level: give it back (music:mix(\"D\", false)) when you change to a song whose \

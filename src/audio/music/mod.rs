@@ -53,7 +53,11 @@
 //! every note, evenly in dB over `drive_time`, `attack + decay` unless
 //! set, the clipper then working the whole note, 0 dB a gentle rounding) and
 //! a bit crusher, `crush_rate` (Hz the sound is held at) and `crush_bits`
-//! (1 to 16, after the envelope).
+//! (1 to 16, after the envelope). `unison` (1 to 7) plays so many
+//! oscillators of a square, saw, triangle or sine together, spread evenly
+//! from `detune` semitones (0.1 unless set) below the note to as far
+//! above, begun at fixed places spread over their turn, their sum over the
+//! root of how many; envelope, filters and drive stay one for them all.
 //!
 //! Two voices sing: `@vox singer ...` the clear one, made for words to be
 //! understood (`clear.rs`, a cascade/parallel formant synthesizer after

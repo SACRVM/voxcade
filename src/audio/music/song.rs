@@ -59,6 +59,11 @@ pub struct Instrument {
     /// when None.
     pub pitch_start: Option<f32>,
     pub pitch_decay: f32,
+    /// How many oscillators play each note together (`UNISON` at most),
+    /// spread evenly from `detune` semitones below the note to as far
+    /// above it; one plays as ever.
+    pub unison: u32,
+    pub detune: f32,
     /// How `decay` and `release` fall: a straight line, or exponentially
     /// to -60 dB in their time.
     pub curve: Curve,
@@ -96,6 +101,10 @@ pub struct Sampled {
 /// holds the rest in a fixed array (`player::Voice`), so the audio thread
 /// makes none.
 pub const LAYERS: usize = 4;
+
+/// The most oscillators an instrument's line plays together (`unison`):
+/// each layer holds them in a fixed array (`player::Tone`).
+pub const UNISON: usize = 7;
 
 /// How an envelope's falls go (`curve`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -189,6 +198,8 @@ impl Default for Instrument {
             crush_bits: None,
             pitch_start: None,
             pitch_decay: 0.02,
+            unison: 1,
+            detune: 0.1,
             curve: Curve::Linear,
             layers: Vec::new(),
             sum: None,

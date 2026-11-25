@@ -46,6 +46,7 @@ fn a_gliding_knob_turned_at_once_does_not_click() {
     let square = "#tempo 120\n@s square attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.8 pwm_speed=3\nA: @s o3 a1\n";
     let filtered = "#tempo 120\n@s saw filter=lowpass cutoff=500 resonance=0.5 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.5\nA: @s o2 a1\n";
     // B ducked under A's silent kick on every beat.
+    let spread = "#tempo 120\n@s saw unison=5 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.5\nA: @s o2 a1\n";
     let ducked = "#tempo 120\n@k sine freq=60 sidechain=0.8 sidechain_release=0.3 volume=0 decay=0.1 sustain=0\n@s sine freq=20 attack=0.005 decay=0.1 sustain=0.6 release=0.05 volume=0.8\nA: @k c4 c4 c4 c4\nB: @s o4 a1\n";
     for (song, letter, word, from, to) in [
         (square, 'A', "duty", 0.2, 0.7),
@@ -55,6 +56,7 @@ fn a_gliding_knob_turned_at_once_does_not_click() {
         (filtered, 'A', "cutoff", 300.0, 3000.0),
         (filtered, 'A', "resonance", 0.0, 0.9),
         (ducked, 'B', "duck", 0.0, 1.0),
+        (spread, 'A', "detune", 0.05, 0.8),
     ] {
         let (a, b) = (turned(Mix::default(), letter, word, from, 0.0), turned(Mix::default(), letter, word, to, 0.0));
         let at = 0.6125;
@@ -132,6 +134,15 @@ fn a_cutoff_keeps_a_notes_sweep_as_deep() {
     let end = turned(knob, 'A', "cutoff_end", 9000.0, 0.0);
     let e = cut_at(&end, None, 1.1);
     assert!(near(e, 3000.0), "the next note halfway from 1000 to 9000: {e}");
+}
+
+/// A choice of the instrument is no knob: a strip does not turn it, and
+/// `music:mix` says why.
+#[test]
+fn a_choice_of_the_instrument_is_no_knob() {
+    let word = "unison";
+    assert!(NO_KNOB.iter().any(|(w, _)| *w == word), "{word} is said to be no knob");
+    assert!(!Strip::default().turn(word, Some(3.0), 0.0), "{word} is turned");
 }
 
 /// A word the note's instrument lacks does nothing on it: a fixed pitch on

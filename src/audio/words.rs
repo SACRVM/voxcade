@@ -30,6 +30,8 @@ pub enum Unit {
     Note,
     /// A name: a file's without its ending.
     Name,
+    /// A whole number of things (oscillators).
+    Count,
 }
 
 impl Unit {
@@ -199,6 +201,8 @@ pub const WORDS: &[Word] = &[
     Word { name: "loop", sound: None, mml: mml(YesNo, None, "no", "yes: a sample's stretch, start to end, goes round while the note sounds, a few milliseconds faded across the seam") },
     Word { name: "reverse", sound: None, mml: mml(YesNo, None, "no", "yes: a sample plays backwards, from its end to its start") },
     Word { name: "curve", sound: None, mml: mml(Choice, None, "linear", "how decay and release fall: linear, a straight line, or exp, as a drum dies away, their time then the fall to -60 dB") },
+    Word { name: "unison", sound: None, mml: mml(Count, Some((1.0, 7.0)), "1", "how many oscillators play each note together, spread evenly over detune: thick pads and fat basses; a square, saw, triangle or sine only") },
+    Word { name: "detune", sound: None, mml: mml(Semitones, Some((0.0, 1.0)), "0.1", "how far the outermost unison oscillators lie from the note, below and above it") },
 ];
 
 /// Names a sound once had (in `c.sounds`), and what says it now.

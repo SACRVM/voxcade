@@ -116,7 +116,10 @@ unless set, the clipper then working the whole note, 0 dB a gentle
 rounding: `drive=18 drive_end=3` a kick hard on the strike, clean in its
 tail) and the bit crusher `crush_rate` (Hz the
 sound is held at, 6300 the speech of old games) and `crush_bits` (1 to
-16, after the envelope; 4 grainy). Checking a voice: render a copy of
+16, after the envelope; 4 grainy). `unison` (1 to 7, a square, saw,
+triangle or sine only) plays so many oscillators together, spread evenly
+from `detune` semitones (0 to 1, 0.1) below the note to as far above, as
+loud as one; the envelope, filters and drive stay one for them all. Checking a voice: render a copy of
 the song with only its channel, then its formants (LPC on the vowels),
 its noise bands, the levels of its syllables and its steps at the joins;
 the voice peaks near 1 before its volume, a driven one at about 0.4 of

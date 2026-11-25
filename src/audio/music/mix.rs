@@ -59,7 +59,7 @@ impl Glide {
 /// glide under it. In this order in `Strip::knobs`. Of a layered
 /// instrument a strip turns the first layer's, but cutoff and resonance
 /// the sum's where its `=` line states them.
-pub const GLIDING: [&str; 7] = ["duty", "pwm", "vibrato", "sustain", "cutoff", "resonance", "duck"];
+pub const GLIDING: [&str; 8] = ["duty", "pwm", "vibrato", "sustain", "cutoff", "resonance", "duck", "detune"];
 /// `GLIDING`'s cutoff, which glides in octaves (its glide holds log2 Hz).
 pub const CUTOFF: usize = place(&GLIDING, "cutoff");
 
@@ -103,7 +103,7 @@ pub const NEXT_NOTE: [&str; 25] = [
 pub const SAMPLE_KNOBS: [&str; 3] = ["root", "start", "end"];
 
 /// An instrument's words that are no knob, and why.
-pub const NO_KNOB: [(&str, &str); 8] = [
+pub const NO_KNOB: [(&str, &str); 9] = [
     ("wave", "the wave is another sound, not a knob: set it in the instrument"),
     ("filter", "the filter's kind is a choice of the instrument, not a knob: its cutoff and resonance turn"),
     ("arp", "an arpeggio is a list of steps, not a knob: arp_speed turns"),
@@ -112,6 +112,7 @@ pub const NO_KNOB: [(&str, &str); 8] = [
     ("name", "which recording a sample plays is a choice of the instrument, not a knob: its start, end and root turn"),
     ("loop", "whether a sample goes round is a choice of the instrument, not a knob: its start and end turn"),
     ("reverse", "which way a sample plays is a choice of the instrument, not a knob: its start, end and root turn"),
+    ("unison", "how many oscillators play is a choice of the instrument, not a knob: its detune turns"),
 ];
 
 /// One of a strip's `GLIDING` words: the value asked (None: the
