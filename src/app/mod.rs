@@ -1112,6 +1112,7 @@ mod tests {
         assert_eq!(front.menu.page(), Some(Page::Settings));
         assert_eq!(front.menu.nav(Nav::Back, &mut settings), Some(Command::Resume), "back from it, the game goes on");
         assert!(!front.menu.is_open());
+        assert_eq!(front.asked(&[Request::Open("pause")]), Some(Command::Pause), "the pause page is the window's to build: it needs the game's slots");
         assert_eq!(front.asked(&[Request::Quit]), Some(Command::Quit), "QUIT ends the window");
         assert_eq!(front.asked(&[Request::ToTitle]), Some(Command::ToTitle), "back to the title as QUIT TO TITLE");
         assert_eq!(front.asked(&[Request::ToTitle, Request::Quit]), Some(Command::Quit), "quitting wins");

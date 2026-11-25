@@ -144,7 +144,32 @@ fn open_and_quit_are_the_machines_not_the_games() {
     }
     let mut g = game_in(&dir);
     let e = said(&mut g, "world:open(\"map\")");
-    assert!(e.contains("world:open: no page called 'map' (the engine's: settings)"), "{e}");
+    assert!(e.contains("world:open: no page called 'map' (the engine's: settings, pause)"), "{e}");
+}
+
+/// `world:open("pause")` in a run is asked of the machine as `world:open("settings")`
+/// is: no change to the game's state, told once in its tick. On the game's
+/// own title it is a mistake, as `world:to_title()` is.
+#[test]
+fn open_pause_is_the_machines_and_no_ask_on_the_title() {
+    let asks = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\n  if world.tick == 3 then world:open(\"pause\") world:open(\"pause\") end\nend\n";
+    let plain = "function on_tick()\n  world.state.n = (world.state.n or 0) + 1\nend\n";
+    let (dir, quiet) = (title_folder("open-pause", asks), title_folder("open-pause-plain", plain));
+    let (mut g, mut q) = (game_in(&dir), game_in(&quiet));
+    let mut told = Vec::new();
+    for tick in 0..8 {
+        g.step(&Input::default());
+        q.step(&Input::default());
+        assert_eq!(g.game.state_hash(), q.game.state_hash(), "tick {tick}");
+        told.push(g.requests());
+    }
+    told.retain(|t| !t.is_empty());
+    assert_eq!(told, vec![vec![Request::Open("pause")]], "once, in its tick");
+    let mut g = game_in(&dir);
+    g.begin_title().unwrap();
+    let e = said(&mut g, "world:open(\"pause\")");
+    assert!(e.contains("world:open(\"pause\"): the title (c.title_screen.level) is no run"), "{e}");
+    assert!(g.requests().is_empty());
 }
 
 /// `world:to_title()` in a run is asked of the machine as `world:quit()`

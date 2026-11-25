@@ -169,6 +169,9 @@ impl UserData for WorldView {
             let Some(&page) = crate::game::PAGES.iter().find(|&&p| p == page) else {
                 return Err(mlua::Error::runtime(format!("world:open: no page called '{page}' (the engine's: {})", crate::game::PAGES.join(", "))));
             };
+            if page == "pause" {
+                no_run_here(lua, "world:open(\"pause\")")?;
+            }
             request(lua, "world:open", crate::game::Request::Open(page))
         });
         m.add_function("quit", |lua, _: AnyUserData| request(lua, "world:quit", crate::game::Request::Quit));

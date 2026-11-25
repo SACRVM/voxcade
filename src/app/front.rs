@@ -148,13 +148,14 @@ impl Front {
     }
 
     /// What the game asked of the window in a tick (`Session::requests`):
-    /// SETTINGS opened over it, the game held while it shows; whether to
-    /// quit.
+    /// SETTINGS opened over it, the game held while it shows; the pause
+    /// page (a command: the menu needs the game's slots); whether to quit.
     pub fn asked(&mut self, requests: &[Request]) -> Option<Command> {
         let mut then = None;
         for request in requests {
             match request {
                 Request::Open("settings") => self.menu = Menu::settings(),
+                Request::Open("pause") => then = then.or(Some(Command::Pause)),
                 Request::Open(_) => {}
                 Request::Quit => then = Some(Command::Quit),
                 // Quitting wins over going to the title.

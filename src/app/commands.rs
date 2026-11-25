@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 
-use super::{App, Flow, apply_settings, failure, next_initials, pause_menu, planned, say_now, title_menu, trouble};
+use super::{App, Flow, apply_settings, failure, next_initials, pause_for, pause_menu, planned, say_now, title_menu, trouble};
 use crate::game::Game;
 use crate::menu::{Command, Menu, Page};
 use crate::replay::{Playback, replay_session};
@@ -112,6 +112,13 @@ impl<G: Game> App<G> {
                 }
             }
             Command::Resume => self.front.menu = Menu::default(),
+            // The game opened the pause as its key does: not over a fade,
+            // after the run's end, on a title or over another menu.
+            Command::Pause => {
+                if self.front.playing && !self.front.menu.is_open() && !self.game.on_title() && !self.game.fading() && self.game.game.outcome().is_none() {
+                    pause_for(&mut self.front, &self.game, true, None);
+                }
+            }
             // The players page (CONTROLS in a game of several): the run's
             // seats while playing, else the plan the next run begins with;
             // the settings keep it.
