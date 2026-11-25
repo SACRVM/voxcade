@@ -126,7 +126,7 @@ impl Renderer {
             models: all_models,
             model_cubes: frame.models.iter().chain(&frame.ui_models).chain(&frame.hud_models).map(|m| m.voxels.len()).sum(),
             model_bytes: self.bank.as_ref().map_or(0, |b| b.bytes),
-            ui_instances: frame.ui.len(),
+            ui_instances: frame.ui.len() + frame.hud_front.len(),
             chunks: self.meshes.len(),
             vertices_total: self.meshes.values().map(|m| m.vertex_count).sum(),
             lamps: if lamps.is_some() { frame.lights.len().min(super::MOST_LIGHTS) } else { 0 },
@@ -159,6 +159,7 @@ impl Renderer {
         }
         self.ui_pass(encoder, frame, all_models);
         self.hud_model_pass(encoder, frame, all_models);
+        self.hud_front_pass(encoder, frame);
         self.post_passes(encoder, frame);
         self.composite_pass(encoder, target, fog.map(|_| glass));
         if let Some(t) = &self.pass_times {
@@ -228,9 +229,10 @@ impl Renderer {
 
     /// The frame's cubes into the instance buffer (grown if need be).
     fn upload_cubes(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData) {
-        // The world's cubes, then the UI's, in one buffer.
+        // The world's cubes, then the UI's, then the HUD's over its models,
+        // in one buffer.
         let instance_count = frame.instances.len();
-        let total = instance_count + frame.ui.len();
+        let total = instance_count + frame.ui.len() + frame.hud_front.len();
         if total > self.instance_capacity {
             self.instance_capacity = total.next_power_of_two();
             self.instances = Self::instance_buffer(device, self.instance_capacity);
@@ -241,6 +243,10 @@ impl Renderer {
         if !frame.ui.is_empty() {
             let offset = (instance_count * size_of::<Instance>()) as u64;
             queue.write_buffer(&self.instances, offset, bytemuck::cast_slice(&frame.ui));
+        }
+        if !frame.hud_front.is_empty() {
+            let offset = ((instance_count + frame.ui.len()) * size_of::<Instance>()) as u64;
+            queue.write_buffer(&self.instances, offset, bytemuck::cast_slice(&frame.hud_front));
         }
     }
 
@@ -571,6 +577,35 @@ impl Renderer {
             let outline = ModelPass { cubes: &self.model_outline, faces: &self.face_outline, whole: true, cast: false, eye: None, own_outline: true };
             self.draw_models(&mut pass, outline, &frame.hud_models, first, all_models);
         }
+    }
+
+    /// The HUD's voxels drawn before its first model drawn whole
+    /// (`FrameData::hud_front`) over the models: as the UI pass draws them,
+    /// the depth their own again. No pass where there are none.
+    fn hud_front_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData) {
+        if frame.hud_front.is_empty() {
+            return;
+        }
+        let first = frame.instances.len() + frame.ui.len();
+        let t = &self.targets;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("hud front"),
+            color_attachments: &[color(&t.ui, wgpu::LoadOp::Load), color(&t.glow, wgpu::LoadOp::Load)],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &t.depth,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("hud front")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &self.ui_bind, &[]);
+        pass.set_pipeline(&self.plain.inst);
+        pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
+        pass.set_vertex_buffer(1, self.instances.slice(..));
+        pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..self.cube_index_count, 0, first as u32..(first + frame.hud_front.len()) as u32);
     }
 
     /// The scene and the glow shrunk and blurred: each only where the

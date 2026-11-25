@@ -33,7 +33,7 @@ fn a_fourth_value_on_the_hud_is_its_cubes_opacity() {
         "  frame:box(1, 1, 2, 2, { 10, 20, 30, 40 })\n  frame:box(9, 1, 2, 2, { 40, 50, 60 })\n  frame:text(\"A\", 1, 9, \"#70809064\")\n  frame:bar(1, 20, 8, 2, 0.5, { 200, 0, 0, 128 }, { 0, 0, 200 })",
     );
     assert_eq!(halted(&g), "");
-    let cubes = g.game.hud(&crate::config::UiConfig::default(), 0.0, 16.0 / 9.0, None);
+    let (cubes, _) = g.game.hud(&crate::config::UiConfig::default(), 0.0, 16.0 / 9.0, None);
     let opacity = |rgb: [u8; 3]| {
         let of: std::collections::BTreeSet<u8> = cubes.iter().filter(|i| i.color[..3] == rgb).map(|i| i.fx[crate::render::FX_OPACITY]).collect();
         of.into_iter().collect::<Vec<u8>>()

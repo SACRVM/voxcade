@@ -1777,8 +1777,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the bank, `FACING_YOU` times `turning`, its turn's centre on the plane
   `c.ui.depth` where the flat picture lays that voxel), in a pass of its
   own after the UI's (`Renderer::hud_model_pass`: the `ui` and `glow`
-  targets loaded, depth cleared, so it lies over every flat HUD voxel and
-  whole ones meet by depth; text drawn after it does not show over it),
+  targets loaded, depth cleared, whole ones meeting by depth), the HUD's
+  order held against it: what `on_draw` drew before the first `Cmd::Whole`
+  (`Game::hud`'s count of its first cubes) lies over them in a pass after
+  theirs (`FrameData::hud_front`, `Renderer::hud_front_pass`, the UI pass's
+  pipeline and globals, depth cleared again; a game's own pointer, a
+  count), the rest under them in the UI pass; `hud_cubes` works each set
+  out alone, kept as one; no front set, no pass, without a model drawn
+  whole or nothing before it, so such a picture is drawn as before; a
+  see-through front voxel over a model shows the level through it, as
+  over the HUD,
   lit by the UI's sun, its globals the UI's with the real eye
   (`FrameData::hud_eye`, `hud_globals`: `ui_globals` unchanged, so the
   logo and HUD pictures stay); `FrameData::hud_models`, none under a menu
@@ -1797,7 +1805,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_whole_model_faces_you_where_the_flat_one_lies`,
   `a_whole_model_turns_and_poses`, `no_whole_model_under_a_menu_or_a_mistake`,
   `a_whole_model_lies_over_the_flat_hud`, `an_outline_rounds_one_hud_model_alone`,
-  `an_own_outline_is_as_wide_on_every_side_anywhere`.
+  `an_own_outline_is_as_wide_on_every_side_anywhere`,
+  `what_is_drawn_before_a_whole_model_lies_over_it`,
+  `only_what_is_drawn_before_a_whole_model_lies_apart`.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,

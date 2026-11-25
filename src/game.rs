@@ -284,9 +284,11 @@ pub trait Game: Sized + 'static {
     /// lights (`Drawing`).
     fn draw(&self, _out: &mut Drawing) {}
 
-    /// Its HUD: voxels in the UI's scene (`ui`'s text and icons).
-    fn hud(&self, _cfg: &UiConfig, _alpha: f32, _aspect: f32, _font: Option<&DisplayFont>) -> Vec<Instance> {
-        Vec::new()
+    /// Its HUD: voxels in the UI's scene (`ui`'s text and icons), and how
+    /// many of the first lie over the models it draws whole (those drawn
+    /// before the first of them; 0 where it draws none).
+    fn hud(&self, _cfg: &UiConfig, _alpha: f32, _aspect: f32, _font: Option<&DisplayFont>) -> (Vec<Instance>, usize) {
+        (Vec::new(), 0)
     }
 
     /// The HUD panel at (`x`, `y`) of the picture drawn last, the topmost

@@ -557,9 +557,15 @@ settings. Several players: `player` is seat 1, the others are in
   rotation = {} }`, it lies on the flat picture's columns and rows, its
   turn's centre on the plane `c.ui.depth`. Drawn from the model bank in
   a pass of its own after the HUD's (`render::passes`, "hud models"),
-  its depth its own: it lies over every flat voxel of the HUD whenever
-  it was drawn (text drawn after it does not show over it: a stated
-  limit), and two drawn whole meet by depth. Nothing of it under a menu
+  its depth its own, and the HUD's order holds against it: what is drawn
+  before the first model drawn whole (a pointer of the game's own, a
+  count on an item, the edge of a chosen cell) lies over them all, in a
+  pass after theirs ("hud front", drawn as the UI pass draws), what is
+  drawn after lies under them, text too; two drawn whole meet by depth.
+  A see-through color over a model drawn whole shows the level through
+  it, not the model, as a see-through HUD voxel over another does (the
+  UI's layer is laid over the level by its alpha, nothing blended
+  within it). Nothing of it under a menu
   or a mistake. `outline = { width = 1, color = "#101010" }` (width 1 to
   8 HUD voxels, color `c.effects.outline_color` unless given, no fourth
   value) rings that one model alone, as wide on every side wherever it

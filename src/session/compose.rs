@@ -205,17 +205,25 @@ impl<G: Game> Session<G> {
     /// (`raw`), seen from `eye`: faces a neighbour covers hidden (else they
     /// show as seams, thin dark lines through the hearts at some sizes),
     /// cubes of which nothing can show left out (a plate's back layer: half
-    /// of BunnyFarm's 59,000). A HUD the same as the last picture's is not
-    /// worked out again (`HudKept`): the picture is the same either way.
-    pub(super) fn hud_cubes(&self, raw: Vec<Instance>, eye: Vec3) -> Vec<Instance> {
+    /// of BunnyFarm's 59,000). The first `front` of them (drawn before the
+    /// first model drawn whole) apart, in the pass over the models: each
+    /// set worked out alone, as the passes draw them. A HUD the same as the
+    /// last picture's is not worked out again (`HudKept`): the picture is
+    /// the same either way.
+    pub(super) fn hud_cubes(&self, raw: Vec<Instance>, front: usize, eye: Vec3) -> (Vec<Instance>, Vec<Instance>) {
         let mut kept = self.hud_kept.borrow_mut();
-        if kept.eye == eye && bytemuck::cast_slice::<Instance, u8>(&kept.raw) == bytemuck::cast_slice::<Instance, u8>(&raw) {
+        if kept.eye == eye && kept.front == front && bytemuck::cast_slice::<Instance, u8>(&kept.raw) == bytemuck::cast_slice::<Instance, u8>(&raw) {
             return kept.done.clone();
         }
-        let mut done = raw.clone();
-        crate::render::hide_inner_faces(&mut done);
-        crate::render::leave_out_unseen(&mut done, eye);
-        *kept = HudKept { raw, done: done.clone(), eye };
+        let done = |cubes: &[Instance]| {
+            let mut done = cubes.to_vec();
+            crate::render::hide_inner_faces(&mut done);
+            crate::render::leave_out_unseen(&mut done, eye);
+            done
+        };
+        let (over, rest) = raw.split_at(front.min(raw.len()));
+        let done = (done(rest), if over.is_empty() { Vec::new() } else { done(over) });
+        *kept = HudKept { raw, front, done: done.clone(), eye };
         done
     }
 
@@ -330,7 +338,7 @@ impl<G: Game> Session<G> {
         // such a lamp's reach.
         let reaches: Vec<(Vec3, Vec3)> = lights.iter().filter(|l| stopped && l.stopped_by_movers()).map(|l| (l.pos - l.radius, l.pos + l.radius)).collect();
         let lamp_movers: Vec<crate::render::Mover> = movers.into_iter().filter(|((lo, hi), _)| reaches.iter().any(|(a, b)| lo.cmple(*b).all() && hi.cmpge(*a).all())).map(|(_, m)| m).collect();
-        let (ui, ui_models, ui_view_proj, hud_models) = self.ui_of(ui, hud_models, alpha, aspect);
+        let (ui, ui_models, ui_view_proj, hud_models, hud_front) = self.ui_of(ui, hud_models, alpha, aspect);
         let layout = crate::ui::Layout::of(&self.cfg.ui, aspect);
 
         let fx = &self.cfg.effects;
@@ -379,6 +387,7 @@ impl<G: Game> Session<G> {
             models,
             ui_models,
             hud_models,
+            hud_front,
             hud_eye: crate::ui::eye(&layout, self.cfg.ui.slant, self.cfg.ui.depth as f32),
             bank: self.bank(),
             instances,
@@ -509,24 +518,28 @@ impl<G: Game> Session<G> {
     }
 
     /// The UI layer: `ui` (the menus) when given, else the game's HUD with
-    /// the models it draws whole (`hud_models`, none under a menu); what
-    /// stopped the game or a reload over everything until mended (in place
-    /// of the HUD).
-    fn ui_of(&self, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>, hud_models: Vec<ModelDraw>, alpha: f32, aspect: f32) -> (Vec<Instance>, Vec<ModelDraw>, Mat4, Vec<ModelDraw>) {
+    /// the models it draws whole (`hud_models`, none under a menu) and what
+    /// it drew before them, over them (none without them); what stopped
+    /// the game or a reload over everything until mended (in place of the
+    /// HUD).
+    fn ui_of(&self, ui: Option<(Vec<Instance>, Vec<ModelDraw>, Mat4)>, hud_models: Vec<ModelDraw>, alpha: f32, aspect: f32) -> (Vec<Instance>, Vec<ModelDraw>, Mat4, Vec<ModelDraw>, Vec<Instance>) {
         let problem = self.game.halted().or_else(|| self.problem.clone());
         let hud_models = if ui.is_none() && problem.is_none() { hud_models } else { Vec::new() };
+        let mut hud_front = Vec::new();
         let (mut ui, ui_models, ui_view_proj) = ui.unwrap_or_else(|| {
             let ui = &self.cfg.ui;
             let layout = crate::ui::Layout::of(ui, aspect);
             let camera = crate::ui::camera(&layout, ui.slant, ui.depth as f32);
-            let hud = if problem.is_some() { Vec::new() } else { self.game.hud(ui, alpha, aspect, self.font.as_deref()) };
+            let (hud, front) = if problem.is_some() { (Vec::new(), 0) } else { self.game.hud(ui, alpha, aspect, self.font.as_deref()) };
             let eye = crate::ui::eye(&layout, ui.slant, ui.depth as f32);
-            (self.hud_cubes(hud, eye), Vec::new(), camera)
+            let (cubes, over) = self.hud_cubes(hud, if hud_models.is_empty() { 0 } else { front }, eye);
+            hud_front = over;
+            (cubes, Vec::new(), camera)
         });
         if let Some(problem) = problem.filter(|_| self.problem_shown) {
             ui.extend(crate::ui::error_panel(&problem, &self.cfg.ui, aspect));
         }
-        (ui, ui_models, ui_view_proj, hud_models)
+        (ui, ui_models, ui_view_proj, hud_models, hud_front)
     }
 }
 
@@ -553,11 +566,13 @@ pub(crate) struct Limits {
 }
 
 /// The HUD as the last picture had it (`Session::hud_cubes`): the cubes
-/// `on_draw` gave, the eye they were seen from, and what the UI pass drew
-/// of them.
+/// `on_draw` gave, how many of them lie over the models drawn whole, the
+/// eye they were seen from, and what the passes drew of them (the UI's,
+/// the one over the models).
 #[derive(Default)]
 pub(crate) struct HudKept {
     raw: Vec<Instance>,
-    done: Vec<Instance>,
+    front: usize,
+    done: (Vec<Instance>, Vec<Instance>),
     eye: Vec3,
 }

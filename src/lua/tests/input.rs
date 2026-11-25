@@ -116,7 +116,7 @@ end
     assert_eq!((grid.cells.len(), grid.at, grid.cells[0].count, grid.cells[1].icon.is_none(), grid.cells[2].dim), (3, Some(1), Some(3), true, true));
     drop(overlay);
     let ui = crate::config::UiConfig::default();
-    assert!(g.game.hud(&ui, 0.0, 16.0 / 9.0, None).len() > 500, "drawn");
+    assert!(g.game.hud(&ui, 0.0, 16.0 / 9.0, None).0.len() > 500, "drawn");
     for (bad, want) in [
         ("frame:menu{ rows = { \"a\" }, at = 2 }", "frame:menu: at = 2, but there are 1 (from 1)"),
         ("frame:menu{ rows = { \"a\" }, colour = 1 }", "frame:menu: no 'colour'"),

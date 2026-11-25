@@ -824,7 +824,7 @@ function Frame:icon(name, x, y) end
 ---- rotation: a number is the side facing you in quarter turns, degrees clockwise seen from above (0 its front, +y, 90 its left side, 180 its back, 270 its right side), seen flat: 2 voxels deep, as a grid's slot shows it (frame:grid). A table ({ rotation =, pitch =, roll = }, as frame:model's) draws the model whole, as deep as it is, turned at any angle about its middle, lit by the HUD's own light; {} faces you unturned where the flat picture lies.
 ---- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.
 ---- outline: a line round this model alone, { width = 1, color = "#101010" }: width 1 to 8 HUD voxels, color c.effects.outline_color unless given, no fourth value. It rings the model where nothing else is: the model drawn whole.
----What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what is drawn deeper stands in front of it. A model drawn whole lies over the rest of the HUD, text drawn after it too; two drawn whole meet by depth.
+---What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what is drawn deeper stands in front of it. What is drawn before the first model drawn whole lies over them all: the pointer, a count on an item. What is drawn after lies under them, text too. Two drawn whole meet by depth. A see-through color over a model drawn whole shows the level through it, not the model, as over the rest of the HUD.
 ---@param file string
 ---@param x number
 ---@param y number

@@ -993,8 +993,9 @@ impl<K: Kit> Game for LuaGame<K> {
     }
 
     /// The HUD `on_draw` drew (from the top left in UI voxels), and the
-    /// voxels of icons that burst.
-    fn hud(&self, cfg: &UiConfig, alpha: f32, aspect: f32, font: Option<&DisplayFont>) -> Vec<Instance> {
+    /// voxels of icons that burst; the first of them those drawn before
+    /// the first model drawn whole.
+    fn hud(&self, cfg: &UiConfig, alpha: f32, aspect: f32, font: Option<&DisplayFont>) -> (Vec<Instance>, usize) {
         self.draw_hud(cfg, alpha, aspect, font)
     }
 

@@ -83,6 +83,10 @@ pub struct FrameData {
     /// and seen from its eye (`ui::eye`; the UI's own scene takes one far
     /// off).
     pub hud_models: Vec<ModelDraw>,
+    /// The HUD's voxels drawn before the first of `hud_models`, in a pass
+    /// of their own over them as the UI's are drawn (empty without
+    /// `hud_models`: then they are all in `ui`).
+    pub hud_front: Vec<Instance>,
     pub hud_eye: Vec3,
     pub bank: Arc<ModelBank>,
     /// Opaque cubes first, then the last `see_through` ones, sorted far to near.

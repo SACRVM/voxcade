@@ -335,6 +335,7 @@ pub fn frame(ed: &Editor, view: &View, shown: &Shown, figures: &Figures, light: 
         models: drawn.0,
         ui_models: Vec::new(),
         hud_models: Vec::new(),
+        hud_front: Vec::new(),
         hud_eye: Vec3::ZERO,
         bank: drawn.1,
         instances,

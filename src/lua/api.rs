@@ -961,8 +961,9 @@ pub const API: &[Item] = &[
             outline: a line round this model alone, { width = 1, color = \"#101010\" }: width 1 to 8 HUD voxels, color \
             c.effects.outline_color unless given, no fourth value. It rings the model where nothing else is: the model drawn whole.\n\
             What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what \
-            is drawn deeper stands in front of it. A model drawn whole lies over the rest of the HUD, text drawn after it too; two \
-            drawn whole meet by depth." },
+            is drawn deeper stands in front of it. What is drawn before the first model drawn whole lies over them all: the pointer, \
+            a count on an item. What is drawn after lies under them, text too. Two drawn whole meet by depth. A see-through color \
+            over a model drawn whole shows the level through it, not the model, as over the rest of the HUD." },
     Item { of: "frame", name: "drop_in", what: Method { params: &[("text", "string"), ("x", "number"), ("y", "number"), ("ticks", "number"), ("color?", "Color"), ("size?", "integer")], returns: "" },
         doc: "Writes text whose letters drop in one after another and bounce, ticks after it began (keep the tick it began in a state): GAME \
             OVER, a stage's name. Before 0 nothing shows. color and size as frame:text's." },

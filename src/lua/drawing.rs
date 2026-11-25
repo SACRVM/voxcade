@@ -210,10 +210,12 @@ impl<K: Kit> LuaGame<K> {
     }
 
     /// `Game::hud`: the HUD's part of what `on_draw` asked for, and the icons'
-    /// voxels that burst.
-    pub(super) fn draw_hud(&self, cfg: &UiConfig, alpha: f32, aspect: f32, font: Option<&DisplayFont>) -> Vec<Instance> {
+    /// voxels that burst; how many of the first were drawn before the first
+    /// model drawn whole (they lie over the models: the HUD's order).
+    pub(super) fn draw_hud(&self, cfg: &UiConfig, alpha: f32, aspect: f32, font: Option<&DisplayFont>) -> (Vec<Instance>, usize) {
         use crate::ui;
         let mut out = Vec::new();
+        let mut front = None;
         let layout = ui::Layout::of(cfg, aspect);
         let (top, depth, finish) = (layout.height, cfg.depth, ui::Finish::of(cfg));
         for cmd in self.drawn.borrow().iter() {
@@ -245,6 +247,7 @@ impl<K: Kit> LuaGame<K> {
                 Cmd::Menu(m) => ui::game_menu(&mut out, m, &layout, depth, &self.stage.hud.icons, self.stage.host.sim().tick),
                 Cmd::Grid(g) => ui::game_grid(&mut out, g, &layout, depth, &self.stage.hud.icons),
                 Cmd::Draw { thumb, x, y } => ui::hud_model(&mut out, thumb, *x, *y, top),
+                Cmd::Whole { .. } if front.is_none() => front = Some(out.len()),
                 _ => {}
             }
         }
@@ -253,7 +256,7 @@ impl<K: Kit> LuaGame<K> {
             let size = (b.life / b.span).clamp(0.2, 1.0);
             out.push(Instance { pos_size: (at + 0.5).extend(size).to_array(), color: b.color, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
         }
-        out
+        (out, front.unwrap_or(0))
     }
 }
 

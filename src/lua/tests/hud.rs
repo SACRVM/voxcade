@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::lua::world::{Cmd, Thumb};
+use crate::render::Instance;
 
 /// A model 4 across, 3 deep and 4 high: its front row (+y) yellow at the
 /// corners, its left side (x 0) red, its right green, white between, a red
@@ -86,6 +87,7 @@ fn sign_voxels(g: &Session<LuaGame>) -> Vec<([i32; 3], [u8; 4])> {
     let mut out: Vec<([i32; 3], [u8; 4])> = g
         .game
         .hud(&ui, 0.0, 16.0 / 9.0, None)
+        .0
         .iter()
         .filter(|i| palette.contains(&i.color))
         .map(|i| ([i.pos_size[0].floor() as i32, i.pos_size[1].floor() as i32, i.pos_size[2].floor() as i32], i.color))
@@ -325,9 +327,9 @@ fn no_whole_model_under_a_menu_or_a_mistake() {
     assert!(f.hud_models.is_empty(), "under the mistake");
 }
 
-/// On the GPU: a model drawn whole lies over the flat HUD, a box drawn
-/// before it too (the flat form lies under that box: the first drawn keeps
-/// its voxels); turned 30 degrees, its side shows beside its front.
+/// On the GPU: a model drawn whole lies over the flat HUD drawn after it
+/// (the flat form keeps its voxels against that box: the first drawn keeps
+/// them); turned 30 degrees, its side shows beside its front.
 #[test]
 fn a_whole_model_lies_over_the_flat_hud() {
     let (w, h) = (1280, 720);
@@ -335,7 +337,7 @@ fn a_whole_model_lies_over_the_flat_hud() {
     // The chest across the HUD's middle column (320 across: 158 to 162),
     // the box behind it from 140, 70.
     let picture = |canvas: &mut crate::headless::Canvas, options: &str| {
-        let dir = drawing("hud-gpu", &format!("frame:box(140, 70, 40, 30, \"#2040ff\")\n  frame:draw(\"chest.vvx\", 158, 80{options})"));
+        let dir = drawing("hud-gpu", &format!("frame:draw(\"chest.vvx\", 158, 80{options})\n  frame:box(140, 70, 40, 30, \"#2040ff\")"));
         let g = game_in(&dir);
         let f = g.compose(0.0, w as f32 / h as f32, Scene::Play, None);
         assert_eq!(halted(&g), "");
@@ -349,12 +351,70 @@ fn a_whole_model_lies_over_the_flat_hud() {
     let (x, y) = (w / 2, 82 * 4);
     let wide = |p: &[u8]| (0..w).filter(|&x| chest(p, x, y)).count();
     let flat = picture(&mut canvas, "");
-    assert!(!chest(&flat, x, y), "the flat form under the box drawn before it");
+    assert!(chest(&flat, x, y), "the flat form over the box drawn after it");
     let whole = picture(&mut canvas, ", { rotation = {} }");
     assert!(chest(&whole, x, y), "the whole one over it");
     let turned = picture(&mut canvas, ", { rotation = { rotation = 30 } }");
     assert!(chest(&turned, x, y));
     assert!(wide(&turned) > wide(&whole) + 3, "turned, its side shows: {} pixels across against {}", wide(&turned), wide(&whole));
+}
+
+/// On the GPU, the HUD's order against the models drawn whole: what is
+/// drawn before the first of them lies over them all (a box drawn first
+/// shows its color inside the chest's silhouette, turned and outlined),
+/// what is drawn after lies under them.
+#[test]
+fn what_is_drawn_before_a_whole_model_lies_over_it() {
+    let (w, h) = (1280, 720);
+    let mut canvas = crate::headless::Canvas::new(w, h, false).expect("a GPU");
+    let chest = "frame:draw(\"chest.vvx\", 158, 80, { rotation = { rotation = 30 }, outline = { width = 1 } })";
+    let mut picture = |draw: &str| {
+        let dir = drawing("hud-before", draw);
+        let g = game_in(&dir);
+        let f = g.compose(0.0, w as f32 / h as f32, Scene::Play, None);
+        assert_eq!(halted(&g), "");
+        canvas.draw(&f).expect("the picture drawn")
+    };
+    let blue = |p: &[u8], x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        p[i + 2] as i32 > p[i] as i32 + 60
+    };
+    // The chest's middle, 4 pixels a UI voxel; the box 2 by 2 over it.
+    let (x, y) = (w / 2, 82 * 4);
+    let boxed = "frame:box(159, 81, 2, 2, \"#2040ff\")";
+    assert!(!blue(&picture(chest), x, y), "the chest alone");
+    assert!(blue(&picture(&format!("{boxed}\n  {chest}")), x, y), "the box drawn before it over it");
+    assert!(!blue(&picture(&format!("{chest}\n  {boxed}")), x, y), "the box drawn after it under it");
+}
+
+/// Only what is drawn before a model drawn whole is set apart for the pass
+/// over the models: nothing without one (one list as ever), nothing where
+/// nothing comes before it; and each set's faces are hidden by its own
+/// cubes alone (a box drawn before, flush against one drawn after, keeps
+/// the face they share: they are drawn in passes of their own).
+#[test]
+fn only_what_is_drawn_before_a_whole_model_lies_apart() {
+    let front = |draw: &str| {
+        let dir = drawing("hud-front", draw);
+        let g = game_in(&dir);
+        let f = g.compose(0.0, 16.0 / 9.0, Scene::Play, None);
+        assert_eq!(halted(&g), "");
+        f
+    };
+    let (before, after) = ("frame:box(100, 10, 4, 4, \"#2040ff\")", "frame:box(104, 10, 4, 4, \"#20ff40\")");
+    let whole = "frame:draw(\"chest.vvx\", 20, 10, { rotation = {} })";
+    let flat = front(&format!("{before}\n  frame:draw(\"chest.vvx\", 20, 10)\n  {after}"));
+    assert!(flat.hud_front.is_empty() && flat.hud_models.is_empty() && !flat.ui.is_empty(), "no model drawn whole: one list");
+    assert!(front(&format!("{whole}\n  {before}\n  {after}")).hud_front.is_empty(), "nothing before the model");
+    let f = front(&format!("{before}\n  {whole}\n  {after}"));
+    let cell = |i: &Instance| i.pos_size[0].floor() as i32;
+    let covered = |i: &Instance, dir: usize| i.fx[crate::render::FX_COVERED] >> dir & 1 == 1;
+    assert!(!f.hud_front.is_empty() && f.hud_front.iter().all(|i| i.color[..3] == [0x20, 0x40, 0xff]), "the box drawn before apart");
+    let edge: Vec<&Instance> = f.hud_front.iter().filter(|i| cell(i) == 103).collect();
+    assert!(!edge.is_empty() && edge.iter().all(|i| !covered(i, 0)), "its +x faces kept");
+    assert!(f.hud_front.iter().any(|i| cell(i) == 102 && covered(i, 0)), "hidden within it");
+    let edge: Vec<&Instance> = f.ui.iter().filter(|i| cell(i) == 104).collect();
+    assert!(!edge.is_empty() && edge.iter().all(|i| !covered(i, 1)), "the box after keeps its -x faces");
 }
 
 /// `outline` rounds one model drawn whole alone, in its color (the game's,

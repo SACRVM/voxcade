@@ -124,7 +124,8 @@ fn a_huds_inner_faces_are_hidden() {
 
 /// The HUD the UI pass draws is worked out once while it stays the same,
 /// and comes out as worked out afresh: the same cubes, faces hidden, the
-/// unseen left out; a HUD changed, or seen from elsewhere, anew.
+/// unseen left out; a HUD changed, seen from elsewhere or set apart
+/// otherwise, anew.
 #[test]
 fn an_unchanged_hud_is_kept_and_comes_out_the_same() {
     let game = flat_game(32);
@@ -139,15 +140,19 @@ fn an_unchanged_hud_is_kept_and_comes_out_the_same() {
     // A plate 8 by 4, two deep (cell k: x = k % 8, y = k / 8).
     let raw: Vec<Instance> = (0..2).flat_map(|z| (0..32).map(move |k| cube(k, z))).collect();
     let eye = Vec3::new(100.0, 50.0, 300.0);
-    let first = game.hud_cubes(raw.clone(), eye);
+    let (first, over) = game.hud_cubes(raw.clone(), 0, eye);
+    assert!(over.is_empty(), "nothing over the models drawn whole");
     assert!(first.len() < raw.len(), "the back layer left out");
     assert_eq!(bytes(&first), fresh(&raw, eye));
-    assert_eq!(bytes(&game.hud_cubes(raw.clone(), eye)), fresh(&raw, eye), "kept");
+    assert_eq!(bytes(&game.hud_cubes(raw.clone(), 0, eye).0), fresh(&raw, eye), "kept");
     let mut more = raw.clone();
     more.push(cube(32, 1));
-    assert_eq!(bytes(&game.hud_cubes(more.clone(), eye)), fresh(&more, eye), "changed: anew");
+    assert_eq!(bytes(&game.hud_cubes(more.clone(), 0, eye).0), fresh(&more, eye), "changed: anew");
     let elsewhere = Vec3::new(-100.0, 50.0, 300.0);
-    assert_eq!(bytes(&game.hud_cubes(more.clone(), elsewhere)), fresh(&more, elsewhere), "seen from elsewhere: anew");
+    assert_eq!(bytes(&game.hud_cubes(more.clone(), 0, elsewhere).0), fresh(&more, elsewhere), "seen from elsewhere: anew");
+    // The first 40 drawn before a model drawn whole: each set alone.
+    let (back, over) = game.hud_cubes(more.clone(), 40, elsewhere);
+    assert_eq!((bytes(&back), bytes(&over)), (fresh(&more[40..], elsewhere), fresh(&more[..40], elsewhere)), "set apart: anew, each alone");
 }
 
 /// The line round the models is the game's: none unless it sets
