@@ -392,3 +392,48 @@ fn an_outline_rounds_one_hud_model_alone() {
     // Not over it: its middle is the chest's own.
     assert!(!green(22 * 4, 12 * 4));
 }
+
+/// On the GPU: a model's own outline is as wide on every side wherever it
+/// stands, in the screen's corner as in its middle (grown into depth too,
+/// the part of it nearer the eye was magnified and slid away from the
+/// vanishing point: three times as wide on the outer side at width 4),
+/// and as wide as said, 6 pixels a HUD voxel at 1920 by 1080.
+#[test]
+fn an_own_outline_is_as_wide_on_every_side_anywhere() {
+    let (w, h) = (1920u32, 1080u32);
+    let mut canvas = crate::headless::Canvas::new(w, h, false).expect("a GPU");
+    let mut uneven = Vec::new();
+    for (x, y) in [(20, 20), (158, 88), (290, 150)] {
+        for width in [1, 2, 4] {
+            let dir = drawing("hud-ring", &format!("frame:draw(\"chest.vvx\", {x}, {y}, {{ rotation = {{}}, outline = {{ width = {width}, color = \"#00ff00\" }} }})"));
+            let g = game_in(&dir);
+            let f = g.compose(0.0, w as f32 / h as f32, Scene::Play, None);
+            assert_eq!(halted(&g), "");
+            let pixels = canvas.draw(&f).expect("the picture drawn");
+            let green = |x: u32, y: u32| {
+                let i = ((y * w + x) * 4) as usize;
+                pixels[i + 1] > 200 && pixels[i] < 60 && pixels[i + 2] < 60
+            };
+            let ring: Vec<(u32, u32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| green(x, y)).collect();
+            let (x0, x1) = (ring.iter().map(|p| p.0).min().unwrap(), ring.iter().map(|p| p.0).max().unwrap());
+            let (y0, y1) = (ring.iter().map(|p| p.1).min().unwrap(), ring.iter().map(|p| p.1).max().unwrap());
+            let (mx, my) = ((x0 + x1) / 2, (y0 + y1) / 2);
+            // The green run from each edge of the ring inwards, through its middle.
+            let run = |from: u32, step: i32, along_x: bool| {
+                let mut n = 0;
+                let mut at = from as i32;
+                while if along_x { green(at as u32, my) } else { green(mx, at as u32) } {
+                    n += 1;
+                    at += step;
+                }
+                n as f32
+            };
+            let sides = [run(x0, 1, true), run(x1, -1, true), run(y0, 1, false), run(y1, -1, false)];
+            let said = width as f32 * 6.0;
+            if sides.iter().any(|side| (side - said).abs() > 1.5) {
+                uneven.push(format!("at {x}, {y}, width {width}: left, right, top, bottom {sides:?} pixels, {said} said"));
+            }
+        }
+    }
+    assert!(uneven.is_empty(), "{uneven:#?}");
+}

@@ -562,8 +562,11 @@ settings. Several players: `player` is seat 1, the others are in
   limit), and two drawn whole meet by depth. Nothing of it under a menu
   or a mistake. `outline = { width = 1, color = "#101010" }` (width 1 to
   8 HUD voxels, color `c.effects.outline_color` unless given, no fourth
-  value) rings that one model alone: the scene's outline's grown voxels,
-  drawn at the far end of the depth (`OWN_OUTLINE_DEPTH`), so it shows
+  value) rings that one model alone, as wide on every side wherever it
+  stands: its voxels grown across the HUD only, not towards the eye
+  (grown in depth too, as the scene's, the ring was nearly twice as wide
+  as said away from the screen's middle), drawn at the far end of the
+  depth (`OWN_OUTLINE_DEPTH`), so it shows
   only where nothing else of the HUD's whole models lies (a lid opened
   behind its chest stays clear of the chest's line). Not built: an
   outline of its own on `frame:model` in the scene.
