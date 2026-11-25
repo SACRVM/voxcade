@@ -261,6 +261,20 @@ pub fn stick(x: f32, y: f32, dead: f32) -> [i8; 2] {
     [sx as i8, sy as i8]
 }
 
+/// Where a pointer at `at` (the HUD's measure, `width` by `height`) goes
+/// in `seconds` with a pad's stick leaning `lean` (-1 to 1 each way, y down
+/// as SDL gives it and the HUD counts): past the dead zone, rescaled from
+/// 0 (`controls::DEAD`, as `stick`), at `speed` UI voxels a second times
+/// the lean and its length again, so a light lean creeps and a full one
+/// goes at `speed`; never off the picture.
+pub fn glide(at: [f32; 2], lean: [f32; 2], seconds: f32, speed: f32, width: f32, height: f32) -> [f32; 2] {
+    let dead = crate::controls::DEAD;
+    let len = (lean[0] * lean[0] + lean[1] * lean[1]).sqrt();
+    let v = if len > dead && len.is_finite() { ((len - dead) / (1.0 - dead)).min(1.0) } else { 0.0 };
+    let along = if len > 0.0 { speed * v * v * seconds / len } else { 0.0 };
+    [(at[0] + lean[0] * along).clamp(0.0, width.max(0.0)), (at[1] + lean[1] * along).clamp(0.0, height.max(0.0))]
+}
+
 /// A stick's value as the tick takes it (another machine may send any
 /// bytes): -128 is -127, and one longer than 127 is shortened along its
 /// way, in whole numbers alike everywhere.
@@ -347,6 +361,26 @@ mod tests {
         assert_eq!(stick_checked([-128, 0]), [-127, 0]);
         let [x, y] = stick_checked([127, 127]);
         assert!(x * x + y * y <= 127 * 127 && x == y, "{x},{y}");
+    }
+
+    /// A pad's stick moves the pointer at its speed whatever the frame
+    /// rate, not in its dead zone, slowly at a light lean (the lean times
+    /// its length), and never off the picture.
+    #[test]
+    fn a_pointer_stick_glides_at_its_speed_and_stays_on_the_picture() {
+        let glided = |fps: u32, lean: [f32; 2]| (0..fps).fold([10.0, 20.0], |at, _| glide(at, lean, 1.0 / fps as f32, 100.0, 400.0, 300.0));
+        for fps in [60, 144] {
+            let [x, y] = glided(fps, [1.0, 0.0]);
+            assert!((x - 110.0).abs() < 1e-3 && y == 20.0, "{fps} frames a second: {x},{y}");
+        }
+        assert_eq!(glided(60, [0.25, -0.1]), [10.0, 20.0], "in the dead zone");
+        // Half way past the dead zone: a quarter of the speed.
+        let half = crate::controls::DEAD + (1.0 - crate::controls::DEAD) / 2.0;
+        let [x, _] = glided(60, [half, 0.0]);
+        assert!((x - 35.0).abs() < 1e-3, "{x}");
+        let [x, y] = glide([10.0, 20.0], [0.0, 1.0], 1.0, 100.0, 400.0, 300.0);
+        assert!(x == 10.0 && (y - 120.0).abs() < 1e-3, "down is down on the picture: {x},{y}");
+        assert_eq!(glide([395.0, 5.0], [1.0, -1.0], 1.0, 1000.0, 400.0, 300.0), [400.0, 0.0], "on the picture");
     }
 
     /// Typed text is taken a sort a tick, in order, none lost, none twice.

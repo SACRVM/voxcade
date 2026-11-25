@@ -42,6 +42,7 @@ impl<G: Game> Session<G> {
                 logo_model: self.logo_model.as_ref(),
                 logo_bob: self.cfg.title_screen.logo_bob,
                 light_menu: self.cfg.title_screen.light_menu,
+                pointer_stick: self.cfg.pointer_stick,
             };
             then(&view)
         }

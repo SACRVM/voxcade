@@ -135,6 +135,9 @@ struct App<G: Game> {
     /// player types in).
     mouse: mouse::Mouse,
     mouse_util: sdl3::mouse::MouseUtil,
+    /// Each seat's pointer that its pad's stick moves (`c.pointer_stick`),
+    /// seat 1's first; none without.
+    sticks: Vec<mouse::StickPointer>,
 }
 
 /// The window's picture: the renderer, the surface it draws on, and the
@@ -340,6 +343,7 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
         maker,
         mouse: Default::default(),
         mouse_util,
+        sticks: Vec::new(),
     };
     if on_title {
         app.play_own_title();
@@ -515,7 +519,11 @@ impl<G: Game> App<G> {
     /// own); the players page shows the seats.
     fn read_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) -> crate::input::Input {
         let mouse_seat = self.mouse_seat();
-        let App { game, pads, settings, seating, front, playback, net, mouse, .. } = self;
+        // The other seats' pointers their pads' sticks move, answered now.
+        let pointers: Vec<_> = (1..=self.seating.seats()).map(|seat| if seat > 1 && seat != mouse_seat { self.seat_pointer(seat) } else { None }).collect();
+        let aspect = self.display.screen.aspect();
+        let App { game, pads, settings, seating, front, playback, net, mouse, sticks, .. } = self;
+        let stick = game.cfg.pointer_stick;
         // The keyboard's seat types: its keys that type hold nothing then.
         let typing = mouse.typing;
         let keys = crate::controls::WithMouse { keys: keyboard, mouse: &[], typing };
@@ -530,25 +538,42 @@ impl<G: Game> App<G> {
             let shown = if front.playing { seating.clone() } else { planned(settings, &named, game.cfg.players) };
             front.menu.seats = crate::menu::SeatLine::all(&shown, &named);
         }
+        // A seat's stick's lean, for its pointer.
+        let leaned = |sticks: &mut Vec<mouse::StickPointer>, seat: usize, (input, lean): (crate::input::Input, [f32; 2])| {
+            if let Some(s) = sticks.get_mut(seat - 1) {
+                s.lean = lean;
+            }
+            input
+        };
         if seating.alone() {
-            crate::controls::read_input(Some(keys_of(1)), &pads.open, settings, game.actions())
+            leaned(sticks, 1, crate::controls::read_input(Some(keys_of(1)), &pads.open, settings, game.actions(), stick))
         } else {
             // Each seat its keys and pads; who sits there for the ticks to
             // come (a replay brings its own).
             for seat in 2..=seating.seats() {
                 let its_pads = pads_of(pads, seating, seat);
-                let mut input = crate::controls::read_seat(Some(keys_of(seat)), seating.keys(seat), &its_pads, settings.pad_of(seat), settings, game.actions());
+                let read = crate::controls::read_seat(Some(keys_of(seat)), seating.keys(seat), &its_pads, settings.pad_of(seat), settings, game.actions(), stick);
+                let mut input = leaned(sticks, seat, read);
                 if playback.is_none() && front.playing && net.is_none() {
-                    // The mouse's, where this seat has the keyboard.
+                    // The mouse's, where this seat has the keyboard; else
+                    // the pointer its pad's stick moves, aimed at.
                     if seat == mouse_seat {
                         mouse.add_to(&mut input, &settings.keys, game.actions(), None);
+                    } else if let Some(now) = pointers[seat - 1].clone() {
+                        input.pointer = Some(Box::new(now));
+                    }
+                    if let Some(s) = sticks.get_mut(seat - 1) {
+                        s.add_to(&mut input);
+                    }
+                    if seat != mouse_seat {
+                        game.mouse_aim(&mut input, seat, aspect);
                     }
                     let controls = seat_controls(game, settings, front, seating.keys(seat), seat, its_pads.first().copied());
                     game.set_seat(seat, seating.taken(seat).then_some(input));
                     game.set_seat_controls(seat, controls);
                 }
             }
-            crate::controls::read_seat(Some(keys_of(1)), seating.keys(1), &pads_of(pads, seating, 1), &settings.pad, settings, game.actions())
+            leaned(sticks, 1, crate::controls::read_seat(Some(keys_of(1)), seating.keys(1), &pads_of(pads, seating, 1), &settings.pad, settings, game.actions(), stick))
         }
     }
 
@@ -572,12 +597,71 @@ impl<G: Game> App<G> {
         ((0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)).then_some([u * layout.width, v * layout.height])
     }
 
-    /// The pointer answered where it is now, for a tick or a reading: in a
-    /// game with one, the mouse used last (the pad's player has none).
-    fn pointer_now(&self) -> Option<crate::input::Pointer> {
-        let on = self.game.has_pointer() && self.front.played_with == Device::Keyboard;
-        let [x, y] = self.mouse.at.filter(|_| on).and_then(|at| self.hud_at(at))?;
+    /// The HUD's measure, its width and height (`frame.width`, `height`).
+    fn hud_size(&self) -> [f32; 2] {
+        let layout = crate::ui::Layout::of(&self.game.cfg.ui, self.game.picture_aspect(self.display.screen.aspect()));
+        [layout.width, layout.height]
+    }
+
+    /// Where seat `seat`'s pointer is in the HUD's measure, in a game with
+    /// one: the mouse seat's the mouse's while the keyboard was used last,
+    /// its stick's while the pad was (`c.pointer_stick`); another seat's
+    /// its pad's stick's, where it has a pad. None off the picture, or for
+    /// a pad no stick of which moves it.
+    fn seat_place(&self, seat: usize) -> Option<[f32; 2]> {
+        if !self.game.has_pointer() {
+            return None;
+        }
+        let stick = || self.sticks.get(seat - 1).and_then(|s| s.at);
+        if seat != self.mouse_seat() {
+            return stick().filter(|_| !pads_of(&self.pads, &self.seating, seat).is_empty());
+        }
+        match self.front.played_with {
+            Device::Keyboard => self.mouse.at.and_then(|at| self.hud_at(at)),
+            Device::Gamepad => stick(),
+        }
+    }
+
+    /// Seat `seat`'s pointer answered where it is now, for a tick or a
+    /// reading (`seat_place`).
+    fn seat_pointer(&self, seat: usize) -> Option<crate::input::Pointer> {
+        let [x, y] = self.seat_place(seat)?;
         Some(self.game.point(x, y, self.display.screen.aspect()))
+    }
+
+    /// This machine's pointer answered where it is now: the mouse seat's
+    /// (`frame.pointer`, a click's answers).
+    fn pointer_now(&self) -> Option<crate::input::Pointer> {
+        self.seat_pointer(self.mouse_seat())
+    }
+
+    /// Every frame in a game whose pad's stick moves the pointer
+    /// (`c.pointer_stick`): each seat's glides by the lean read last over
+    /// the frame's time (a tenth of a second at most), while the game plays
+    /// with no menu or console over it; seat 1 leaning, its pad is what it
+    /// plays with. One begins in the picture's middle, the mouse seat's
+    /// following the mouse while the keyboard is used, so the pad takes it
+    /// on where the mouse left it; always on the picture, whatever its size.
+    fn glide_sticks(&mut self) {
+        if self.game.cfg.pointer_stick.is_none() {
+            self.sticks.clear();
+            return;
+        }
+        self.sticks.resize_with(self.seating.seats(), Default::default);
+        let [w, h] = self.hud_size();
+        let mouse_seat = self.mouse_seat();
+        let mouse = self.mouse.at.and_then(|at| self.hud_at(at)).filter(|_| self.front.played_with == Device::Keyboard);
+        let speed = self.game.cfg.pointer_speed.unwrap_or(self.game.cfg.ui.height);
+        let seconds = self.clock.last.elapsed().as_secs_f32().min(0.1);
+        let playing = self.front.playing && !self.front.menu.is_open() && !self.prompt.open && self.watching.is_none();
+        for (i, s) in self.sticks.iter_mut().enumerate() {
+            let lean = if playing { s.lean } else { [0.0; 2] };
+            let at = mouse.filter(|_| i + 1 == mouse_seat).or(s.at).unwrap_or([w / 2.0, h / 2.0]);
+            s.at = Some(crate::input::glide(at, lean, seconds, speed, w, h));
+            if i == 0 && crate::input::stick(lean[0], lean[1], crate::controls::DEAD) != [0, 0] {
+                self.front.played_with = Device::Gamepad;
+            }
+        }
     }
 
     /// Every frame: the pictures shown the pointer where it is
@@ -585,8 +669,8 @@ impl<G: Game> App<G> {
     /// (`c.pointer = "own"` hides it while the game plays), the window's
     /// text input on while the keyboard's player types.
     fn pointer_and_typing(&mut self) {
-        let on = self.game.has_pointer() && self.front.played_with == Device::Keyboard;
-        let at = self.mouse.at.filter(|_| on).and_then(|at| self.hud_at(at));
+        self.glide_sticks();
+        let at = self.seat_place(self.mouse_seat());
         if self.game.has_pointer() {
             let aspect = self.display.screen.aspect();
             self.game.set_pointer(at, aspect);
@@ -741,13 +825,22 @@ impl<G: Game> App<G> {
                     None => input.clone(),
                 };
                 // The mouse's and the text typed, taken once a tick (seat 1's
-                // where it has the keyboard; a network's go as readings).
-                let input = if playback.is_none() && net.is_none() && self.mouse_seat() == 1 {
-                    let now = self.pointer_now();
+                // where it has the keyboard, else the pointer its pad's
+                // stick moves; a network's go as readings).
+                let input = if playback.is_none() && net.is_none() {
+                    let (now, mouse_seat) = (self.seat_pointer(1), self.mouse_seat());
                     let aspect = self.display.screen.aspect();
-                    let App { mouse, settings, game, .. } = &mut *self;
+                    let App { mouse, sticks, settings, game, .. } = &mut *self;
                     let mut input = input;
-                    mouse.add_to(&mut input, &settings.keys, game.actions(), now);
+                    if mouse_seat == 1 {
+                        mouse.add_to(&mut input, &settings.keys, game.actions(), now);
+                    } else {
+                        input.pointer = now.map(Box::new);
+                    }
+                    // A pad's button's, its stick moving the pointer.
+                    if let Some(s) = sticks.first_mut() {
+                        s.add_to(&mut input);
+                    }
                     // Aimed from the figure to the pointer where no stick aims.
                     game.mouse_aim(&mut input, 1, aspect);
                     input

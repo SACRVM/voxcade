@@ -437,6 +437,13 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
     {
         anyhow::bail!("c.keys.{action}: \"{key}\" is the mouse's, and the game has no pointer: c.pointer = \"system\" (the system's arrow) or \"own\" (the game draws its own) in conf.lua");
     }
+    // A pad's stick moves a pointer only the game draws.
+    if cfg.pointer_stick.is_some() && cfg.pointer != Some(crate::config::PointerStyle::Own) {
+        anyhow::bail!("c.pointer_stick: a pad's stick moves only a pointer the game draws itself: c.pointer = \"own\" in conf.lua (it draws its own from frame.pointer)");
+    }
+    if cfg.pointer_speed.is_some() && cfg.pointer_stick.is_none() {
+        anyhow::bail!("c.pointer_speed: how fast a pad's stick moves the pointer, and no stick does: c.pointer_stick = \"left\" or \"right\" in conf.lua");
+    }
     if cfg.audio.boss_music.is_some() {
         anyhow::bail!("c.audio.boss_music is no more: which song plays when is your game's code, music:play(\"end_boss\") while the boss is up and music:play() after (the song in c.audio.music)");
     }

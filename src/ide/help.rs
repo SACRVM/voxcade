@@ -1540,6 +1540,56 @@ end
 "##,
     },
     Topic {
+        title: "A PAD MOVES THE POINTER",
+        text: "c.pointer_stick gives a pad's stick to the pointer: it moves it as the mouse does, and input.pointer says what is under it for the pad as for the mouse, a button pressed carrying what was under it then. Only for a pointer your game draws (c.pointer = \"own\"), from frame.pointer. The other stick and the d-pad walk. c.pointer_speed is how fast it goes leaning all the way, in UI voxels a second (unset: the screen's height); a light lean creeps. Here the crosshair hides after two seconds at rest, counted from input.pointer.moved, and a click on the mouse or the pad's bottom button opens the chest.",
+        conf: r##"c.player.kind = "hero"
+c.things.hero = {}
+c.things.chest = {}
+c.pointer = "own"
+c.pointer_stick = "left"
+c.actions = { "click" }
+c.keys = { click = { "mouse_left" } }
+c.pad = { click = { "south" } }"##,
+        files: &[],
+        code: r##"function on_world_start()
+  world.state.still = 0   -- ticks since the pointer last moved
+end
+
+function on_level_start(how)
+  level:fill(0, 0, 0, level.size.x - 1, level.size.y - 1, 0, "#5a6e4a")
+  level:spawn("chest", 60, 40)
+end
+
+function on_tick()
+  local p = input.pointer
+  if p and p.moved then
+    world.state.still = 0
+  else
+    world.state.still = world.state.still + 1
+  end
+  -- walking on the d-pad, the right stick or the arrows
+  player:walk(input.dir, 40)
+  if input:pressed("click") and p and p.thing and p.thing.kind == "chest" then
+    p.thing.state.open = true
+  end
+end
+
+function on_draw(frame)
+  frame:model("hero.vvx", player)
+  for _, t in ipairs(level:things()) do
+    if t.kind == "chest" then frame:model("hero2.vvx", t) end
+    if t.kind == "chest" and t.state.open then frame:text("Gold!", 4, 4) end
+  end
+  -- the crosshair, hidden after two seconds at rest
+  local p = frame.pointer
+  if p and world.state.still < 120 then
+    frame:box(p.x - 3, p.y, 7, 1, { 255, 255, 255 })
+    frame:box(p.x, p.y - 3, 1, 7, { 255, 255, 255 })
+  end
+end
+"##,
+    },
+    Topic {
         title: "SPEAK THE PLAYER'S LANGUAGE",
         text: "List the languages your game speaks in conf.lua (c.languages, two small letters each). SETTINGS then offers LANGUAGE, the player's system language at first, and the engine's own menus speak it too (German, English and French). world.language says which the player chose; it can change while playing, so pick your texts by it every picture. Lower case, the letters of German and French and signs such as → or … are all there.",
         conf: r##"c.languages = { "en", "de", "fr" }"##,

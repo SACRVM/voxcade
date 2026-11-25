@@ -140,11 +140,12 @@ impl<G: Game> Play<G> {
         use crate::seating::Keys;
         let seating = &self.seating;
         if seating.alone() {
-            return crate::controls::read_input(keys, pads, &self.settings, self.game.actions());
+            // (The IDE's PLAY gives no stick to a pointer yet.)
+            return crate::controls::read_input(keys, pads, &self.settings, self.game.actions(), None).0;
         }
         let of_seat = |seat: usize| pads.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
         for seat in 2..=seating.seats() {
-            let input = crate::controls::read_seat(keys, seating.keys(seat), &of_seat(seat), self.settings.pad_of(seat), &self.settings, self.game.actions());
+            let (input, _) = crate::controls::read_seat(keys, seating.keys(seat), &of_seat(seat), self.settings.pad_of(seat), &self.settings, self.game.actions(), None);
             let controls = match seating.keys(seat) {
                 Keys::Whole => crate::controls::Controls::of(self.game.actions(), Device::Keyboard, PadStyle::default(), &self.settings),
                 Keys::Nothing => crate::controls::Controls::of_pad(self.game.actions(), PadStyle::default(), self.settings.pad_of(seat), &self.settings),
@@ -153,7 +154,7 @@ impl<G: Game> Play<G> {
             self.game.set_seat(seat, seating.taken(seat).then_some(input));
             self.game.set_seat_controls(seat, controls);
         }
-        crate::controls::read_seat(keys, seating.keys(1), &of_seat(1), &self.settings.pad, &self.settings, self.game.actions())
+        crate::controls::read_seat(keys, seating.keys(1), &of_seat(1), &self.settings.pad, &self.settings, self.game.actions(), None).0
     }
 
     /// The keys of seat 1 as the window's controls menu would show them

@@ -87,8 +87,11 @@ impl<G: Game> App<G> {
     /// host (the host's own held back there), the seats they sit on asked
     /// for and given up; what the pictures show of them is theirs.
     pub(super) fn net_input(&mut self, keyboard: &sdl3::keyboard::KeyboardState) {
-        let (now, mouse_seat, aspect) = (self.pointer_now(), self.mouse_seat(), self.display.screen.aspect());
-        let App { net, front, settings, seating, pads, game, mouse, .. } = self;
+        let (mouse_seat, aspect) = (self.mouse_seat(), self.display.screen.aspect());
+        // Each local seat's pointer (the mouse seat's the mouse's or its
+        // stick's, another's its pad's stick's), answered now.
+        let pointers: Vec<_> = (1..=self.seating.seats()).map(|seat| self.seat_pointer(seat)).collect();
+        let App { net, front, settings, seating, pads, game, mouse, sticks, .. } = self;
         let typing = crate::controls::WithMouse { keys: keyboard, mouse: &[], typing: mouse.typing };
         if let Some(n) = net
             && front.playing
@@ -109,10 +112,19 @@ impl<G: Game> App<G> {
                 let pad = if local == 1 { &settings.pad } else { settings.pad_of(local) };
                 let its_pads = pads_of(pads, seating, local);
                 let keys: &dyn crate::controls::KeyState = if local == mouse_seat { &typing } else { keyboard };
-                let mut input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keys), seating.keys(local), &its_pads, pad, settings, game.actions()) };
-                // The mouse's and the text typed, once a reading.
-                if local == mouse_seat && !away {
-                    mouse.add_to(&mut input, &settings.keys, game.actions(), now.clone());
+                let mut input = if away { crate::input::Input::default() } else { crate::controls::read_seat(Some(keys), seating.keys(local), &its_pads, pad, settings, game.actions(), game.cfg.pointer_stick).0 };
+                // The mouse's and the text typed, once a reading; another
+                // seat's pointer its pad's stick moves.
+                if !away {
+                    let now = pointers[local - 1].clone();
+                    if local == mouse_seat {
+                        mouse.add_to(&mut input, &settings.keys, game.actions(), now);
+                    } else {
+                        input.pointer = now.map(Box::new);
+                    }
+                    if let Some(s) = sticks.get_mut(local - 1) {
+                        s.add_to(&mut input);
+                    }
                     game.mouse_aim(&mut input, seat as usize, aspect);
                 }
                 let controls = seat_controls(game, settings, front, seating.keys(local), local, its_pads.first().copied());
