@@ -78,6 +78,12 @@ pub struct FrameData {
     /// (the title's logo).
     pub models: Vec<ModelDraw>,
     pub ui_models: Vec<ModelDraw>,
+    /// Models drawn whole on the HUD (`frame:draw` turned freely or posed),
+    /// in a pass of their own over the UI's layer, lit by the UI's light
+    /// and seen from its eye (`ui::eye`; the UI's own scene takes one far
+    /// off).
+    pub hud_models: Vec<ModelDraw>,
+    pub hud_eye: Vec3,
     pub bank: Arc<ModelBank>,
     /// Opaque cubes first, then the last `see_through` ones, sorted far to near.
     pub instances: Vec<Instance>,

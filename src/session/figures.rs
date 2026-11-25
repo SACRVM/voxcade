@@ -226,7 +226,7 @@ pub(super) fn draw_placed(
         // cover, as the bank's do (`vox::covered`); glass carries none.
         let (as_cubes, covered) = match (on_gpu.as_deref_mut(), bank) {
             (Some(on_gpu), Some(voxels)) => {
-                on_gpu.push(ModelDraw { voxels, origin, turn, rot, shift, tint: tint.map(|[r, g, b, _]| [r, g, b]), nearer, glow: posed_glow, shadow_only: false });
+                on_gpu.push(ModelDraw { voxels, origin, turn, rot, shift, tint: tint.map(|[r, g, b, _]| [r, g, b]), nearer, glow: posed_glow, shadow_only: false, outline: None });
                 (glass, &[][..])
             }
             _ => (visible, covered),

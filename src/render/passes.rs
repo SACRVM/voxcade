@@ -53,13 +53,15 @@ impl PassTimes {
 /// their baked faces; `whole`: a face draws its voxel's whole cube (the
 /// outline's, from the voxel's first face); `cast`: into the sun's map
 /// (`ModelDraw::in_pass`); `eye`: the world's eye, a run's faces turned
-/// away from it left out.
+/// away from it left out; `own_outline`: only the draws with an outline of
+/// their own (`ModelDraw::outline`).
 struct ModelPass<'a> {
     cubes: &'a wgpu::RenderPipeline,
     faces: &'a wgpu::RenderPipeline,
     whole: bool,
     cast: bool,
     eye: Option<Vec3>,
+    own_outline: bool,
 }
 
 /// A colour target of a pass, loaded as `load` says and stored.
@@ -81,7 +83,7 @@ impl Renderer {
         if frame.shadow_map != self.shadow_size {
             self.shadow_size = frame.shadow_map;
             self.shadow_view = Self::shadow_map(device, self.shadow_size);
-            (self.main_bind, self.ui_bind) = Self::scene_binds(device, &self.main_layout, &self.globals, &self.ui_globals, &self.shadow_view, &self.shadow_sampler);
+            [self.main_bind, self.ui_bind, self.hud_bind] = Self::scene_binds(device, &self.main_layout, [&self.globals, &self.ui_globals, &self.hud_globals], &self.shadow_view, &self.shadow_sampler);
             if let Memory::Ready { layout, bind, faces, .. } = &mut self.memory {
                 *bind = Self::memory_bind(device, layout, &self.globals, &self.shadow_view, &self.shadow_sampler, faces);
             }
@@ -112,7 +114,7 @@ impl Renderer {
         };
         self.write_globals(queue, frame, remember);
         self.upload_cubes(device, queue, frame);
-        let all_models = frame.models.len() + frame.ui_models.len();
+        let all_models = frame.models.len() + frame.ui_models.len() + frame.hud_models.len();
         self.upload_models(device, queue, frame, all_models);
         let instance_count = frame.instances.len();
 
@@ -122,7 +124,7 @@ impl Renderer {
         let mut stats = Stats {
             instances: instance_count,
             models: all_models,
-            model_cubes: frame.models.iter().chain(&frame.ui_models).map(|m| m.voxels.len()).sum(),
+            model_cubes: frame.models.iter().chain(&frame.ui_models).chain(&frame.hud_models).map(|m| m.voxels.len()).sum(),
             model_bytes: self.bank.as_ref().map_or(0, |b| b.bytes),
             ui_instances: frame.ui.len(),
             chunks: self.meshes.len(),
@@ -156,6 +158,7 @@ impl Renderer {
             }
         }
         self.ui_pass(encoder, frame, all_models);
+        self.hud_model_pass(encoder, frame, all_models);
         self.post_passes(encoder, frame);
         self.composite_pass(encoder, target, fog.map(|_| glass));
         if let Some(t) = &self.pass_times {
@@ -214,6 +217,11 @@ impl Renderer {
             lights: [LightData::zeroed(); FORWARD_LIGHTS],
         };
         queue.write_buffer(&self.ui_globals, 0, bytemuck::bytes_of(&ui_globals));
+        // The models drawn whole on the HUD: the UI's, from its real eye.
+        if !frame.hud_models.is_empty() {
+            let hud = Globals { eye: frame.hud_eye.extend(0.0).to_array(), ..ui_globals };
+            queue.write_buffer(&self.hud_globals, 0, bytemuck::bytes_of(&hud));
+        }
         let composite = PostParams { params: [frame.glow, frame.tilt_shift, frame.screen_flash, 0.0], step: frame.fade };
         queue.write_buffer(&self.targets.composite_params, 0, bytemuck::bytes_of(&composite));
     }
@@ -258,9 +266,16 @@ impl Renderer {
             let places = &mut self.places;
             places.clear();
             places.resize(all_models * ACTOR_STRIDE, 0);
-            for (m, place) in frame.models.iter().chain(&frame.ui_models).zip(places.as_chunks_mut::<ACTOR_STRIDE>().0) {
+            for (m, place) in frame.models.iter().chain(&frame.ui_models).chain(&frame.hud_models).zip(places.as_chunks_mut::<ACTOR_STRIDE>().0) {
                 let tint = m.tint.map_or([0.0; 4], |[r, g, b]| [f32::from(r) / 255.0, f32::from(g) / 255.0, f32::from(b) / 255.0, 1.0]);
-                let data = ActorData { origin: m.origin.extend(m.turn as f32).to_array(), tint, extra: [m.nearer, m.glow.unwrap_or(-1.0), 0.0, 0.0], rot: m.rot.to_array(), pivot: m.shift.extend(if off_grid(m.rot, m.shift) { 1.0 } else { 0.0 }).to_array() };
+                let data = ActorData {
+                    origin: m.origin.extend(m.turn as f32).to_array(),
+                    tint,
+                    extra: [m.nearer, m.glow.unwrap_or(-1.0), 0.0, 0.0],
+                    rot: m.rot.to_array(),
+                    pivot: m.shift.extend(if off_grid(m.rot, m.shift) { 1.0 } else { 0.0 }).to_array(),
+                    outline: m.outline.unwrap_or_default(),
+                };
                 place[..size_of::<ActorData>()].copy_from_slice(bytemuck::bytes_of(&data));
             }
             queue.write_buffer(&self.actors, 0, places);
@@ -275,7 +290,7 @@ impl Renderer {
         // The buffers bound: none yet, the cubes', the faces'.
         let mut bound = None;
         for (i, m) in models.iter().enumerate() {
-            if !m.in_pass(how.cast) {
+            if !m.in_pass(how.cast) || (how.own_outline && m.outline.is_none()) {
                 continue;
             }
             match (bank.lies(&m.voxels), &bank.cubes, &bank.faces) {
@@ -337,7 +352,7 @@ impl Renderer {
             pass.set_index_buffer(mesh.indices.slice(..mesh.index_bytes()), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
-        let shadows = ModelPass { cubes: &self.model_shadow, faces: &self.face_shadow, whole: false, cast: true, eye: None };
+        let shadows = ModelPass { cubes: &self.model_shadow, faces: &self.face_shadow, whole: false, cast: true, eye: None, own_outline: false };
         self.draw_models(&mut pass, shadows, &frame.models, 0, all_models);
         // Only the opaque cubes: fire, smoke, dust, glass and what lies
         // faint behind everything cast no shadow.
@@ -466,10 +481,10 @@ impl Renderer {
         // The models before the cubes: where a cube shares a cell with a
         // model's voxel (or a model with the world), the one drawn first
         // keeps it, at the same depth.
-        let models = ModelPass { cubes: &scene.model, faces: &scene.faces, whole: false, cast: false, eye: Some(frame.eye) };
+        let models = ModelPass { cubes: &scene.model, faces: &scene.faces, whole: false, cast: false, eye: Some(frame.eye), own_outline: false };
         self.draw_models(pass, models, &frame.models, 0, all_models);
         if frame.outline[3] > 0.0 {
-            let outline = ModelPass { cubes: outline.0, faces: outline.1, whole: true, cast: false, eye: None };
+            let outline = ModelPass { cubes: outline.0, faces: outline.1, whole: true, cast: false, eye: None, own_outline: false };
             self.draw_models(pass, outline, &frame.models, 0, all_models);
         }
         // (The last `cast_only` opaque cubes are the sun's map's alone.)
@@ -515,7 +530,7 @@ impl Renderer {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &self.ui_bind, &[]);
-        let models = ModelPass { cubes: &self.plain.model, faces: &self.plain.faces, whole: false, cast: false, eye: None };
+        let models = ModelPass { cubes: &self.plain.model, faces: &self.plain.faces, whole: false, cast: false, eye: None, own_outline: false };
         self.draw_models(&mut pass, models, &frame.ui_models, frame.models.len(), all_models);
         if !frame.ui.is_empty() {
             pass.set_pipeline(&self.plain.inst);
@@ -523,6 +538,38 @@ impl Renderer {
             pass.set_vertex_buffer(1, self.instances.slice(..));
             pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..self.cube_index_count, 0, instance_count as u32..total as u32);
+        }
+    }
+
+    /// The models drawn whole on the HUD (`FrameData::hud_models`) over the
+    /// UI's layer and the glow: the depth their own, so they lie over every
+    /// flat voxel of the HUD and meet each other by depth; lit as the UI
+    /// is, seen from its eye. No pass where there are none.
+    fn hud_model_pass(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameData, all_models: usize) {
+        if frame.hud_models.is_empty() {
+            return;
+        }
+        let t = &self.targets;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("hud models"),
+            color_attachments: &[color(&t.ui, wgpu::LoadOp::Load), color(&t.glow, wgpu::LoadOp::Load)],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &t.depth,
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: self.pass_times.as_ref().and_then(|t| t.writes("hud models")),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &self.hud_bind, &[]);
+        let first = frame.models.len() + frame.ui_models.len();
+        let models = ModelPass { cubes: &self.plain.model, faces: &self.plain.faces, whole: false, cast: false, eye: None, own_outline: false };
+        self.draw_models(&mut pass, models, &frame.hud_models, first, all_models);
+        // Each one's own outline, round it alone.
+        if frame.hud_models.iter().any(|m| m.outline.is_some()) {
+            let outline = ModelPass { cubes: &self.model_outline, faces: &self.face_outline, whole: true, cast: false, eye: None, own_outline: true };
+            self.draw_models(&mut pass, outline, &frame.hud_models, first, all_models);
         }
     }
 

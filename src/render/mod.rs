@@ -358,6 +358,11 @@ pub struct Renderer {
     main_bind: wgpu::BindGroup,
     ui_globals: wgpu::Buffer,
     ui_bind: wgpu::BindGroup,
+    /// The UI's globals seen from its real eye, for the models drawn whole
+    /// on the HUD (`FrameData::hud_eye`): their outline and their parts'
+    /// depth go by it.
+    hud_globals: wgpu::Buffer,
+    hud_bind: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
     /// The shadow map's width and height (`settings::Shadows`).
     shadow_size: u32,

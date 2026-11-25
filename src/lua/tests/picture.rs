@@ -592,7 +592,8 @@ end
 
 /// A model only drawn is the picture's alone: in memory or not, loaded at
 /// the first tick or never, let go half way, the simulation plays the same
-/// (each tick's state hash), and the game's fingerprint does not count it.
+/// (each tick's state hash), and the game's fingerprint does not count it;
+/// one drawn whole on the HUD alike.
 #[test]
 fn a_model_only_drawn_never_changes_the_run() {
     let main = r##"
@@ -607,12 +608,14 @@ end
 
 function on_draw(frame)
   frame:model("sheet.vvx", level.state.r, nil, { rotation = 30 })
+  frame:draw("badge.vvx", 4, 4, { rotation = { rotation = 20 } })
 end
 "##;
     let dir = folder("only-drawn", main);
     std::fs::write(dir.join("conf.lua"), "function conf(c)\n  c.world.size = { 64, 64, 16 }\n  c.things.robot = { model = \"robot.vvx\" }\nend\n").unwrap();
     crate::vox::write_figure(&dir.join("robot.vvx"), &[("body", glam::IVec3::new(4, 4, 8), glam::IVec3::ZERO)]);
     crate::vox::write_figure(&dir.join("sheet.vvx"), &[("body", glam::IVec3::new(3, 1, 4), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("badge.vvx"), &[("body", glam::IVec3::new(5, 2, 5), glam::IVec3::ZERO)]);
     let run = |looking: Option<usize>, letting_go: Option<usize>| {
         let mut g = game_in(&dir);
         let mut hashes = Vec::new();
@@ -631,7 +634,7 @@ end
         (hashes, g.fingerprint().unwrap(), g.models.needed().names())
     };
     let (drawn, print, held) = run(Some(0), None);
-    assert_eq!(held, ["sheet.vvx"], "drawn: in memory");
+    assert_eq!(held, ["badge.vvx", "sheet.vvx"], "drawn: in memory");
     let (never, never_print, none) = run(None, None);
     assert!(none.is_empty(), "never drawn: never loaded");
     assert_eq!(drawn, never, "the run is the same drawn or not");
@@ -640,6 +643,7 @@ end
     assert_eq!(drawn, late, "loaded late and let go half way, the same again");
     // Its file changed: the run's fingerprint stays.
     crate::vox::write_figure(&dir.join("sheet.vvx"), &[("body", glam::IVec3::new(5, 2, 4), glam::IVec3::ZERO)]);
+    crate::vox::write_figure(&dir.join("badge.vvx"), &[("body", glam::IVec3::new(3, 3, 3), glam::IVec3::ZERO)]);
     assert_eq!(run(Some(0), None).1, print, "a model only drawn is no part of the fingerprint");
 }
 

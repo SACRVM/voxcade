@@ -273,6 +273,7 @@ impl Renderer {
         };
         let globals = globals_buffer("globals");
         let ui_globals = globals_buffer("ui globals");
+        let hud_globals = globals_buffer("hud model globals");
 
         let shadow_size = crate::settings::Shadows::High.map_size();
         let shadow_view = Self::shadow_map(device, shadow_size);
@@ -325,7 +326,7 @@ impl Renderer {
             layout: &shadow_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
         });
-        let (main_bind, ui_bind) = Self::scene_binds(device, &main_layout, &globals, &ui_globals, &shadow_view, &shadow_sampler);
+        let [main_bind, ui_bind, hud_bind] = Self::scene_binds(device, &main_layout, [&globals, &ui_globals, &hud_globals], &shadow_view, &shadow_sampler);
 
         let layout = |label: &str, groups: &[Option<&wgpu::BindGroupLayout>]| {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -421,6 +422,8 @@ impl Renderer {
             main_bind,
             ui_globals,
             ui_bind,
+            hud_globals,
+            hud_bind,
             shadow_view,
             shadow_size,
             shadow_sampler,
@@ -483,17 +486,16 @@ impl Renderer {
         texture(device, "shadow map", size, size, DEPTH_FORMAT, true)
     }
 
-    /// What the world's and the UI's scene read: their globals and the
-    /// shadow map.
+    /// What the world's scene, the UI's and the models drawn whole on the
+    /// HUD read: their globals and the shadow map.
     pub(super) fn scene_binds(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
-        globals: &wgpu::Buffer,
-        ui_globals: &wgpu::Buffer,
+        globals: [&wgpu::Buffer; 3],
         shadow_view: &wgpu::TextureView,
         shadow_sampler: &wgpu::Sampler,
-    ) -> (wgpu::BindGroup, wgpu::BindGroup) {
-        let bind = |label, buffer: &wgpu::Buffer| {
+    ) -> [wgpu::BindGroup; 3] {
+        let bind = |(label, buffer): (&str, &wgpu::Buffer)| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(label),
                 layout,
@@ -504,7 +506,7 @@ impl Renderer {
                 ],
             })
         };
-        (bind("main pass", globals), bind("ui pass", ui_globals))
+        ["main pass", "ui pass", "hud models"].into_iter().zip(globals).map(bind).collect::<Vec<_>>().try_into().expect("three")
     }
 
     pub(super) fn actor_buffer(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, capacity: usize) -> (wgpu::Buffer, wgpu::BindGroup) {

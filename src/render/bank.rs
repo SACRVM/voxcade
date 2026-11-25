@@ -72,6 +72,10 @@ pub struct ModelDraw {
     /// outlined or glowing (a level's `shadow_only` piece: a ceiling the
     /// camera looks through).
     pub shadow_only: bool,
+    /// A line round this draw alone (a model drawn whole on the HUD,
+    /// `frame:draw`'s `outline`): its colour (0..1) and how many voxels
+    /// thick; None: the picture's own (`FrameData::outline`), if any.
+    pub outline: Option<[f32; 4]>,
 }
 
 impl ModelDraw {
@@ -264,6 +268,9 @@ pub(super) struct ActorData {
     /// w 1 when it is off the grid at all).
     pub(super) rot: [f32; 4],
     pub(super) pivot: [f32; 4],
+    /// Its own outline (`ModelDraw::outline`): rgb, w how thick (0: the
+    /// picture's).
+    pub(super) outline: [f32; 4],
 }
 
 /// Model draws' uniforms lie this far apart (the most any GPU asks).
