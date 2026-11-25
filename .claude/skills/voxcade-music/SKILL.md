@@ -27,6 +27,12 @@ You cannot listen. Everything you say about how a song sounds comes from
 its structure, its numbers and its spectrogram; say so, and let the user
 judge by ear.
 
+Outside a game folder, `voxcade mcp --music` is an MCP server of four
+tools for exactly this: `music_words` (the language, every instrument
+word, the voices, an example), `music_check` (the parser's mistake with
+its line, or the song's facts), `music_render` (a WAV; tell the user its
+path) and `music_picture` (a spectrogram PNG you can look at).
+
 ## What the user wants from music
 
 - Background that can run for half an hour without wearing on the ears.

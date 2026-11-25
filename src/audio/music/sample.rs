@@ -79,15 +79,32 @@ impl Samples {
 
     /// As `read_folder`, at most `most` bytes in all.
     pub(super) fn read_within(files: &crate::files::Files, most: u64) -> Result<Samples> {
+        Self::read_listed(files, Path::new(FOLDER), FOLDER, most)
+    }
+
+    /// The recordings in a folder of WAV files as it lies (a game's
+    /// `samples/` folder, or any other holding WAVs; a folder holding a
+    /// `samples/` folder is read there, as a game's), at most
+    /// `MOST_BYTES` of them.
+    pub fn read_dir(dir: &Path) -> Result<Samples> {
+        let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let dir = if dir.join(FOLDER).is_dir() { dir.join(FOLDER) } else { dir };
+        let label = dir.display().to_string();
+        Self::read_listed(&crate::files::Files::folder(&dir), &dir, &label, MOST_BYTES)
+    }
+
+    /// The WAV files of `folder` (its path in `files`), named in mistakes
+    /// as `label/NAME.wav`.
+    fn read_listed(files: &crate::files::Files, folder: &Path, label: &str, most: u64) -> Result<Samples> {
         let mut by_name: BTreeMap<String, Arc<Recording>> = BTreeMap::new();
         let mut total = 0u64;
-        for path in files.list(FOLDER) {
+        for path in files.list(folder) {
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
             let Some((stem, ending)) = name.rsplit_once('.') else { continue };
             if name.starts_with('.') {
                 continue;
             }
-            let file = format!("{FOLDER}/{name}");
+            let file = format!("{label}/{name}");
             let ending = ending.to_ascii_lowercase();
             if NOT_WAV.contains(&ending.as_str()) {
                 bail!("{file}: only WAV is read (PCM, 16 or 24 bit): save it as a WAV");
@@ -167,7 +184,7 @@ struct Format {
 }
 
 /// The `fmt ` chunk's body read, or the plain mistake of a format not read.
-fn format(file: &str, body: &[u8]) -> Result<Format> {
+fn format(file: &str, body: &[u8], loose: bool) -> Result<Format> {
     if body.len() < 16 {
         bail!("{file}: its format (the fmt chunk) is cut short: {} bytes, 16 at least", body.len());
     }
@@ -184,14 +201,17 @@ fn format(file: &str, body: &[u8]) -> Result<Format> {
         }
         tag = u16_at(guid, 0);
     }
+    let float = loose && tag == 3 && bits == 32;
     match tag {
         1 => {}
+        3 if float => {}
         3 => bail!("{file}: 32-bit float; a sample is integer PCM of 16 or 24 bit: export it so"),
         6 | 7 => bail!("{file}: compressed as telephones do (A-law or µ-law); a sample is PCM of 16 or 24 bit"),
         other => bail!("{file}: compressed (format {other}); a sample is PCM of 16 or 24 bit, not compressed"),
     }
     match bits {
         16 | 24 => {}
+        32 if float => {}
         8 => bail!("{file}: 8 bit; a sample is 16 or 24 bit"),
         32 => bail!("{file}: 32-bit integers; a sample is 16 or 24 bit"),
         other => bail!("{file}: {other} bits a sample; a sample is 16 or 24 bit"),
@@ -201,7 +221,10 @@ fn format(file: &str, body: &[u8]) -> Result<Format> {
         0 => bail!("{file}: no channels"),
         n => bail!("{file}: {n} channels; a sample is mono or stereo"),
     }
-    if !(RATES.0..=RATES.1).contains(&rate) {
+    if loose && !(8_000..=192_000).contains(&rate) {
+        bail!("{file}: recorded at {rate} Hz; a picture is of a WAV from 8000 to 192000 Hz");
+    }
+    if !loose && !(RATES.0..=RATES.1).contains(&rate) {
         bail!("{file}: recorded at {rate} Hz; a sample is from {} to {} Hz", RATES.0, RATES.1);
     }
     if u32::from(block) != u32::from(channels) * u32::from(bits / 8) {
@@ -213,6 +236,21 @@ fn format(file: &str, body: &[u8]) -> Result<Format> {
 /// A WAV file's bytes as a recording at its own rate, one channel; every
 /// size it states checked against the bytes there are before it is used.
 pub(super) fn decode(file: &str, bytes: &[u8]) -> Result<Wav> {
+    decode_with(file, bytes, None)
+}
+
+/// A WAV of any length up to `longest` seconds, any rate from 8000 to
+/// 192000 Hz and 32-bit floats too, to be looked at (`audio::picture`),
+/// not played: its rate and its frames, one channel. Every size checked
+/// against the bytes as `decode` does.
+pub fn read_to_look_at(file: &str, bytes: &[u8], longest: f32) -> Result<(u32, Vec<f32>)> {
+    let wav = decode_with(file, bytes, Some(longest))?;
+    Ok((wav.rate, wav.frames))
+}
+
+/// `decode`, with a sample's rules (`longest` None) or those of a WAV to
+/// look at.
+fn decode_with(file: &str, bytes: &[u8], longest: Option<f32>) -> Result<Wav> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         let kind = match bytes.get(0..4) {
             Some(b"RIFX") => "a big-endian WAV (RIFX), which is not read",
@@ -237,7 +275,7 @@ pub(super) fn decode(file: &str, bytes: &[u8]) -> Result<Wav> {
         }
         let body = &bytes[body_at..body_at + size];
         match id {
-            b"fmt " => fmt = Some(format(file, body)?),
+            b"fmt " => fmt = Some(format(file, body, longest.is_some())?),
             b"data" => {
                 let Some(f) = &fmt else { bail!("{file}: its sound (data) comes before its format (fmt), which a WAV states first") };
                 let width = usize::from(f.bits / 8) * usize::from(f.channels);
@@ -246,12 +284,15 @@ pub(super) fn decode(file: &str, bytes: &[u8]) -> Result<Wav> {
                     bail!("{file}: holds no sound");
                 }
                 let seconds = count as f64 / f64::from(f.rate);
-                if seconds > f64::from(LONGEST) + 1e-9 {
-                    bail!("{file}: lasts {seconds:.2} seconds; a sample is {LONGEST} seconds at most");
+                match longest {
+                    None if seconds > f64::from(LONGEST) + 1e-9 => bail!("{file}: lasts {seconds:.2} seconds; a sample is {LONGEST} seconds at most"),
+                    Some(most) if seconds > f64::from(most) + 1e-9 => bail!("{file}: lasts {seconds:.0} seconds; a picture is of {most:.0} seconds at most"),
+                    _ => {}
                 }
                 let one = |i: usize| -> f32 {
                     match f.bits {
                         16 => f32::from(i16::from_le_bytes([body[i], body[i + 1]])) / 32_768.0,
+                        32 => f32::from_le_bytes([body[i], body[i + 1], body[i + 2], body[i + 3]]),
                         _ => (i32::from_le_bytes([0, body[i], body[i + 1], body[i + 2]]) >> 8) as f32 / 8_388_608.0,
                     }
                 };

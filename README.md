@@ -242,6 +242,15 @@ being played) reach it. The IDE's MCP button writes the game folder's
 claude mcp add voxcade -- /path/to/voxcade mcp
 ```
 
+`voxcade mcp --music` serves only the music tools, which need no game
+folder: `music_words` (the MML language and every instrument word),
+`music_check`, `music_render` (a WAV) and `music_picture` (a
+spectrogram, to look at what an agent cannot hear):
+
+```bash
+claude mcp add --scope user voxcade-music -- /path/to/voxcade mcp --music
+```
+
 ## Making what a game is made of
 
 - **Models:** Voxcade's own `.vvx`, text (layers of letters, a palette

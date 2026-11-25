@@ -174,7 +174,7 @@ pub fn main<G: Game>(default: Option<&Path>) -> Result<()> {
             Ok(())
         }
         Call::Api { filter, lua } => api(filter.as_deref(), lua.as_deref()),
-        Call::Mcp { remote } => crate::mcp::serve(remote),
+        Call::Mcp { mode } => crate::mcp::serve(mode),
         Call::Rooms { dir } => rooms::<G>(&opened(&dir)?),
         Call::Pads { seconds } => pads::pads(seconds),
         Call::Soak { seeds, digest } => soak(seeds, digest.as_deref()),
@@ -560,6 +560,19 @@ mod tests {
         // Old names say the new one.
         let said = format!("{:#}", parse(&words(&["edit", "g", "--turn", "x", "--by", "90"])).err().unwrap());
         assert_eq!(said, "--turn is called --rotate now");
+    }
+
+    /// `mcp --music` is the music tools alone: it takes neither `--remote`
+    /// nor a game folder.
+    #[test]
+    fn mcp_music_stands_alone() {
+        use crate::mcp::Mode;
+        assert!(matches!(parse(&words(&["mcp"])).unwrap(), Call::Mcp { mode: Mode::Plain }));
+        assert!(matches!(parse(&words(&["mcp", "--remote"])).unwrap(), Call::Mcp { mode: Mode::Remote }));
+        assert!(matches!(parse(&words(&["mcp", "--music"])).unwrap(), Call::Mcp { mode: Mode::Music }));
+        let both = format!("{:#}", parse(&words(&["mcp", "--music", "--remote"])).err().unwrap());
+        assert!(both.contains("--music") && both.contains("--remote"), "{both}");
+        assert!(parse(&words(&["mcp", "--music", "games/arena"])).is_err());
     }
 
     /// An option with one value given twice is refused, naming it; those

@@ -13,9 +13,12 @@
 //! a person does, `windows`, `window_shot`, `pointer`, `scroll` and `keys`
 //! (`ide::remote`): a picture of any window and synthetic mouse and
 //! keyboard input for it. A tool's game is the
-//! folder the server runs in unless named. Claude Code takes it with a
+//! folder the server runs in unless named. With `--music` only the music
+//! tools, which need no game (`mcp::music`). Claude Code takes it with a
 //! `.mcp.json` in the game folder (the IDE's MCP button writes one), or
 //! `claude mcp add voxcade -- /path/to/voxcade mcp`.
+
+mod music;
 
 use std::path::{Path, PathBuf};
 
@@ -28,9 +31,18 @@ use serde_json::{Value, json};
 /// The protocol versions it speaks, the newest first.
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// Answers requests from stdin until it closes; `remote`: with the console
-/// tools.
-pub fn serve(remote: bool) -> Result<()> {
+/// Which tools a server has: the game's and the IDE's, with `--remote` the
+/// console's and the windows' besides, or with `--music` only the music's
+/// (`mcp::music`), which need no game.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Plain,
+    Remote,
+    Music,
+}
+
+/// Answers requests from stdin until it closes.
+pub fn serve(mode: Mode) -> Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
     for line in stdin.lock().lines() {
@@ -39,7 +51,7 @@ pub fn serve(remote: bool) -> Result<()> {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(msg) => answer_as(&msg, remote),
+            Ok(msg) => answer_as(&msg, mode),
             Err(e) => Some(json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32700, "message": format!("not JSON: {e}") } })),
         };
         if let Some(reply) = reply {
@@ -51,7 +63,7 @@ pub fn serve(remote: bool) -> Result<()> {
 }
 
 /// The reply to one message (none to a notification).
-fn answer_as(msg: &Value, remote: bool) -> Option<Value> {
+fn answer_as(msg: &Value, mode: Mode) -> Option<Value> {
     let id = msg.get("id")?.clone();
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
     let result = match msg.get("method").and_then(Value::as_str).unwrap_or("") {
@@ -62,18 +74,18 @@ fn answer_as(msg: &Value, remote: bool) -> Option<Value> {
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "voxcade", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Voxcade games are folders: conf.lua (settings), main.lua (on_world_start, on_level_start, on_tick, on_draw), models and levels. \
+                "instructions": if mode == Mode::Music { music::INSTRUCTIONS } else { "Voxcade games are folders: conf.lua (settings), main.lua (on_world_start, on_level_start, on_tick, on_draw), models and levels. \
                     Look with shot, test with run and things, make sure replays still hold with check; api lists the Lua API. \
                     With the IDE open on the game (voxcade ide): view_state says what the user sees, open shows them a file and line, \
-                    play and stop run the game there, game_frame is what they see of it, errors what stops it.",
+                    play and stop run the game there, game_frame is what they see of it, errors what stops it." },
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tools(remote) })),
+        "tools/list" => Ok(json!({ "tools": if mode == Mode::Music { music::tools() } else { tools(mode == Mode::Remote) } })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            Ok(match call(name, &args, remote) {
+            Ok(match call(name, &args, mode) {
                 Ok(content) => json!({ "content": content }),
                 Err(e) => json!({ "content": [text(&e)], "isError": true }),
             })
@@ -262,13 +274,17 @@ fn arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
 }
 
 /// Runs a tool; its content, or what went wrong.
-fn call(name: &str, args: &Value, remote: bool) -> Result<Vec<Value>, String> {
-    call_with(name, args, remote, crate::ide::bridge::lock_path)
+fn call(name: &str, args: &Value, mode: Mode) -> Result<Vec<Value>, String> {
+    call_with(name, args, mode, crate::ide::bridge::lock_path)
 }
 
 /// Runs a tool, an IDE's through the lock `lock_for` gives for its game
 /// folder.
-fn call_with(name: &str, args: &Value, remote: bool, lock_for: impl Fn(&Path) -> PathBuf) -> Result<Vec<Value>, String> {
+fn call_with(name: &str, args: &Value, mode: Mode, lock_for: impl Fn(&Path) -> PathBuf) -> Result<Vec<Value>, String> {
+    if mode == Mode::Music {
+        return music::call(name, args);
+    }
+    let remote = mode == Mode::Remote;
     // The game named, else the folder the server runs in if it is one.
     let folder = || arg(args, "game").map(str::to_string).or_else(|| Path::new("conf.lua").is_file().then(|| ".".to_string()));
     let game = || folder().ok_or_else(|| "which game? (game: the game folder; this server does not run in one)".to_string());
@@ -392,7 +408,7 @@ mod tests {
 
     /// The reply to one message of a server without `--remote`.
     fn answer(msg: &Value) -> Option<Value> {
-        answer_as(msg, false)
+        answer_as(msg, Mode::Plain)
     }
 
     #[test]
@@ -427,24 +443,46 @@ mod tests {
     /// without it passes none on.
     #[test]
     fn the_console_tools_come_only_with_remote() {
-        let list = |remote| {
-            let list = answer_as(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), remote).unwrap();
+        let list = |mode| {
+            let list = answer_as(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), mode).unwrap();
             list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
         };
-        let (plain, remote) = (list(false), list(true));
+        let (plain, remote) = (list(Mode::Plain), list(Mode::Remote));
         assert!(!plain.iter().any(|n| n.starts_with("console_")), "{plain:?}");
         assert_eq!(remote[..plain.len()], plain[..], "the others as they are");
         assert_eq!(remote[plain.len()..], ["console_send", "console_read", "windows", "window_shot", "pointer", "scroll", "keys"]);
         for name in &remote[plain.len()..] {
             let never = |_: &Path| -> PathBuf { panic!("no bridge call without --remote") };
-            let no = call_with(name, &json!({ "game": "games/voxkeep" }), false, never).unwrap_err();
+            let no = call_with(name, &json!({ "game": "games/voxkeep" }), Mode::Plain, never).unwrap_err();
             assert!(no.contains(&format!("no tool {name}")), "{no}");
         }
         let never = |_: &Path| -> PathBuf { panic!("no bridge call without --remote") };
-        let no = call_with("console_send", &json!({ "game": "games/voxkeep", "text": "ls" }), false, never).unwrap_err();
+        let no = call_with("console_send", &json!({ "game": "games/voxkeep", "text": "ls" }), Mode::Plain, never).unwrap_err();
         assert!(no.contains("no tool console_send"), "{no}");
-        let said = answer_as(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "console_read", "arguments": { "game": "games/voxkeep" } } }), false).unwrap();
+        let said = answer_as(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "console_read", "arguments": { "game": "games/voxkeep" } } }), Mode::Plain).unwrap();
         assert_eq!(said["result"]["isError"], true);
+    }
+
+    /// The three lists of tools, pinned: a plain server's, `--remote`'s
+    /// (the same and the console's and windows') and `--music`'s alone.
+    #[test]
+    fn the_three_lists_of_tools_are_pinned() {
+        let list = |mode| {
+            let list = answer_as(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }), mode).unwrap();
+            list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        };
+        let plain = ["shot", "check", "run", "things", "scenarios", "api", "view_state", "open", "game_frame", "errors", "play", "stop", "eval"];
+        assert_eq!(list(Mode::Plain), plain);
+        assert_eq!(list(Mode::Remote), [&plain[..], &["console_send", "console_read", "windows", "window_shot", "pointer", "scroll", "keys"]].concat());
+        assert_eq!(list(Mode::Music), ["music_check", "music_render", "music_picture", "music_words"]);
+        // Its handshake says what it is, and no game tool answers.
+        let init = answer_as(&json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }), Mode::Music).unwrap();
+        assert!(init["result"]["instructions"].as_str().unwrap().contains("MML synth"));
+        let shot = answer_as(&json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "shot", "arguments": {} } }), Mode::Music).unwrap();
+        assert_eq!(shot["result"]["isError"], true);
+        let words = answer_as(&json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "music_words", "arguments": { "topic": "example" } } }), Mode::Music).unwrap();
+        assert!(words["result"]["content"][0]["text"].as_str().unwrap().contains("@kick"));
+        assert!(answer_as(&json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "music_words", "arguments": {} } }), Mode::Plain).unwrap()["result"]["isError"] == true);
     }
 
     /// The IDE's tools go to the IDE running on the game, through its
@@ -463,10 +501,10 @@ mod tests {
             }
         });
         let args = json!({ "game": "games/voxkeep" });
-        let seen = call_with("view_state", &args, false, |_| lock.clone()).unwrap();
+        let seen = call_with("view_state", &args, Mode::Plain, |_| lock.clone()).unwrap();
         done.store(true, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(seen[0]["text"], "main.lua open");
-        let none = call_with("view_state", &args, false, |_| std::env::temp_dir().join("voxcade-no-ide.lock")).unwrap_err();
+        let none = call_with("view_state", &args, Mode::Plain, |_| std::env::temp_dir().join("voxcade-no-ide.lock")).unwrap_err();
         assert!(none.contains("not running"), "{none}");
         ide.join().unwrap();
     }

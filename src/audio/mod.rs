@@ -10,6 +10,7 @@
 pub mod limiter;
 pub mod loudness;
 pub mod music;
+pub mod picture;
 pub mod sound;
 pub mod synth;
 pub mod words;

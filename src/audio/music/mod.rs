@@ -173,14 +173,17 @@ mod voice;
 pub mod shift;
 mod clear;
 pub mod sample;
+mod language;
 #[cfg(test)]
 mod sample_tests;
 
+pub(crate) use language::mml_language;
+pub use language::LANGUAGE;
 pub use mix::{GLIDING, Glide, LETTERS, Mix, NEXT_NOTE, NO_KNOB, SAMPLE_KNOBS, SHORTEST, Strip, letter_index, muffle_cutoff};
 pub use parse::{Laid, has_channels, lay, note_hz, note_name, parse, read};
 pub use player::{Digests, Followed, Player, Swap};
 pub use sample::Samples;
-pub use song::{FilterMode, Instrument, Sampled, Song, Timing};
+pub use song::{FilterMode, Instrument, SUM_WORDS, Sampled, Song, Timing};
 pub use voice::phonemes;
 
 use super::synth::{SAMPLE_RATE, Wave};

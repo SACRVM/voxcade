@@ -914,6 +914,10 @@ fn build(head: Head, channels: Vec<(char, Vec<(char, usize)>)>, laid: bool) -> R
     // Where the song ends exactly, a fraction of a sample too.
     let mut ends = 1.0f64;
     let voices: Vec<Option<Voicing>> = instruments.iter().map(|i: &Instrument| i.voice).collect();
+    let mut instrument_names = vec![String::new(); instruments.len()];
+    for (name, &at) in &names {
+        instrument_names[at] = name.clone();
+    }
     let letters: Vec<char> = channels.iter().map(|(c, _)| *c).collect();
     // The first laid channel's length, exactly, and its letter.
     let mut filled: Option<(char, Beats)> = None;
@@ -976,7 +980,7 @@ fn build(head: Head, channels: Vec<(char, Vec<(char, usize)>)>, laid: bool) -> R
         let end = if to.is_some() || from > 1 { last - LOOP_SLACK } else { last };
         span = (end - (last - line(from)), end);
     }
-    Ok(Song { title, tempo, meter, layers, names: letters, instruments, channels, segments, clear, length, looping, round, span, bars, sources: Vec::new(), laid: None })
+    Ok(Song { title, tempo, meter, layers, names: letters, instrument_names, instruments, channels, segments, clear, length, looping, round, span, bars, sources: Vec::new(), laid: None })
 }
 
 /// `n` bars in words.

@@ -152,7 +152,7 @@ pub(super) enum Call {
     Music { first: PathBuf, out: PathBuf, seconds: Option<f32> },
     Kinds { dir: PathBuf },
     Api { filter: Option<String>, lua: Option<PathBuf> },
-    Mcp { remote: bool },
+    Mcp { mode: crate::mcp::Mode },
     Rooms { dir: PathBuf },
     Pads { seconds: f32 },
     Soak { seeds: u64, digest: Option<PathBuf> },
@@ -322,14 +322,19 @@ pub(super) fn parse(args: &[String]) -> Result<Call> {
         }
         "mcp" => {
             let mut f = Flags::new("mcp", tail(args, 1));
-            let mut remote = false;
+            let (mut remote, mut music) = (false, false);
             while let Some((flag, _)) = f.next()? {
                 match flag {
                     "--remote" => remote = true,
+                    "--music" => music = true,
                     other => bail!("unknown option {other}"),
                 }
             }
-            Call::Mcp { remote }
+            if music && remote {
+                bail!("--music serves the music tools alone, and --remote the IDE's: they do not go together");
+            }
+            let mode = if music { crate::mcp::Mode::Music } else if remote { crate::mcp::Mode::Remote } else { crate::mcp::Mode::Plain };
+            Call::Mcp { mode }
         }
         "pads" => {
             let mut f = Flags::new("pads", tail(args, 1));

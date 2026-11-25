@@ -424,7 +424,10 @@ pub(super) const COMMANDS: &[Command] = &[
         line: "serve the engine's tools to an agent over MCP",
         making: false,
         text: "serves the engine's tools to an agent over MCP on stdin/stdout: shot (a frame as an image), check, run, things, scenarios, api, and the IDE's tools passed on to the IDE running on the game. Claude Code: claude mcp add voxcade -- /path/to/voxcade mcp",
-        opts: &[trial("--remote", "", "console_send and console_read (type into the IDE's console and read it) and windows, window_shot, pointer, scroll, keys (pictures of the IDE's windows, a synthetic mouse and keyboard), for a session testing the IDE (run the IDE with --remote too; never in the game's own .mcp.json)")],
+        opts: &[
+            opt("--music", "", "only the music tools, which need no game folder: music_words (the MML language and its instruments), music_check, music_render (a WAV) and music_picture (a spectrogram, to look at what you cannot hear); Claude Code: claude mcp add --scope user voxcade-music -- /path/to/voxcade mcp --music"),
+            trial("--remote", "", "console_send and console_read (type into the IDE's console and read it) and windows, window_shot, pointer, scroll, keys (pictures of the IDE's windows, a synthetic mouse and keyboard), for a session testing the IDE (run the IDE with --remote too; never in the game's own .mcp.json)"),
+        ],
     },
     Command {
         name: "rooms",

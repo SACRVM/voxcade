@@ -1744,16 +1744,26 @@ pub fn music<G: Game>(dir: &Path, out: &Path, seconds: Option<f32>) -> Result<()
     song(&dir.join(&file), Some((game.cfg.audio.music_volume, game.cfg.audio.drive, game.cfg.audio.ceiling)), &game.samples, out, seconds)
 }
 
-/// The samples a song file played alone finds: the `samples/` folder
-/// beside the `music/` folder it lies in (a game's), else the one beside
-/// the file itself; none where neither is there.
-pub fn samples_beside(file: &Path) -> Result<crate::audio::music::Samples> {
+/// The folder of recordings a song file played alone finds: the `samples/`
+/// folder beside the `music/` folder it lies in (a game's), else the one
+/// beside the file itself; none where neither is there.
+pub fn samples_folder_beside(file: &Path) -> Option<PathBuf> {
     let folder = file.parent().unwrap_or(Path::new(""));
     let game = folder.parent().filter(|_| folder.file_name().is_some_and(|n| n == "music"));
-    let found = game.into_iter().chain([folder]).find(|d| d.join(crate::audio::music::sample::FOLDER).is_dir());
-    match found {
+    game.into_iter().chain([folder]).find(|d| d.join(crate::audio::music::sample::FOLDER).is_dir()).map(Path::to_path_buf)
+}
+
+/// The recordings in a folder's `samples/`, read.
+pub fn samples_in(dir: &Path) -> Result<crate::audio::music::Samples> {
+    crate::audio::music::Samples::read_folder(&crate::files::Files::folder(dir))
+}
+
+/// The samples a song file played alone finds (`samples_folder_beside`),
+/// said on stdout where there are some.
+pub fn samples_beside(file: &Path) -> Result<crate::audio::music::Samples> {
+    match samples_folder_beside(file) {
         Some(dir) => {
-            let samples = crate::audio::music::Samples::read_folder(&crate::files::Files::folder(dir))?;
+            let samples = samples_in(&dir)?;
             if samples.names().next().is_some() {
                 println!("its samples from {}", dir.join(crate::audio::music::sample::FOLDER).display());
             }
@@ -1774,31 +1784,66 @@ fn song_name(title: &str, file: &Path) -> String {
     if title.trim().is_empty() { file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned()) } else { title.to_string() }
 }
 
-/// Writes one song file as a stereo WAV, at a game's music volume, drive
-/// and ceiling (the engine's defaults without a game, said so), its
-/// instruments of the wave `sample` playing `samples`.
-pub fn song(file: &Path, game: Option<(f32, f32, f32)>, samples: &crate::audio::music::Samples, out: &Path, seconds: Option<f32>) -> Result<()> {
+/// A song's text read, its recordings found among `samples`; `name` is what
+/// a mistake calls the text.
+pub fn read_song(text: &str, name: &str, samples: &crate::audio::music::Samples) -> Result<crate::audio::music::Song> {
+    if !crate::audio::music::has_channels(text) {
+        bail!("{name} is a file of instruments, no song: it plays only the channels a game lays over it (music:play's channels), so there is nothing to write without the game");
+    }
+    let mut song = crate::audio::music::parse(text).with_context(|| format!("in {name}"))?;
+    song.bind(samples).with_context(|| format!("in {name}"))?;
+    Ok(song)
+}
+
+/// The warning for channels of unequal length (the short ones fall silent
+/// before the song starts over), if the song has them.
+pub fn unequal_channels(song: &crate::audio::music::Song) -> Option<String> {
+    let length = song.length as f32 / crate::audio::SAMPLE_RATE as f32;
+    let lengths = song.channel_lengths();
+    lengths.iter().any(|&(_, l)| (l - length).abs() > 0.01).then(|| {
+        let list: Vec<String> = lengths.iter().map(|(c, l)| format!("{c} {l:.2}s")).collect();
+        format!("warning: channels differ in length: {}", list.join(", "))
+    })
+}
+
+/// A song rendered: what `voxcade music` writes and what it says.
+pub struct Rendered {
+    /// The song's name (its `#title`, else the file's).
+    pub title: String,
+    /// The song's own length in seconds, and what was rendered (a `#loop`
+    /// song written round into its first bars again is longer).
+    pub length: f32,
+    pub seconds: f32,
+    /// The loudest sample before the limiter.
+    pub peak: f32,
+    /// What the limiter did and how loud the result is.
+    pub limiting: String,
+    /// What the render has to say before it wrote anything: channels of
+    /// unequal length, the engine's defaults, the loop's seam.
+    pub notes: Vec<String>,
+    /// The stereo samples, through the limiter.
+    pub samples: Vec<f32>,
+}
+
+/// A song's text rendered to stereo at a game's music volume, drive and
+/// ceiling (the engine's defaults without a game, said so), its
+/// instruments of the wave `sample` playing `samples`; `name` is what a
+/// mistake calls the text. Prints nothing: `song` does, and `mcp --music`
+/// answers with it.
+pub fn render_song(text: &str, name: &str, game: Option<(f32, f32, f32)>, samples: &crate::audio::music::Samples, seconds: Option<f32>) -> Result<Rendered> {
     use crate::audio::SAMPLE_RATE;
 
-    let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
-    if !crate::audio::music::has_channels(&text) {
-        anyhow::bail!("{} is a file of instruments, no song: it plays only the channels a game lays over it (music:play's channels), so there is nothing to write without the game", file.display());
-    }
-    let mut song = crate::audio::music::parse(&text).with_context(|| format!("in {}", file.display()))?;
-    song.bind(samples).with_context(|| format!("in {}", file.display()))?;
+    let song = read_song(text, name, samples)?;
     let length = song.length as f32 / SAMPLE_RATE as f32;
-    let title = song_name(&song.title, file);
-    let lengths = song.channel_lengths();
-    if lengths.iter().any(|&(_, l)| (l - length).abs() > 0.01) {
-        let list: Vec<String> = lengths.iter().map(|(c, l)| format!("{c} {l:.2}s")).collect();
-        println!("warning: channels differ in length: {}", list.join(", "));
-    }
+    let title = song_name(&song.title, Path::new(name));
+    let mut notes = Vec::new();
+    notes.extend(unequal_channels(&song));
     let defaults = crate::config::AudioConfig::default();
     if game.is_none() {
-        println!(
+        notes.push(format!(
             "a song alone: at the engine's music volume {}, drive {} dB and ceiling {} dBTP, not a game's (a game plays it with its c.audio.music_volume, drive and ceiling, often louder and limited)",
             defaults.music_volume, defaults.drive, defaults.ceiling
-        );
+        ));
     }
     let (volume, drive, ceiling) = game.unwrap_or((defaults.music_volume, defaults.drive, defaults.ceiling));
     // A song with `#loop`: written to its loop's end and round into its
@@ -1806,17 +1851,25 @@ pub fn song(file: &Path, game: Option<(f32, f32, f32)>, samples: &crate::audio::
     if let (Some((from, to)), Some((start, end)), None) = (song.round, song.round_seconds(), seconds) {
         let again = (to.unwrap_or(song.bars) + 1 - from).min(4);
         let to = to.map_or_else(|| "the song's end".to_string(), |to| format!("bar {to}"));
-        println!("the loop: bar {from} ({}) to {to} ({}); written to there and round again into its first {again} bar{}: the seam at {}", clock(start), clock(end), if again == 1 { "" } else { "s" }, clock(end));
+        notes.push(format!("the loop: bar {from} ({}) to {to} ({}); written to there and round again into its first {again} bar{}: the seam at {}", clock(start), clock(end), if again == 1 { "" } else { "s" }, clock(end)));
     }
-    let samples = crate::audio::music::Player::new(song, volume).render(seconds);
-    let (limited, said) = limit(&samples, 2, drive, ceiling);
-    write_wav(out, &limited, 2)?;
-    let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-    println!(
-        "wrote {} ({:.1}s; '{title}' is {length:.1}s long, peak {peak:.2}; {said})",
-        out.display(),
-        samples.len() as f32 / 2.0 / SAMPLE_RATE as f32
-    );
+    let raw = crate::audio::music::Player::new(song, volume).render(seconds);
+    let (limited, limiting) = limit(&raw, 2, drive, ceiling);
+    let peak = raw.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    Ok(Rendered { title, length, seconds: raw.len() as f32 / 2.0 / SAMPLE_RATE as f32, peak, limiting, notes, samples: limited })
+}
+
+/// Writes one song file as a stereo WAV, at a game's music volume, drive
+/// and ceiling (the engine's defaults without a game, said so), its
+/// instruments of the wave `sample` playing `samples`.
+pub fn song(file: &Path, game: Option<(f32, f32, f32)>, samples: &crate::audio::music::Samples, out: &Path, seconds: Option<f32>) -> Result<()> {
+    let text = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+    let done = render_song(&text, &file.display().to_string(), game, samples, seconds)?;
+    for note in &done.notes {
+        println!("{note}");
+    }
+    write_wav(out, &done.samples, 2)?;
+    println!("wrote {} ({:.1}s; '{}' is {:.1}s long, peak {:.2}; {})", out.display(), done.seconds, done.title, done.length, done.peak, done.limiting);
     Ok(())
 }
 

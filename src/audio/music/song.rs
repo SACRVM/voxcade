@@ -263,6 +263,9 @@ pub struct Song {
     pub(super) layers: Vec<f32>,
     /// Channel letters in the order they first appear.
     pub names: Vec<char>,
+    /// Each instrument's name, by its index (empty where a later `@` of the
+    /// same name took it over).
+    pub(super) instrument_names: Vec<String>,
     pub(super) instruments: Vec<Instrument>,
     pub(super) channels: Vec<Vec<Note>>,
     /// What the voices' notes sing, each note a range of it: `voice`'s
@@ -393,6 +396,24 @@ impl Song {
             }
         }
         Ok(())
+    }
+
+    /// The instruments by name, with what each plays: its wave (or
+    /// `voice`, `singer`, `sample`), how many layers it has and how many
+    /// oscillators its line plays together.
+    pub fn instrument_list(&self) -> Vec<(&str, &'static str, usize, u32)> {
+        let wave = |i: &Instrument| match (i.voice, &i.sample) {
+            (Some(Voicing::Formants), _) => "voice",
+            (Some(Voicing::Clear), _) => super::clear::WAVE,
+            (None, Some(_)) => "sample",
+            (None, None) => i.wave.name(),
+        };
+        self.instrument_names.iter().zip(&self.instruments).filter(|(n, _)| !n.is_empty()).map(|(n, i)| (n.as_str(), wave(i), i.layers.len() + 1, i.unison)).collect()
+    }
+
+    /// How many notes (rests not counted) each channel plays.
+    pub fn note_counts(&self) -> Vec<(char, usize)> {
+        self.names.iter().zip(&self.channels).map(|(&name, notes)| (name, notes.iter().filter(|n| n.freq.is_some()).count())).collect()
     }
 
     /// How long each channel is, in seconds (they should match, or the
