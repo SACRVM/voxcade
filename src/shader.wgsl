@@ -25,7 +25,9 @@ struct Globals {
     // (0 smooth, 1 voxel, 2 voxel with half shadow), z: seconds, w: how
     // bright the streak sweeping over metal is
     misc: vec4<f32>,
-    // rgb: the sky metal mirrors, overhead and at the horizon
+    // rgb: the sky metal mirrors, overhead and at the horizon; reflection's
+    // w: 1 where up is +y and the eye looks along -z (the models drawn
+    // whole on the HUD, `upright`), else z is up
     reflection: vec4<f32>,
     horizon: vec4<f32>,
     // rgb: the models' outline colour, w: how many voxels thick (0: none)
@@ -667,10 +669,15 @@ fn flare_light(world: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     return sum;
 }
 
+// Whether up is +y here (the HUD's models: z comes towards the eye), not z.
+fn upright() -> bool {
+    return g.reflection.w > 0.5;
+}
+
 // What a mirror shows the way `r` points: the sky - a bright band low
 // over the horizon, deeper overhead - and the ground below the horizon.
 fn mirrored(r: vec3<f32>) -> vec3<f32> {
-    let up = r.z;
+    let up = select(r.z, r.y, upright());
     var sky = mix(g.horizon.rgb, g.reflection.rgb, smoothstep(0.05, 0.95, up));
     // A bright band where the sky meets the haze, about 40 degrees up:
     // flat plates seen from the game's camera mirror right through it.
@@ -829,7 +836,10 @@ fn shade(in: VOut, lights: bool) -> Shaded {
         let cosv = max(dot(n, v), 0.0);
         let reflectance = in.color + (vec3<f32>(1.0) - in.color) * pow(1.0 - cosv, 5.0);
         let gloss = in.metal.y;
-        let away = normalize(vec3<f32>(-to_sun.x, -to_sun.y, 0.0) * 0.77 + vec3<f32>(0.0, 0.0, 0.64));
+        var away = normalize(vec3<f32>(-to_sun.x, -to_sun.y, 0.0) * 0.77 + vec3<f32>(0.0, 0.0, 0.64));
+        if (upright()) {
+            away = normalize(vec3<f32>(-to_sun.x, 0.0, -to_sun.z) * 0.77 + vec3<f32>(0.0, 0.64, 0.0));
+        }
         let sheen = pow(max(dot(r, away), 0.0), mix(3.0, 18.0, gloss)) * mix(0.25, 0.6, gloss);
         let power = mix(6.0, 160.0, gloss * gloss);
         let h = normalize(to_sun + v);
@@ -841,7 +851,11 @@ fn shade(in: VOut, lights: bool) -> Shaded {
         color = mix(color, metal, m) + highlight * m * g.sun_color.rgb;
         // The sweep: a narrow streak running diagonally over the ground
         // plane every few seconds, brighter on smoother metal.
-        let along = dot(in.world.xy, vec2<f32>(0.8, -0.6)) + in.world.z * 0.5 - g.misc.z * 110.0;
+        // (Upright, the HUD's x, y and z are the scene's x, z and -y.)
+        var along = dot(in.world.xy, vec2<f32>(0.8, -0.6)) + in.world.z * 0.5 - g.misc.z * 110.0;
+        if (upright()) {
+            along = dot(in.world.xz, vec2<f32>(0.8, 0.6)) + in.world.y * 0.5 - g.misc.z * 110.0;
+        }
         let period = 480.0;
         let p = along - period * floor(along / period) - period * 0.5;
         let streak = exp(-(p * p) / 40.0) + 0.35 * exp(-((p + 9.0) * (p + 9.0)) / 10.0);

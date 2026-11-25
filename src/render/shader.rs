@@ -55,7 +55,8 @@ pub(super) struct Globals {
     pub(super) eye: [f32; 4],
     pub(super) haze: [f32; 4],
     pub(super) misc: [f32; 4],
-    /// rgb: the sky metal mirrors, overhead and at the horizon.
+    /// rgb: the sky metal mirrors, overhead and at the horizon;
+    /// `reflection`'s w 1 where up is +y (the HUD's models drawn whole).
     pub(super) reflection: [f32; 4],
     pub(super) horizon: [f32; 4],
     /// rgb: the models' outline colour, w: how many voxels thick (0: none).

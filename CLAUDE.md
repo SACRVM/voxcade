@@ -1801,13 +1801,19 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   11, 10, 8 and 8 pixels left, right, top and bottom at width 1, 6 said;
   now 6 all round), at the far end of the depth (`OWN_OUTLINE_DEPTH`:
   pushed back only `OUTLINE_BEHIND`, a chest's opened lid lay behind the
-  chest's line and was covered whole). Tests
+  chest's line and was covered whole). Their metal mirrors as the scene's
+  (`hud_globals` take `c.light`'s `reflection`, `reflection_horizon` and
+  `metal_sweep`, the time, `c.effects.haze_color` as the ground, no haze
+  laid on; `reflection.w` 1, the shader's `upright`: up is the HUD's +y,
+  not z, which looks at the eye: every face turned to you mirrored one
+  flat sky), the HUD's own sun glinting. Tests
   `a_whole_model_faces_you_where_the_flat_one_lies`,
   `a_whole_model_turns_and_poses`, `no_whole_model_under_a_menu_or_a_mistake`,
   `a_whole_model_lies_over_the_flat_hud`, `an_outline_rounds_one_hud_model_alone`,
   `an_own_outline_is_as_wide_on_every_side_anywhere`,
   `what_is_drawn_before_a_whole_model_lies_over_it`,
-  `only_what_is_drawn_before_a_whole_model_lies_apart`.
+  `only_what_is_drawn_before_a_whole_model_lies_apart`,
+  `metal_on_a_whole_hud_model_reads_as_metal`.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,

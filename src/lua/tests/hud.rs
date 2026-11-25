@@ -497,3 +497,50 @@ fn an_own_outline_is_as_wide_on_every_side_anywhere() {
     }
     assert!(uneven.is_empty(), "{uneven:#?}");
 }
+
+/// On the GPU: metal on a model drawn whole reads as metal. It mirrors the
+/// game's sky by each face's way, up the HUD's +y (it mirrored z, towards
+/// the eye, as up: one flat sky color on every face turned to you), so its
+/// faces differ clearly and it changes as it turns; the sky is the game's
+/// (`c.light.reflection`). A model of the same color without metal is
+/// drawn the same whatever that sky.
+#[test]
+fn metal_on_a_whole_hud_model_reads_as_metal() {
+    let (w, h) = (1280, 720);
+    let mut canvas = crate::headless::Canvas::new(w, h, false).expect("a GPU");
+    let cube = |color: &str| format!("format = \"voxcade voxel 1\"\nsize = [6, 6, 6]\n\n[palette]\nk = {color}\n\n[[frame]]\nlayers = \"\"\"\nkkkkkk\nkkkkkk\nkkkkkk\nkkkkkk\nkkkkkk\nkkkkkk\n*6\n\"\"\"\n");
+    // The metal cube from 100, 60, the plain one from 200, 60: 4 pixels a
+    // UI voxel, each within 60 pixels round its middle.
+    let mut picture = |rotation: u32, sky: &str| {
+        let dir = drawing(
+            "hud-metal",
+            &format!("frame:draw(\"metal.vvx\", 100, 60, {{ rotation = {{ rotation = {rotation}, pitch = 20 }} }})\n  frame:draw(\"plain.vvx\", 200, 60, {{ rotation = {{ rotation = {rotation}, pitch = 20 }} }})"),
+        );
+        std::fs::write(dir.join("metal.vvx"), cube("{ color = \"#e6eaec\", metal = 1.0, rough = 0.3 }")).unwrap();
+        std::fs::write(dir.join("plain.vvx"), cube("\"#e6eaec\"")).unwrap();
+        let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
+        std::fs::write(dir.join("conf.lua"), conf.replacen("function conf(c)", &format!("function conf(c)\n  c.light.reflection = {sky}"), 1)).unwrap();
+        let g = game_in(&dir);
+        let f = g.compose(0.0, w as f32 / h as f32, Scene::Play, None);
+        assert_eq!(halted(&g), "");
+        canvas.draw(&f).expect("the picture drawn")
+    };
+    let region = |p: &[u8], x0: u32| -> Vec<[u8; 3]> {
+        (63 * 4 - 60..63 * 4 + 60).flat_map(|y| (x0 * 4 - 60..x0 * 4 + 60).map(move |x| (x, y))).map(|(x, y)| {
+            let i = ((y * w + x) * 4) as usize;
+            [p[i], p[i + 1], p[i + 2]]
+        }).collect()
+    };
+    let (metal, plain) = (103, 203);
+    let blue_sky = picture(30, "{ 122, 142, 178 }");
+    let shown = region(&blue_sky, metal);
+    // Its own pixels: not the level behind it, which its region's corner shows.
+    let cube: Vec<[u8; 3]> = shown.iter().copied().filter(|&p| p != shown[0]).collect();
+    let spread = (0..3).map(|c| cube.iter().map(|p| p[c]).max().unwrap() as i32 - cube.iter().map(|p| p[c]).min().unwrap() as i32).max().unwrap();
+    let tones: std::collections::BTreeSet<[u8; 3]> = cube.iter().map(|p| p.map(|v| v / 32)).collect();
+    assert!(cube.len() > 1000 && spread > 80 && tones.len() >= 3, "its faces differ: {} pixels, {spread} apart, {} tones", cube.len(), tones.len());
+    assert!(region(&picture(60, "{ 122, 142, 178 }"), metal) != shown, "it changes as it turns");
+    let red_sky = picture(30, "{ 255, 0, 0 }");
+    assert!(region(&red_sky, metal) != shown, "the game's sky in it");
+    assert!(region(&red_sky, plain) == region(&blue_sky, plain), "the plain one as it was");
+}

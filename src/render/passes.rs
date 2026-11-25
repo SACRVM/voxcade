@@ -218,9 +218,20 @@ impl Renderer {
             lights: [LightData::zeroed(); FORWARD_LIGHTS],
         };
         queue.write_buffer(&self.ui_globals, 0, bytemuck::bytes_of(&ui_globals));
-        // The models drawn whole on the HUD: the UI's, from its real eye.
+        // The models drawn whole on the HUD: the UI's, from its real eye;
+        // their metal mirrors the game's sky and ground (`c.light`'s
+        // reflection, `c.effects.haze_color`, no haze laid over them) with
+        // up +y, the sweep passing over it as in the scene.
         if !frame.hud_models.is_empty() {
-            let hud = Globals { eye: frame.hud_eye.extend(0.0).to_array(), ..ui_globals };
+            let [r, g, b] = frame.reflection;
+            let hud = Globals {
+                eye: frame.hud_eye.extend(0.0).to_array(),
+                haze: [hr, hg, hb, 0.0],
+                misc: [1.0, 0.0, frame.time, frame.metal_sweep],
+                reflection: [r, g, b, 1.0],
+                horizon: [frame.reflection_horizon[0], frame.reflection_horizon[1], frame.reflection_horizon[2], 0.0],
+                ..ui_globals
+            };
             queue.write_buffer(&self.hud_globals, 0, bytemuck::bytes_of(&hud));
         }
         let composite = PostParams { params: [frame.glow, frame.tilt_shift, frame.screen_flash, 0.0], step: frame.fade };

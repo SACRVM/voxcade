@@ -957,7 +957,8 @@ pub const API: &[Item] = &[
             turns, degrees clockwise seen from above (0 its front, +y, 90 its left side, 180 its back, 270 its right side), seen flat: \
             2 voxels deep, as a grid's slot shows it (frame:grid). A table ({ rotation =, pitch =, roll = }, as frame:model's) draws \
             the model whole, as deep as it is, turned at any angle about its middle, lit by the HUD's own light; {} faces you \
-            unturned where the flat picture lies.\n- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.\n- \
+            unturned where the flat picture lies. Its metal mirrors the game's sky (c.light.reflection, reflection_horizon) and \
+            ground (c.effects.haze_color) by each face's way and glints in the HUD's light; c.light.metal_sweep runs over it.\n- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.\n- \
             outline: a line round this model alone, { width = 1, color = \"#101010\" }: width 1 to 8 HUD voxels, color \
             c.effects.outline_color unless given, no fourth value. It rings the model where nothing else is: the model drawn whole.\n\
             What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what \
