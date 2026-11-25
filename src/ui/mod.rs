@@ -81,7 +81,7 @@ pub fn eye(layout: &Layout, slant: f32, front: f32) -> Vec3 {
 }
 
 pub fn voxel(out: &mut Vec<Instance>, x: f32, y: f32, z: f32, color: [u8; 4]) {
-    out.push(Instance { pos_size: [x + 0.5, y + 0.5, z + 0.5, 1.0], color, fx: [0, 255, 0, 0], shade: [0; 4], turn: [0; 4] });
+    out.push(Instance { pos_size: [x + 0.5, y + 0.5, z + 0.5, 1.0], color, fx: [0, color[3], 0, 0], shade: [0; 4], turn: [0; 4] });
 }
 
 
