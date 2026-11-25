@@ -1759,15 +1759,21 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   (`FrameData::hud_eye`, `hud_globals`: `ui_globals` unchanged, so the
   logo and HUD pictures stay); `FrameData::hud_models`, none under a menu
   or a mistake (`Session::ui_of`). Its `outline = { width, color }` is
-  `ModelDraw::outline`, the shader's `Actor.outline` (`select`ed over
-  `g.outline` where its w is above 0; the scene's draws carry none), drawn
-  by the outline pipelines over the HUD models that have one
-  (`ModelPass::own_outline`) at the far end of the depth
-  (`OWN_OUTLINE_DEPTH`: pushed back only `OUTLINE_BEHIND`, a chest's
-  opened lid lay behind the chest's line and was covered whole). Tests
+  `ModelDraw::outline`, the shader's `Actor.outline` (a draw whose w is
+  above 0 takes `own_outline_corner`, the scene's draws, which carry none,
+  the outline as ever), drawn by the outline pipelines over the HUD
+  models that have one (`ModelPass::own_outline`): each voxel grown by
+  the width across the HUD only, its x and y, never towards the eye (grown
+  in depth too, the UI's one-point perspective magnified the near part
+  and slid it away from the vanishing point: near a corner the ring was
+  11, 10, 8 and 8 pixels left, right, top and bottom at width 1, 6 said;
+  now 6 all round), at the far end of the depth (`OWN_OUTLINE_DEPTH`:
+  pushed back only `OUTLINE_BEHIND`, a chest's opened lid lay behind the
+  chest's line and was covered whole). Tests
   `a_whole_model_faces_you_where_the_flat_one_lies`,
   `a_whole_model_turns_and_poses`, `no_whole_model_under_a_menu_or_a_mistake`,
-  `a_whole_model_lies_over_the_flat_hud`, `an_outline_rounds_one_hud_model_alone`.
+  `a_whole_model_lies_over_the_flat_hud`, `an_outline_rounds_one_hud_model_alone`,
+  `an_own_outline_is_as_wide_on_every_side_anywhere`.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,

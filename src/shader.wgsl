@@ -305,23 +305,36 @@ fn vs_face_outline(
 // A corner of the outline's grown cube about a model's voxel at `local`
 // (`size` voxels big): `pos` the unit cube's corner, `normal` its face's.
 fn outline_corner(local: vec3<f32>, pos: vec3<f32>, normal: vec3<f32>, size: f32) -> VOut {
-    let line = select(g.outline, actor.outline, actor.outline.w > 0.0);
-    let grown = size + 2.0 * line.w;
-    let flat = vec4<f32>(line.rgb, 1.0);
     var fx = vec4<f32>(0.0);
     fx[FX_OPACITY] = 1.0;
+    if (actor.outline.w > 0.0) {
+        return own_outline_corner(local, pos * size, normal, fx);
+    }
+    let grown = size + 2.0 * g.outline.w;
+    let flat = vec4<f32>(g.outline.rgb, 1.0);
     var out = cube_at(model_corner(local, pos * grown), normal, normal, model_centre(local), flat, fx, vec4<f32>(0.0), actor.rot);
     out.world += normalize(out.world - g.eye.xyz) * OUTLINE_BEHIND;
     out.clip = g.view_proj * vec4<f32>(out.world, 1.0);
-    // A line round this draw alone (a model drawn whole on the HUD): at the
-    // far end of the depth, so it shows only where nothing else is, its
-    // silhouette's ring. Pushed back only so far, a part standing behind
-    // another (a chest's lid opened) lay behind the other's line and was
-    // covered by it whole: seen from below, a grown cube's top is a deep
-    // plane.
-    if (actor.outline.w > 0.0) {
-        out.clip.z = out.clip.w * OWN_OUTLINE_DEPTH;
-    }
+    return out;
+}
+
+// A line round this draw alone (a model drawn whole on the HUD,
+// render::ModelDraw::outline): the voxel's cube, `off` its corner from its
+// middle, grown by the line's width across the HUD only (its x and y, the
+// way the corner lies from the middle), not towards the eye: grown in
+// depth too, its part nearer the eye was magnified and slid away from the
+// vanishing point, and away from the screen's middle the ring was nearly
+// twice as wide as said, wider still on the side away from the middle.
+// At the far end of the depth, so it shows only where nothing else is, the
+// silhouette's ring: pushed back only so far, a part standing behind
+// another (a chest's lid opened) lay behind the other's line and was
+// covered by it whole.
+fn own_outline_corner(local: vec3<f32>, off: vec3<f32>, normal: vec3<f32>, fx: vec4<f32>) -> VOut {
+    let line = actor.outline;
+    let away = rotate(actor.rot, off);
+    let across = vec3<f32>(select(-line.w, line.w, away.x >= 0.0), select(-line.w, line.w, away.y >= 0.0), 0.0);
+    var out = cube_at(model_corner(local, off) + across, normal, normal, model_centre(local), vec4<f32>(line.rgb, 1.0), fx, vec4<f32>(0.0), actor.rot);
+    out.clip.z = out.clip.w * OWN_OUTLINE_DEPTH;
     return out;
 }
 
