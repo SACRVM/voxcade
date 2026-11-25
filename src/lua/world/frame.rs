@@ -323,12 +323,12 @@ impl UserData for Frame {
         });
         m.add_method_mut("draw", |_, o, (file, x, y, options): (String, f32, f32, Option<Given>)| {
             const WHAT: &str = "frame:draw";
-            let (mut frame, mut quarters) = (0, 0);
+            let (mut frame, mut quarters, mut opacity) = (0, 0, 1.0);
             // A rotation given as a table, a pose or an outline: the model
             // whole.
             let (mut turn, mut pose, mut outline) = (None, None, None);
             if let Some(t) = &options {
-                super::menus::known_keys(t, &["frame", "rotation", "pose", "outline"], WHAT)?;
+                super::menus::known_keys(t, &["frame", "rotation", "pose", "outline", "opacity"], WHAT)?;
                 let whole = |v: Value, key: &str| -> mlua::Result<Option<f64>> {
                     match v {
                         Value::Nil => Ok(None),
@@ -357,6 +357,14 @@ impl UserData for Frame {
                         }
                     }
                 }
+                opacity = match t.raw_get::<Value>("opacity")? {
+                    Value::Nil => 1.0,
+                    Value::Integer(n) if (0..=1).contains(&n) => n as f32,
+                    Value::Number(n) if (0.0..=1.0).contains(&n) => n as f32,
+                    Value::Integer(n) => return Err(mlua::Error::runtime(format!("{WHAT}: opacity = {n}: from 0 (unseen) to 1 (whole)"))),
+                    Value::Number(n) => return Err(mlua::Error::runtime(format!("{WHAT}: opacity = {n}: from 0 (unseen) to 1 (whole)"))),
+                    _ => return Err(mlua::Error::runtime(format!("{WHAT}: opacity is a number from 0 (unseen) to 1 (whole)"))),
+                };
                 frame = match whole(t.raw_get("frame")?, "frame")? {
                     Some(n) if n >= 0.0 => n as usize,
                     Some(n) => return Err(mlua::Error::runtime(format!("{WHAT}: frame = {n}: its frames count from 0"))),
@@ -375,12 +383,12 @@ impl UserData for Frame {
                     Some(p) => pose_of(p, &file, Some(&parts).filter(|p| !p.is_empty()), WHAT)?,
                     None => Vec::new(),
                 };
-                o.cmds.push(Cmd::Whole { file, frame, x, y, turn: turn.unwrap_or_default(), pose, outline });
+                o.cmds.push(Cmd::Whole { file, frame, x, y, turn: turn.unwrap_or_default(), pose, outline, opacity });
                 return Ok(());
             }
             // One voxel of the model one of the HUD's.
             let thumb = super::menus::front(&model, frame, quarters, 1);
-            o.cmds.push(Cmd::Draw { thumb: Arc::new(thumb), x, y });
+            o.cmds.push(Cmd::Draw { thumb: Arc::new(thumb), x, y, opacity });
             Ok(())
         });
         m.add_method_mut("hud", |_, o, (name, x, y, width, height): (String, f32, f32, f32, f32)| {

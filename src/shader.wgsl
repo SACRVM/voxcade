@@ -135,7 +135,8 @@ struct Actor {
     // x: how many steps nearer the eye its depth is taken (a posed
     // figure's part, render::ModelDraw::nearer); y: how much every voxel
     // glows in place of its own (a part posed with a glow,
-    // render::ModelDraw::glow; below 0: its own)
+    // render::ModelDraw::glow; below 0: its own); z: how opaque it is drawn
+    // (render::ModelDraw::opacity, 1 but on the HUD), its outline too
     extra: vec4<f32>,
     // Turned freely after the quarter turns (0 0 0 1: not at all), then
     // shifted by pivot.xyz (render::turned_centre); pivot.w 1: off the grid.
@@ -215,6 +216,9 @@ fn model_shade(way: vec3<f32>) -> vec3<f32> {
 // A corner of a model's face as the draw places it.
 fn model_out(face: VOut) -> VOut {
     var out = face;
+    // Faded (a model on the HUD fading in): the alpha its faces write; the
+    // nearest face wins, so it fades as one picture.
+    out.fx.y *= actor.extra.z;
     // Off the grid (a part shifted, if not turned): its shadow asks at the
     // voxel's middle.
     out.centre.w = max(out.centre.w, actor.pivot.w);
@@ -308,7 +312,7 @@ fn vs_face_outline(
 // (`size` voxels big): `pos` the unit cube's corner, `normal` its face's.
 fn outline_corner(local: vec3<f32>, pos: vec3<f32>, normal: vec3<f32>, size: f32) -> VOut {
     var fx = vec4<f32>(0.0);
-    fx[FX_OPACITY] = 1.0;
+    fx[FX_OPACITY] = actor.extra.z;
     if (actor.outline.w > 0.0) {
         return own_outline_corner(local, pos * size, normal, fx);
     }
@@ -712,11 +716,12 @@ struct FOut {
     @location(1) glow: vec4<f32>,
 };
 
-// The outline's flat colour, unlit, glowing not at all.
+// The outline's flat colour, unlit, glowing not at all, as opaque as its
+// model is drawn.
 @fragment
 fn fs_outline(in: VOut) -> FOut {
     var out: FOut;
-    out.color = vec4<f32>(in.color, 1.0);
+    out.color = vec4<f32>(in.color, in.fx.y);
     out.glow = vec4<f32>(0.0, 0.0, 0.0, 1.0);
     return out;
 }
@@ -894,5 +899,9 @@ fn shade(in: VOut, lights: bool) -> Shaded {
     out.color = vec4<f32>(color, opacity);
     // The sweep glows a little too, so it sparkles.
     out.glow = vec4<f32>(in.color * glow + shine * 0.3, opacity);
+    // The HUD's models are drawn unblended: a fading one's glow as faint.
+    if (upright()) {
+        out.glow = vec4<f32>(out.glow.rgb * opacity, opacity);
+    }
     return Shaded(out, keep);
 }

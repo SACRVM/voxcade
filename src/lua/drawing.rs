@@ -129,7 +129,7 @@ impl<K: Kit> LuaGame<K> {
                 Cmd::Camera(cam) => out.camera(*cam),
                 // A model whole on the HUD, from the bank in a pass of its
                 // own over the flat HUD.
-                Cmd::Whole { file, frame, x, y, turn, pose, outline } => out.hud_model(file, *frame, (*x, *y), *turn, pose, *outline),
+                Cmd::Whole { file, frame, x, y, turn, pose, outline, opacity } => out.hud_model(file, *frame, (*x, *y), *turn, pose, *outline, *opacity),
                 // The pieces' (`picture_pose`); the HUD's, drawn by `hud`.
                 _ => {}
             }
@@ -246,7 +246,7 @@ impl<K: Kit> LuaGame<K> {
                 }
                 Cmd::Menu(m) => ui::game_menu(&mut out, m, &layout, depth, &self.stage.hud.icons, self.stage.host.sim().tick),
                 Cmd::Grid(g) => ui::game_grid(&mut out, g, &layout, depth, &self.stage.hud.icons),
-                Cmd::Draw { thumb, x, y } => ui::hud_model(&mut out, thumb, *x, *y, top),
+                Cmd::Draw { thumb, x, y, opacity } => ui::hud_model(&mut out, thumb, *x, *y, top, *opacity),
                 Cmd::Whole { .. } if front.is_none() => front = Some(out.len()),
                 _ => {}
             }

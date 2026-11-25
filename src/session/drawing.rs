@@ -233,12 +233,13 @@ impl<'a> Drawing<'a> {
     /// (`turning`'s degrees) about `render::turn_centre`, which stays where
     /// the flat picture lays that voxel, on the HUD's plane; a figure posed
     /// by `pose`; outlined round it alone where `outline` says how many HUD
-    /// voxels thick (and its colour: None the game's). Its opaque voxels
-    /// only, from the bank (a model new to it comes the next picture,
-    /// `Session::bank_fresh`).
-    pub fn hud_model(&mut self, name: &str, frame: usize, (x, y): (f32, f32), [round, pitch, roll]: [f32; 3], pose: &[PoseEntry], outline: Option<(f32, Option<[f32; 3]>)>) {
+    /// voxels thick (and its colour: None the game's); `opacity` 0 to 1
+    /// (at 0 nothing). Its opaque voxels only, from the bank (a model new
+    /// to it comes the next picture, `Session::bank_fresh`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn hud_model(&mut self, name: &str, frame: usize, (x, y): (f32, f32), [round, pitch, roll]: [f32; 3], pose: &[PoseEntry], outline: Option<(f32, Option<[f32; 3]>)>, opacity: f32) {
         let models = self.models;
-        let Some(m) = models.drawn(name) else { return };
+        let Some(m) = models.drawn(name).filter(|_| opacity > 0.0) else { return };
         let size = m.size;
         let turn = FACING_YOU * turning(round, pitch, roll);
         // The voxel it turns about: its column and row of the flat picture
@@ -253,7 +254,7 @@ impl<'a> Drawing<'a> {
             [r, g, b, width]
         });
         for d in &mut self.hud_models[from..] {
-            d.outline = outline;
+            (d.outline, d.opacity) = (outline, opacity);
         }
     }
 

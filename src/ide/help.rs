@@ -1142,11 +1142,11 @@ function on_draw(frame)
   frame:bar(4, 14, 40, 2, player.state.hp / 3)
   -- a key the hero carries, a model file drawn on the HUD
   frame:draw("items/key.vvx", 50, 12)
-  -- the key again, drawn whole and turning, its count drawn before it so
-  -- it shows on it; a chest whose lid opens
+  -- the key again, drawn whole, turning and fading in, its count drawn
+  -- before it so it shows on it; a chest whose lid opens
   local t = world.tick + frame.alpha
   frame:text("2", 68, 12, { 255, 255, 255 })
-  frame:draw("items/key.vvx", 64, 12, { rotation = { rotation = t * 3 } })
+  frame:draw("items/key.vvx", 64, 12, { rotation = { rotation = t * 3 }, opacity = math.min(1, (world.tick - level.state.began) / 30) })
   frame:draw("items/chest.vvx", 78, 10, { pose = { lid = { pitch = 40 + 40 * math.sin(t / 20) } }, outline = { width = 1 } })
   local title = "LEVEL ONE"
   local x = (frame.width - frame:text_width(title, 2)) / 2

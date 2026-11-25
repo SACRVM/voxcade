@@ -1806,14 +1806,21 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `metal_sweep`, the time, `c.effects.haze_color` as the ground, no haze
   laid on; `reflection.w` 1, the shader's `upright`: up is the HUD's +y,
   not z, which looks at the eye: every face turned to you mirrored one
-  flat sky), the HUD's own sun glinting. Tests
+  flat sky), the HUD's own sun glinting. `frame:draw`'s `opacity`, 0 to 1,
+  fades either form as one picture: a whole model's `ModelDraw::opacity`
+  (the `Actor`'s `extra.z`, 1 for every other draw) scales the alpha its
+  nearest face and its own outline write in the unblended pass (its glow
+  too, `upright`), left out at 0; the flat form's own inner faces hidden
+  first (`ui::hud_model`), then its cubes as opaque; it shows the level
+  through it, not the HUD behind it. Tests
   `a_whole_model_faces_you_where_the_flat_one_lies`,
   `a_whole_model_turns_and_poses`, `no_whole_model_under_a_menu_or_a_mistake`,
   `a_whole_model_lies_over_the_flat_hud`, `an_outline_rounds_one_hud_model_alone`,
   `an_own_outline_is_as_wide_on_every_side_anywhere`,
   `what_is_drawn_before_a_whole_model_lies_over_it`,
   `only_what_is_drawn_before_a_whole_model_lies_apart`,
-  `metal_on_a_whole_hud_model_reads_as_metal`.
+  `metal_on_a_whole_hud_model_reads_as_metal`,
+  `a_hud_model_fades_as_one_picture`, `a_flat_hud_model_fades_as_one_picture`.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,

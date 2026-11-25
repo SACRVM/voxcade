@@ -288,7 +288,7 @@ impl Renderer {
                 let data = ActorData {
                     origin: m.origin.extend(m.turn as f32).to_array(),
                     tint,
-                    extra: [m.nearer, m.glow.unwrap_or(-1.0), 0.0, 0.0],
+                    extra: [m.nearer, m.glow.unwrap_or(-1.0), m.opacity, 0.0],
                     rot: m.rot.to_array(),
                     pivot: m.shift.extend(if off_grid(m.rot, m.shift) { 1.0 } else { 0.0 }).to_array(),
                     outline: m.outline.unwrap_or_default(),

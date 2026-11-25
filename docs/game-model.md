@@ -574,8 +574,16 @@ settings. Several players: `player` is seat 1, the others are in
   as said away from the screen's middle), drawn at the far end of the
   depth (`OWN_OUTLINE_DEPTH`), so it shows
   only where nothing else of the HUD's whole models lies (a lid opened
-  behind its chest stays clear of the chest's line). Not built: an
-  outline of its own on `frame:model` in the scene.
+  behind its chest stays clear of the chest's line). `opacity`, 0 to 1
+  (the owner, 2026-11-25: an inventory's items fading in), on the flat
+  form and the whole alike: the model fades as one picture, the nearest
+  face of it winning a pixel and writing its alpha (`ModelDraw::opacity`,
+  the `Actor`'s `extra.z`), its outline with it and never seen through it;
+  the flat form's faces between its own voxels hidden before it fades
+  (`ui::hud_model`); at 0 nothing is drawn. A fading model shows the
+  level through it, not what the HUD drew behind it (a plate), as a
+  see-through color does. Not built: an outline of its own on
+  `frame:model` in the scene.
 - **A model's pivot** is the cell `size / 2` (whole voxels, rounded
   down) across and deep of the model's own box, on the floor: a thing's
   position is that cell, and a model turns about its middle. For an odd

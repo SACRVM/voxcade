@@ -240,6 +240,7 @@ const TYPES: &str = "\
 ---@field rotation? integer|Rotation A number: which side faces you, seen flat, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side. A table: the model drawn whole, turned at any angle about its middle ({} faces you unturned).
 ---@field pose? table<string, PoseEntry> A figure of parts posed, as frame:model's pose: the model drawn whole.
 ---@field outline? DrawOutline A line round this model alone: the model drawn whole.
+---@field opacity? number How opaque, from 0 (unseen) to 1 (whole), 1 unless given: an item fading in, as one picture, its outline with it.
 
 ---@class DrawOutline A line round a model drawn whole on the HUD (frame:draw).
 ---@field width integer How many HUD voxels thick, 1 to 8.
@@ -960,7 +961,9 @@ pub const API: &[Item] = &[
             unturned where the flat picture lies. Its metal mirrors the game's sky (c.light.reflection, reflection_horizon) and \
             ground (c.effects.haze_color) by each face's way and glints in the HUD's light; c.light.metal_sweep runs over it.\n- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.\n- \
             outline: a line round this model alone, { width = 1, color = \"#101010\" }: width 1 to 8 HUD voxels, color \
-            c.effects.outline_color unless given, no fourth value. It rings the model where nothing else is: the model drawn whole.\n\
+            c.effects.outline_color unless given, no fourth value. It rings the model where nothing else is: the model drawn whole.\n- \
+            opacity: from 0 (unseen) to 1 (whole), 1 unless given: an item fading in. The model fades as one picture, its outline \
+            with it. It shows the level through it, not what the HUD drew behind it, as a see-through color does.\n\
             What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what \
             is drawn deeper stands in front of it. What is drawn before the first model drawn whole lies over them all: the pointer, \
             a count on an item. What is drawn after lies under them, text too. Two drawn whole meet by depth. A see-through color \

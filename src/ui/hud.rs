@@ -41,11 +41,27 @@ pub(super) fn hud_icon(out: &mut Vec<Instance>, icon: &crate::config::IconConfig
 }
 
 /// A model's side as a grid's slot shows it (`frame:draw` too), two voxels
-/// deep, with its top left at (x, y) counted down from the top `top`.
-pub fn hud_model(out: &mut Vec<Instance>, thumb: &crate::lua::world::Thumb, x: f32, y: f32, top: f32) {
+/// deep, with its top left at (x, y) counted down from the top `top`, as
+/// opaque as `opacity` (0 to 1).
+pub fn hud_model(out: &mut Vec<Instance>, thumb: &crate::lua::world::Thumb, x: f32, y: f32, top: f32, opacity: f32) {
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+    if alpha == 0 {
+        return;
+    }
+    let from = out.len();
     for &(col, row, color) in &thumb.voxels {
         for z in 0..2 {
             voxel(out, x + col as f32, top - y - 1.0 - row as f32, z as f32, color);
+        }
+    }
+    // Fading, still one picture: the faces between its own voxels hidden
+    // while they are solid (see-through cubes hide none, and its back
+    // layer's and its inner sides' would show at their edges), then as
+    // opaque as asked; the nearest cube wins a pixel.
+    if alpha < 255 {
+        crate::render::hide_inner_faces(&mut out[from..]);
+        for i in &mut out[from..] {
+            (i.color[3], i.fx[crate::render::FX_OPACITY]) = (alpha, alpha);
         }
     }
 }
@@ -243,7 +259,7 @@ pub fn game_grid(out: &mut Vec<Instance>, g: &crate::lua::world::Grid, layout: &
         }
         if let Some(thumb) = &c.thumb {
             let (ox, oy) = (((cell - thumb.width as f32) / 2.0).floor(), ((cell - thumb.height as f32) / 2.0).floor());
-            hud_model(out, thumb, cx + ox, cy + oy, top);
+            hud_model(out, thumb, cx + ox, cy + oy, top, 1.0);
         }
         if let Some(count) = c.count {
             let digits = count.to_string();

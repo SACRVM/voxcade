@@ -371,7 +371,7 @@ mod tests {
     /// its own directions as they lie in the world; turned freely, all.
     #[test]
     fn faces_turned_away_from_the_eye_are_left_out() {
-        let draw = ModelDraw { voxels: 0..1, origin: Vec3::new(100.0, 100.0, 0.0), turn: 0, rot: Quat::IDENTITY, shift: Vec3::ZERO, tint: None, nearer: 0.0, glow: None, shadow_only: false, outline: None };
+        let draw = ModelDraw { voxels: 0..1, origin: Vec3::new(100.0, 100.0, 0.0), turn: 0, rot: Quat::IDENTITY, shift: Vec3::ZERO, tint: None, nearer: 0.0, glow: None, shadow_only: false, outline: None, opacity: 1.0 };
         let (lo, hi) = (IVec3::new(-2, -1, 0), IVec3::new(3, 2, 4));
         // The box from 98 to 103 across, 99 to 102 deep, 0 to 4 high.
         assert_eq!(facing(&draw, lo, hi, Vec3::new(110.0, 100.5, 50.0)), 0b010001 | 0b001100, "+x, both ys, +z");

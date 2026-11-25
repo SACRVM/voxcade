@@ -386,8 +386,9 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   the engine's own menus stay in capitals),
   `frame:text_width`, `frame:box`, `frame:bar` (a share: a boss's
   health), `frame:icon(name, x, y)` from `c.icons.NAME = { rows = {...},
-  colors = { R = { 214, 36, 44 } } }`, `frame:draw(file, x, y, { frame,
-  rotation, pose })` (a model file of the game, one of its voxels one of
+  colors = { R = { 214, 36, 44 } } }`, `frame:draw(file, x, y, { frame, opacity,
+  rotation, pose })` (a model file of the game, `opacity` 0 to 1 fading
+  it in as one picture, one of its voxels one of
   the HUD's, as a grid's slot shows it; no scale; what is drawn first lies
   on top; `rotation` as a table, `{ rotation = 30, pitch = 10 }`, or a
   `pose` draws it whole instead: turned at any angle, a figure posed (a

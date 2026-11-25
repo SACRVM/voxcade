@@ -181,12 +181,12 @@ fn frame_and_rotation_choose_what_is_seen() {
 /// missing or a word it has not, a see-through outline, a rotation's or a
 /// pose's word it has not, a part the figure has
 /// not, a pose of a model of no parts, a frame the model has not, a file
-/// that is not there.
+/// that is not there, an opacity past 0 to 1.
 #[test]
 fn what_frame_draw_cannot_take_is_a_mistake_naming_it() {
     for (call, want) in [
-        ("frame:draw(\"sign.vvx\", 4, 5, { scale = 2 })", "main.lua:2: frame:draw: no 'scale' (it takes frame, rotation, pose, outline)"),
-        ("frame:draw(\"sign.vvx\", 4, 5, { rotaton = 90 })", "frame:draw: no 'rotaton' (it takes frame, rotation, pose, outline)"),
+        ("frame:draw(\"sign.vvx\", 4, 5, { scale = 2 })", "main.lua:2: frame:draw: no 'scale' (it takes frame, rotation, pose, outline, opacity)"),
+        ("frame:draw(\"sign.vvx\", 4, 5, { rotaton = 90 })", "frame:draw: no 'rotaton' (it takes frame, rotation, pose, outline, opacity)"),
         ("frame:draw(\"sign.vvx\", 4, 5, { rotation = 45 })", "frame:draw: rotation = 45: quarter turns only (0, 90, 180, 270); to turn it freely, a table: rotation = { rotation = 45 }"),
         ("frame:draw(\"chest.vvx\", 4, 5, { rotation = 90, pose = { lid = { pitch = 60 } } })", "frame:draw: rotation = 90 turns the flat picture; posed, the model is drawn whole and its rotation is a table, rotation = { rotation = 90 }"),
         ("frame:draw(\"sign.vvx\", 4, 5, { rotation = { yaw = 30 } })", "frame:draw: a rotation has rotation, pitch and roll in degrees ({ roll = 20 }), not 'yaw'"),
@@ -206,6 +206,9 @@ fn what_frame_draw_cannot_take_is_a_mistake_naming_it() {
         ("frame:draw(\"sign.vvx\", 4, 5, { frame = 2 })", "frame:draw: frame = 2, but \"sign.vvx\" has 2 (from 0)"),
         ("frame:draw(\"sign.vvx\", 4, 5, { frame = -1 })", "frame:draw: frame = -1: its frames count from 0"),
         ("frame:draw(\"nope.vvx\", 4, 5)", "main.lua:2: frame:draw: no model file \"nope.vvx\" in the game folder"),
+        ("frame:draw(\"sign.vvx\", 4, 5, { opacity = 1.5 })", "frame:draw: opacity = 1.5: from 0 (unseen) to 1 (whole)"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { rotation = {}, opacity = -0.1 })", "frame:draw: opacity = -0.1: from 0 (unseen) to 1 (whole)"),
+        ("frame:draw(\"sign.vvx\", 4, 5, { opacity = \"half\" })", "frame:draw: opacity is a number from 0 (unseen) to 1 (whole)"),
     ] {
         let dir = drawing("hud-bad", call);
         let g = game_in(&dir);
@@ -543,4 +546,69 @@ fn metal_on_a_whole_hud_model_reads_as_metal() {
     let red_sky = picture(30, "{ 255, 0, 0 }");
     assert!(region(&red_sky, metal) != shown, "the game's sky in it");
     assert!(region(&red_sky, plain) == region(&blue_sky, plain), "the plain one as it was");
+}
+
+/// The pictures of a game drawing `draw` on its HUD: drawn, and the same
+/// game drawing nothing (what lies behind), 1280 by 720.
+fn over_nothing(canvas: &mut crate::headless::Canvas, draw: &str) -> (Vec<u8>, Vec<u8>) {
+    let mut picture = |draw: &str| {
+        let dir = drawing("hud-fade", draw);
+        let g = game_in(&dir);
+        let f = g.compose(0.0, 1280.0 / 720.0, Scene::Play, None);
+        assert_eq!(halted(&g), "");
+        canvas.draw(&f).expect("the picture drawn")
+    };
+    (picture(draw), picture("local nothing = 0"))
+}
+
+/// Every pixel where `whole` differs from `behind` is `faded` the mix of
+/// the two a single layer `opacity` opaque gives (within a level of
+/// rounding): none where two faces lie one behind the other; how many
+/// pixels were looked at.
+fn one_layer(whole: &[u8], faded: &[u8], behind: &[u8], opacity: f32) -> usize {
+    let mut seen = 0;
+    for ((w, f), b) in whole.chunks(4).zip(faded.chunks(4)).zip(behind.chunks(4)) {
+        if w[..3] == b[..3] {
+            continue;
+        }
+        seen += 1;
+        for c in 0..3 {
+            let mix = f32::from(b[c]) + (f32::from(w[c]) - f32::from(b[c])) * opacity;
+            assert!((f32::from(f[c]) - mix).abs() <= 1.5, "{:?} faded, {mix} for one layer ({:?} whole over {:?})", &f[..3], &w[..3], &b[..3]);
+        }
+    }
+    seen
+}
+
+/// On the GPU: a model drawn whole fades as one picture (`opacity`). Two
+/// chests overlapping, the lid of each pushed into its body, turned and
+/// outlined, at 0.5 over the plain sky: every pixel of them and of their
+/// outline the mix a single layer gives, nothing of a far face, an inner
+/// part or the outline under them showing through; at 1 the same to the
+/// byte as unset; at 0 nothing drawn.
+#[test]
+fn a_hud_model_fades_as_one_picture() {
+    let mut canvas = crate::headless::Canvas::new(1280, 720, false).expect("a GPU");
+    let chests = |opacity: &str| {
+        format!(
+            "frame:draw(\"chest.vvx\", 150, 80, {{ rotation = {{ rotation = 30, pitch = 20 }}, pose = {{ lid = {{ pitch = -40 }} }}, outline = {{ width = 1 }}{opacity} }})\n  \
+             frame:draw(\"chest.vvx\", 152, 81, {{ rotation = {{ rotation = -20 }}, pose = {{ lid = {{ pitch = -40 }} }}, outline = {{ width = 2, color = \"#ffffff\" }}{opacity} }})"
+        )
+    };
+    let (whole, behind) = over_nothing(&mut canvas, &chests(""));
+    let (half, _) = over_nothing(&mut canvas, &chests(", opacity = 0.5"));
+    assert!(one_layer(&whole, &half, &behind, 0.5) > 500, "the chests looked at");
+    assert!(over_nothing(&mut canvas, &chests(", opacity = 1")).0 == whole, "1 as unset");
+    assert!(over_nothing(&mut canvas, &chests(", opacity = 0")).0 == behind, "0: nothing");
+}
+
+/// The flat form fades as one picture too: its back layer and the sides
+/// between its voxels never show through its front.
+#[test]
+fn a_flat_hud_model_fades_as_one_picture() {
+    let mut canvas = crate::headless::Canvas::new(1280, 720, false).expect("a GPU");
+    let (whole, behind) = over_nothing(&mut canvas, "frame:draw(\"chest.vvx\", 20, 140)\n  frame:draw(\"sign.vvx\", 290, 10)");
+    let (half, _) = over_nothing(&mut canvas, "frame:draw(\"chest.vvx\", 20, 140, { opacity = 0.5 })\n  frame:draw(\"sign.vvx\", 290, 10, { opacity = 0.5 })");
+    assert!(one_layer(&whole, &half, &behind, 0.5) > 200, "the models looked at");
+    assert!(over_nothing(&mut canvas, "frame:draw(\"chest.vvx\", 20, 140, { opacity = 0 })").0 == behind, "0: nothing");
 }

@@ -76,6 +76,10 @@ pub struct ModelDraw {
     /// `frame:draw`'s `outline`): its colour (0..1) and how many voxels
     /// thick; None: the picture's own (`FrameData::outline`), if any.
     pub outline: Option<[f32; 4]>,
+    /// How opaque it is drawn, 0 to 1 (a model drawn whole on the HUD
+    /// fading in, `frame:draw`'s `opacity`): the alpha its nearest faces
+    /// write, so it fades as one picture; 1 every other.
+    pub opacity: f32,
 }
 
 impl ModelDraw {
@@ -262,7 +266,7 @@ pub(super) struct ActorData {
     pub(super) tint: [f32; 4],
     /// x: how many steps nearer the eye its depth is taken (`ModelDraw::nearer`),
     /// y: how much it glows in place of its voxels' own (`ModelDraw::glow`;
-    /// below 0: their own).
+    /// below 0: their own), z: how opaque it is drawn (`ModelDraw::opacity`).
     pub(super) extra: [f32; 4],
     /// The free turn (xyzw; 0 0 0 1 none), and the shift after it (xyz;
     /// w 1 when it is off the grid at all).
