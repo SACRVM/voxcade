@@ -175,20 +175,30 @@ fn frame_and_rotation_choose_what_is_seen() {
 /// What `frame:draw` cannot take is a mistake with the script's line,
 /// naming the word: a key it has not (no scale: the HUD has one size), a
 /// rotation off the quarter turns, a quarter turn of the flat picture with
-/// a pose, a rotation's or a pose's word it has not, a part the figure has
+/// a pose or an outline, an outline's width out of its range or not whole,
+/// missing or a word it has not, a see-through outline, a rotation's or a
+/// pose's word it has not, a part the figure has
 /// not, a pose of a model of no parts, a frame the model has not, a file
 /// that is not there.
 #[test]
 fn what_frame_draw_cannot_take_is_a_mistake_naming_it() {
     for (call, want) in [
-        ("frame:draw(\"sign.vvx\", 4, 5, { scale = 2 })", "main.lua:2: frame:draw: no 'scale' (it takes frame, rotation, pose)"),
-        ("frame:draw(\"sign.vvx\", 4, 5, { rotaton = 90 })", "frame:draw: no 'rotaton' (it takes frame, rotation, pose)"),
+        ("frame:draw(\"sign.vvx\", 4, 5, { scale = 2 })", "main.lua:2: frame:draw: no 'scale' (it takes frame, rotation, pose, outline)"),
+        ("frame:draw(\"sign.vvx\", 4, 5, { rotaton = 90 })", "frame:draw: no 'rotaton' (it takes frame, rotation, pose, outline)"),
         ("frame:draw(\"sign.vvx\", 4, 5, { rotation = 45 })", "frame:draw: rotation = 45: quarter turns only (0, 90, 180, 270); to turn it freely, a table: rotation = { rotation = 45 }"),
         ("frame:draw(\"chest.vvx\", 4, 5, { rotation = 90, pose = { lid = { pitch = 60 } } })", "frame:draw: rotation = 90 turns the flat picture; posed, the model is drawn whole and its rotation is a table, rotation = { rotation = 90 }"),
         ("frame:draw(\"sign.vvx\", 4, 5, { rotation = { yaw = 30 } })", "frame:draw: a rotation has rotation, pitch and roll in degrees ({ roll = 20 }), not 'yaw'"),
         ("frame:draw(\"chest.vvx\", 4, 5, { pose = { lidd = { pitch = 60 } } })", "frame:draw: chest.vvx has no part 'lidd' (its parts: body, lid)"),
         ("frame:draw(\"sign.vvx\", 4, 5, { pose = { lid = { pitch = 60 } } })", "frame:draw: sign.vvx is no figure of parts"),
         ("frame:draw(\"chest.vvx\", 4, 5, { pose = { lid = { pitch = \"up\" } } })", "frame:draw, part 'lid': the rotation's pitch is a number of degrees"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { rotation = 90, outline = { width = 1 } })", "frame:draw: rotation = 90 turns the flat picture; outlined, the model is drawn whole and its rotation is a table, rotation = { rotation = 90 }"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = { width = 0 } })", "frame:draw: outline: width is a whole number of HUD voxels from 1 to 8"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = { width = 9 } })", "frame:draw: outline: width is a whole number of HUD voxels from 1 to 8"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = { width = 1.5 } })", "frame:draw: outline: width is a whole number of HUD voxels from 1 to 8"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = { color = \"#101010\" } })", "frame:draw: outline: width is missing: how many HUD voxels thick, 1 to 8"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = 1 })", "frame:draw: outline: a table, { width = 1, color = \"#101010\" }"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = { width = 1, thick = 2 } })", "frame:draw: outline: no 'thick' (it takes width, color)"),
+        ("frame:draw(\"chest.vvx\", 4, 5, { outline = { width = 1, color = { 0, 0, 0, 128 } } })", "an outline has no transparency"),
         ("frame:draw(\"nope.vvx\", 4, 5, { rotation = {} })", "main.lua:2: frame:draw: no model file \"nope.vvx\" in the game folder"),
         ("frame:draw(\"sign.vvx\", 4, 5, { rotation = 22.5 })", "frame:draw: rotation is a whole number"),
         ("frame:draw(\"sign.vvx\", 4, 5, { frame = 2 })", "frame:draw: frame = 2, but \"sign.vvx\" has 2 (from 0)"),
@@ -345,4 +355,40 @@ fn a_whole_model_lies_over_the_flat_hud() {
     let turned = picture(&mut canvas, ", { rotation = { rotation = 30 } }");
     assert!(chest(&turned, x, y));
     assert!(wide(&turned) > wide(&whole) + 3, "turned, its side shows: {} pixels across against {}", wide(&turned), wide(&whole));
+}
+
+/// `outline` rounds one model drawn whole alone, in its color (the game's,
+/// `c.effects.outline_color`, unless given), as thick as said; on the GPU
+/// the line rings it where nothing of it lies, and nothing else is
+/// outlined: neither the other model drawn whole, nor the scene's.
+#[test]
+fn an_outline_rounds_one_hud_model_alone() {
+    // A chest in the level too, drawn by the scene.
+    let dir = drawing(
+        "hud-outline",
+        "frame:model(\"chest.vvx\", level.state.chest)\n  frame:draw(\"chest.vvx\", 20, 10, { rotation = { rotation = 20 }, outline = { width = 2, color = \"#00ff00\" } })\n  \
+         frame:draw(\"chest.vvx\", 60, 10, { rotation = {}, outline = { width = 1 } })\n  frame:draw(\"chest.vvx\", 100, 10, { rotation = {} })",
+    );
+    let main = std::fs::read_to_string(dir.join("main.lua")).unwrap();
+    std::fs::write(dir.join("main.lua"), main + "function on_level_start()\n  level.state.chest = level:spawn(\"miner\", 32, 32)\nend\n").unwrap();
+    let g = game_in(&dir);
+    let (w, h) = (1280, 720);
+    let f = g.compose(0.0, w as f32 / h as f32, Scene::Play, None);
+    assert_eq!(halted(&g), "");
+    let lines: Vec<Option<[f32; 4]>> = f.hud_models.iter().map(|m| m.outline).collect();
+    let [r, gr, b] = g.cfg.effects.outline_color;
+    assert_eq!(lines, [Some([0.0, 1.0, 0.0, 2.0]); 2].into_iter().chain([Some([r, gr, b, 1.0]); 2]).chain([None; 2]).collect::<Vec<_>>(), "each part of a chest its draw's line");
+    assert!(!f.models.is_empty() && f.models.iter().all(|m| m.outline.is_none()), "the scene's models none of their own");
+    let mut canvas = crate::headless::Canvas::new(w, h, false).expect("a GPU");
+    let pixels = canvas.draw(&f).expect("the picture drawn");
+    let green = |x: u32, y: u32| {
+        let i = ((y * w + x) * 4) as usize;
+        pixels[i + 1] > 200 && pixels[i] < 60 && pixels[i + 2] < 60
+    };
+    // 4 pixels a UI voxel: the green chest from 20, 10, 4 across and high.
+    let ring: Vec<(u32, u32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| green(x, y)).collect();
+    assert!(ring.len() > 100, "the line drawn: {} pixels", ring.len());
+    assert!(ring.iter().all(|&(x, y)| (40..200).contains(&x) && (0..140).contains(&y)), "only round the one chest");
+    // Not over it: its middle is the chest's own.
+    assert!(!green(22 * 4, 12 * 4));
 }

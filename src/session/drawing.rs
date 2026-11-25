@@ -58,10 +58,12 @@ pub struct Drawing<'a> {
     pub(super) thing: Option<u32>,
     /// What is drawn with a thing, for the pointer to find (`pick`).
     pub(super) picks: Vec<super::Pick>,
-    /// The models drawn whole on the HUD (`hud_model`), from the bank, and
-    /// the HUD's plane they stand on (`c.ui.depth`).
+    /// The models drawn whole on the HUD (`hud_model`), from the bank, the
+    /// HUD's plane they stand on (`c.ui.depth`) and the colour of their
+    /// outline unless they give one (`c.effects.outline_color`).
     pub(super) hud_models: Vec<ModelDraw>,
     pub(super) hud_depth: f32,
+    pub(super) outline_color: [f32; 3],
 }
 
 /// How a model drawn whole on the HUD faces you unturned: its front (+y)
@@ -230,9 +232,11 @@ impl<'a> Drawing<'a> {
     /// the HUD's top left as it faces you unturned, turned `turn`
     /// (`turning`'s degrees) about `render::turn_centre`, which stays where
     /// the flat picture lays that voxel, on the HUD's plane; a figure posed
-    /// by `pose`. Its opaque voxels only, from the bank (a model new to it
-    /// comes the next picture, `Session::bank_fresh`).
-    pub fn hud_model(&mut self, name: &str, frame: usize, x: f32, y: f32, [round, pitch, roll]: [f32; 3], pose: &[PoseEntry]) {
+    /// by `pose`; outlined round it alone where `outline` says how many HUD
+    /// voxels thick (and its colour: None the game's). Its opaque voxels
+    /// only, from the bank (a model new to it comes the next picture,
+    /// `Session::bank_fresh`).
+    pub fn hud_model(&mut self, name: &str, frame: usize, (x, y): (f32, f32), [round, pitch, roll]: [f32; 3], pose: &[PoseEntry], outline: Option<(f32, Option<[f32; 3]>)>) {
         let models = self.models;
         let Some(m) = models.drawn(name) else { return };
         let size = m.size;
@@ -242,7 +246,15 @@ impl<'a> Drawing<'a> {
         let middle = Vec3::new(x + (size.x - 1 - size.x / 2) as f32 + 0.5, self.hud.height - y - (size.z - size.z / 2) as f32 + 0.5, self.hud_depth);
         let posed = posing_alone(pose);
         let turns: Vec<PartPose> = m.parts.iter().map(|p| posed(&p.name)).collect();
+        let from = self.hud_models.len();
         draw(&mut |_, _, _, _, _, _, _| {}, Some(&mut self.hud_models), &m, frame, middle - crate::render::turn_centre(size), IVec2::Y, turn, &turns, None);
+        let outline = outline.map(|(width, color)| {
+            let [r, g, b] = color.unwrap_or(self.outline_color);
+            [r, g, b, width]
+        });
+        for d in &mut self.hud_models[from..] {
+            d.outline = outline;
+        }
     }
 
     pub(super) fn put_model(&mut self, m: &VoxModel, frame: usize, origin: Vec3, look: IVec2, turn: Quat, tint: Option<[u8; 4]>) {

@@ -385,7 +385,8 @@ c.things.crate = { model = "crate.vvx" }           -- no behavior: main.lua move
   on top; `rotation` as a table, `{ rotation = 30, pitch = 10 }`, or a
   `pose` draws it whole instead: turned at any angle, a figure posed (a
   chest's lid opening), lit by the HUD's own light, over the rest of the
-  HUD whenever drawn, two such meeting by depth), `frame:drop_in` (letters dropping
+  HUD whenever drawn, two such meeting by depth; `outline = { width = 1,
+  color = "#101010" }` rings that one alone), `frame:drop_in` (letters dropping
   in, ticks since it began), `frame.alpha` for smooth motion,
   `frame:to_screen(thing or point, up)` where it shows on the HUD (a name
   over a figure's head, a number rising from a harvest);

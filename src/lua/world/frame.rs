@@ -96,6 +96,28 @@ fn light_of(lua: &Lua, t: &Table) -> mlua::Result<crate::render::Light> {
     Ok(crate::render::Light { of, ..crate::render::Light::lamp(at, radius, rgb.unwrap_or([1.0; 3]), &shape, |w| w) })
 }
 
+/// Why an outline's color takes no fourth value.
+const OUTLINE_OPAQUE: &str = "an outline has no transparency";
+
+/// `frame:draw`'s `outline = { width =, color = }`: how many HUD voxels
+/// thick, 1 to 8, and its colour (None: `c.effects.outline_color`).
+fn outline_of(v: &Value) -> mlua::Result<(f32, Option<[f32; 3]>)> {
+    let fail = |what: String| mlua::Error::runtime(format!("frame:draw: outline: {what}"));
+    let Value::Table(t) = v else { return Err(fail("a table, { width = 1, color = \"#101010\" }".into())) };
+    super::menus::known_keys(t, &["width", "color"], "frame:draw: outline")?;
+    let width = match t.raw_get::<Value>("width")? {
+        Value::Integer(n) if (1..=8).contains(&n) => n as f32,
+        Value::Number(n) if (1.0..=8.0).contains(&n) && n.fract() == 0.0 => n as f32,
+        Value::Nil => return Err(fail("width is missing: how many HUD voxels thick, 1 to 8".into())),
+        _ => return Err(fail("width is a whole number of HUD voxels from 1 to 8".into())),
+    };
+    let color = match t.raw_get::<GivenValue>("color")?.0 {
+        Value::Nil => None,
+        c => Some(color_of(&c, "color", OUTLINE_OPAQUE).map_err(fail)?),
+    };
+    Ok((width, color))
+}
+
 fn text_size(size: Option<i32>, what: &str) -> mlua::Result<i32> {
     match size.unwrap_or(1) {
         n @ 1..=4 => Ok(n),
@@ -302,10 +324,11 @@ impl UserData for Frame {
         m.add_method_mut("draw", |_, o, (file, x, y, options): (String, f32, f32, Option<Given>)| {
             const WHAT: &str = "frame:draw";
             let (mut frame, mut quarters) = (0, 0);
-            // A rotation given as a table, or a pose: the model whole.
-            let (mut turn, mut pose) = (None, None);
+            // A rotation given as a table, a pose or an outline: the model
+            // whole.
+            let (mut turn, mut pose, mut outline) = (None, None, None);
             if let Some(t) = &options {
-                super::menus::known_keys(t, &["frame", "rotation", "pose"], WHAT)?;
+                super::menus::known_keys(t, &["frame", "rotation", "pose", "outline"], WHAT)?;
                 let whole = |v: Value, key: &str| -> mlua::Result<Option<f64>> {
                     match v {
                         Value::Nil => Ok(None),
@@ -315,12 +338,17 @@ impl UserData for Frame {
                     }
                 };
                 pose = t.raw_get::<Option<Given>>("pose")?;
+                outline = match t.raw_get::<GivenValue>("outline")?.0 {
+                    Value::Nil => None,
+                    v => Some(outline_of(&v)?),
+                };
                 match t.raw_get::<GivenValue>("rotation")?.0 {
                     Value::Table(r) => turn = Some(turning(&r, WHAT)?),
                     v => {
                         if let Some(r) = whole(v, "rotation")? {
-                            if pose.is_some() {
-                                return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r} turns the flat picture; posed, the model is drawn whole and its rotation is a table, rotation = {{ rotation = {r} }}")));
+                            if pose.is_some() || outline.is_some() {
+                                let why = if pose.is_some() { "posed" } else { "outlined" };
+                                return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r} turns the flat picture; {why}, the model is drawn whole and its rotation is a table, rotation = {{ rotation = {r} }}")));
                             }
                             if r % 90.0 != 0.0 {
                                 return Err(mlua::Error::runtime(format!("{WHAT}: rotation = {r}: quarter turns only (0, 90, 180, 270); to turn it freely, a table: rotation = {{ rotation = {r} }}")));
@@ -341,13 +369,13 @@ impl UserData for Frame {
             if frame >= model.frames.len() {
                 return Err(mlua::Error::runtime(format!("{WHAT}: frame = {frame}, but \"{file}\" has {} (from 0)", model.frames.len())));
             }
-            if turn.is_some() || pose.is_some() {
+            if turn.is_some() || pose.is_some() || outline.is_some() {
                 let parts: Vec<String> = model.parts.iter().map(|p| p.name.clone()).collect();
                 let pose = match &pose {
                     Some(p) => pose_of(p, &file, Some(&parts).filter(|p| !p.is_empty()), WHAT)?,
                     None => Vec::new(),
                 };
-                o.cmds.push(Cmd::Whole { file, frame, x, y, turn: turn.unwrap_or_default(), pose });
+                o.cmds.push(Cmd::Whole { file, frame, x, y, turn: turn.unwrap_or_default(), pose, outline });
                 return Ok(());
             }
             // One voxel of the model one of the HUD's.

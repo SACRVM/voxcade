@@ -232,6 +232,11 @@ const TYPES: &str = "\
 ---@field frame? integer Which of its frames, from 0 (0 unless given).
 ---@field rotation? integer|Rotation A number: which side faces you, seen flat, degrees clockwise seen from above, quarter turns only: 0 its front (+y), 90 its left side, 180 its back, 270 its right side. A table: the model drawn whole, turned at any angle about its middle ({} faces you unturned).
 ---@field pose? table<string, PoseEntry> A figure of parts posed, as frame:model's pose: the model drawn whole.
+---@field outline? DrawOutline A line round this model alone: the model drawn whole.
+
+---@class DrawOutline A line round a model drawn whole on the HUD (frame:draw).
+---@field width integer How many HUD voxels thick, 1 to 8.
+---@field color? Color Its color, no fourth value (c.effects.outline_color unless given).
 
 ---@class SaveInfo What lies in a save slot.
 ---@field level string The level it was saved in.
@@ -938,7 +943,9 @@ pub const API: &[Item] = &[
             turns, degrees clockwise seen from above (0 its front, +y, 90 its left side, 180 its back, 270 its right side), seen flat: \
             2 voxels deep, as a grid's slot shows it (frame:grid). A table ({ rotation =, pitch =, roll = }, as frame:model's) draws \
             the model whole, as deep as it is, turned at any angle about its middle, lit by the HUD's own light; {} faces you \
-            unturned where the flat picture lies.\n- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.\n\
+            unturned where the flat picture lies.\n- pose: a figure of parts posed, as frame:model's pose: the model drawn whole.\n- \
+            outline: a line round this model alone, { width = 1, color = \"#101010\" }: width 1 to 8 HUD voxels, color \
+            c.effects.outline_color unless given, no fourth value. It rings the model where nothing else is: the model drawn whole.\n\
             What is drawn first on the HUD lies on top: draw a flat model before the box it sits on. With c.ui.depth above 2, what \
             is drawn deeper stands in front of it. A model drawn whole lies over the rest of the HUD, text drawn after it too; two \
             drawn whole meet by depth." },

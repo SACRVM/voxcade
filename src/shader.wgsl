@@ -139,6 +139,9 @@ struct Actor {
     // shifted by pivot.xyz (render::turned_centre); pivot.w 1: off the grid.
     rot: vec4<f32>,
     pivot: vec4<f32>,
+    // A line round this draw alone (render::ModelDraw::outline): rgb, w how
+    // thick; w 0: the picture's (g.outline).
+    outline: vec4<f32>,
 };
 
 @group(1) @binding(0) var<uniform> actor: Actor;
@@ -263,6 +266,10 @@ const PART_NEARER: f32 = 0.03;
 // deep than this hide it, a part standing further before another shows it.
 const OUTLINE_BEHIND: f32 = 3.0;
 
+// Where a draw's own outline lies in the depth (0 near, 1 far): behind
+// everything drawn, before the depth's clear value.
+const OWN_OUTLINE_DEPTH: f32 = 0.99999;
+
 // A model's outline (c.effects.outline): its voxels again, each grown by
 // the outline's thickness all round, only their far faces drawn (the
 // pipeline culls the near ones), in the outline's colour, and pushed
@@ -298,13 +305,23 @@ fn vs_face_outline(
 // A corner of the outline's grown cube about a model's voxel at `local`
 // (`size` voxels big): `pos` the unit cube's corner, `normal` its face's.
 fn outline_corner(local: vec3<f32>, pos: vec3<f32>, normal: vec3<f32>, size: f32) -> VOut {
-    let grown = size + 2.0 * g.outline.w;
-    let flat = vec4<f32>(g.outline.rgb, 1.0);
+    let line = select(g.outline, actor.outline, actor.outline.w > 0.0);
+    let grown = size + 2.0 * line.w;
+    let flat = vec4<f32>(line.rgb, 1.0);
     var fx = vec4<f32>(0.0);
     fx[FX_OPACITY] = 1.0;
     var out = cube_at(model_corner(local, pos * grown), normal, normal, model_centre(local), flat, fx, vec4<f32>(0.0), actor.rot);
     out.world += normalize(out.world - g.eye.xyz) * OUTLINE_BEHIND;
     out.clip = g.view_proj * vec4<f32>(out.world, 1.0);
+    // A line round this draw alone (a model drawn whole on the HUD): at the
+    // far end of the depth, so it shows only where nothing else is, its
+    // silhouette's ring. Pushed back only so far, a part standing behind
+    // another (a chest's lid opened) lay behind the other's line and was
+    // covered by it whole: seen from below, a grown cube's top is a deep
+    // plane.
+    if (actor.outline.w > 0.0) {
+        out.clip.z = out.clip.w * OWN_OUTLINE_DEPTH;
+    }
     return out;
 }
 

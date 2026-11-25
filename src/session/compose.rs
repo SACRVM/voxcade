@@ -94,6 +94,7 @@ impl<G: Game> Session<G> {
             thing: None,
             hud_models: Vec::new(),
             hud_depth: self.cfg.ui.depth as f32,
+            outline_color: self.cfg.effects.outline_color,
         }
     }
 

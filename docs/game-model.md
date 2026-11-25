@@ -535,7 +535,13 @@ settings. Several players: `player` is seat 1, the others are in
   its depth its own: it lies over every flat voxel of the HUD whenever
   it was drawn (text drawn after it does not show over it: a stated
   limit), and two drawn whole meet by depth. Nothing of it under a menu
-  or a mistake.
+  or a mistake. `outline = { width = 1, color = "#101010" }` (width 1 to
+  8 HUD voxels, color `c.effects.outline_color` unless given, no fourth
+  value) rings that one model alone: the scene's outline's grown voxels,
+  drawn at the far end of the depth (`OWN_OUTLINE_DEPTH`), so it shows
+  only where nothing else of the HUD's whole models lies (a lid opened
+  behind its chest stays clear of the chest's line). Not built: an
+  outline of its own on `frame:model` in the scene.
 - **A model's pivot** is the cell `size / 2` (whole voxels, rounded
   down) across and deep of the model's own box, on the floor: a thing's
   position is that cell, and a model turns about its middle. For an odd

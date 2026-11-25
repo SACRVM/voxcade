@@ -1827,10 +1827,16 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   lit by the UI's sun, its globals the UI's with the real eye
   (`FrameData::hud_eye`, `hud_globals`: `ui_globals` unchanged, so the
   logo and HUD pictures stay); `FrameData::hud_models`, none under a menu
-  or a mistake (`Session::ui_of`). Tests
+  or a mistake (`Session::ui_of`). Its `outline = { width, color }` is
+  `ModelDraw::outline`, the shader's `Actor.outline` (`select`ed over
+  `g.outline` where its w is above 0; the scene's draws carry none), drawn
+  by the outline pipelines over the HUD models that have one
+  (`ModelPass::own_outline`) at the far end of the depth
+  (`OWN_OUTLINE_DEPTH`: pushed back only `OUTLINE_BEHIND`, a chest's
+  opened lid lay behind the chest's line and was covered whole). Tests
   `a_whole_model_faces_you_where_the_flat_one_lies`,
   `a_whole_model_turns_and_poses`, `no_whole_model_under_a_menu_or_a_mistake`,
-  `a_whole_model_lies_over_the_flat_hud`.
+  `a_whole_model_lies_over_the_flat_hud`, `an_outline_rounds_one_hud_model_alone`.
 - Music is MML (`src/audio/music/`: `song.rs` `Song`, `Instrument`,
   `Timing`; `parse.rs` MML to `Song`, refusing an empty song, a channel
   with no notes and a non-letter channel; `player.rs` `Player`, voices,
@@ -2376,7 +2382,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   their voxels drawn again grown, far faces only, pushed back along the
   view rays (`vs_model_outline`, `vs_face_outline`), so it shows at the
   silhouette and where a part stands well before another, not on every
-  relief step.
+  relief step. A model drawn whole on the HUD takes a line of its own
+  (`frame:draw`'s `outline`, `ModelDraw::outline`, the `Actor`'s
+  `outline` over `g.outline`), at the far end of the depth so it rings
+  that model alone; the scene's draws carry none (a line of its own on
+  `frame:model` is not built).
   Rounded heads for More Blood's 22-voxel figures were tried and rejected
   (the user: "the old figures were prettier"): a 5-voxel head has too few
   voxels to round, the rounding pays off on bigger models. Tests:

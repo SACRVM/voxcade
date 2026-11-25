@@ -1103,7 +1103,7 @@ end
     },
     Topic {
         title: "DRAW A HUD",
-        text: "The HUD is your game's: on_draw draws it on the frame, counted from the top left in UI voxels; frame.width and frame.height say how big it is (the width follows the screen's shape). Small pictures are c.icons, a letter a color; frame:icon draws one, screen:burst makes one fly apart. frame:draw draws a model file of the game, one of its voxels one of the HUD's, from the side you ask for; with its rotation a table it draws the model whole, turned at any angle and lit by the HUD's own light, and a pose poses a figure of parts (a lid opening). What is drawn first lies on top, but a model drawn whole lies over the rest of the HUD. frame:text takes a size (2 and up: big letters), frame:text_width measures for centering, frame:bar shows a share (a boss's health), frame:drop_in lets letters drop in, frame:to_screen says where a thing of the level shows (a name over its head). What changes over time (a heart lost, when a message began) goes into a state in on_tick.",
+        text: "The HUD is your game's: on_draw draws it on the frame, counted from the top left in UI voxels; frame.width and frame.height say how big it is (the width follows the screen's shape). Small pictures are c.icons, a letter a color; frame:icon draws one, screen:burst makes one fly apart. frame:draw draws a model file of the game, one of its voxels one of the HUD's, from the side you ask for; with its rotation a table it draws the model whole, turned at any angle and lit by the HUD's own light, a pose poses a figure of parts (a lid opening), and an outline rings it alone. What is drawn first lies on top, but a model drawn whole lies over the rest of the HUD. frame:text takes a size (2 and up: big letters), frame:text_width measures for centering, frame:bar shows a share (a boss's health), frame:drop_in lets letters drop in, frame:to_screen says where a thing of the level shows (a name over its head). What changes over time (a heart lost, when a message began) goes into a state in on_tick.",
         conf: r##"c.player.kind = "hero"
 c.things.hero = { hp = 3 }
 c.icons.heart = {
@@ -1145,7 +1145,7 @@ function on_draw(frame)
   -- the key again, drawn whole and turning; a chest whose lid opens
   local t = world.tick + frame.alpha
   frame:draw("items/key.vvx", 64, 12, { rotation = { rotation = t * 3 } })
-  frame:draw("items/chest.vvx", 78, 10, { pose = { lid = { pitch = 40 + 40 * math.sin(t / 20) } } })
+  frame:draw("items/chest.vvx", 78, 10, { pose = { lid = { pitch = 40 + 40 * math.sin(t / 20) } }, outline = { width = 1 } })
   local title = "LEVEL ONE"
   local x = (frame.width - frame:text_width(title, 2)) / 2
   frame:drop_in(title, x, frame.height / 2 - 16, world.tick - level.state.began, { 230, 58, 48 }, 2)

@@ -360,6 +360,7 @@ mod tests {
             ("extra", offset_of!(ActorData, extra)),
             ("rot", offset_of!(ActorData, rot)),
             ("pivot", offset_of!(ActorData, pivot)),
+            ("outline", offset_of!(ActorData, outline)),
         ];
         let params = [("params", offset_of!(PostParams, params)), ("step", offset_of!(PostParams, step))];
         use crate::render::fog::FogGlobals;
