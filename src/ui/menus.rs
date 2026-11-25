@@ -323,7 +323,7 @@ fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
     let (kx, px) = binding_heads(out, pen, x0);
     let items = menu.items(Page::Controls, view.settings);
     // The lines under the rows: how one walks, and the pointer's stick.
-    let (walk, pointer) = sticks_said(view.pointer_stick);
+    let (walk, pointer) = sticks_said(view.pointer_stick, true);
     let under = if pointer.is_some() { 10.0 } else { 0.0 };
     // Down to above the hint at the bottom, closer where there are many.
     let apart = ((top - 70.0 - 30.0 - under) / (items.len().max(2) - 1) as f32).floor().min(12.0);
@@ -347,15 +347,24 @@ fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
     }
 }
 
-/// How the whole keyboard's and a pad's player walks, and which stick is
-/// the pointer (`c.pointer_stick`), as CONTROLS says them.
-fn sticks_said(pointer: Option<crate::config::Stick>) -> (&'static str, Option<&'static str>) {
+/// How a player walks (`keyboard`: with the whole keyboard too, else on
+/// a pad alone), and which stick is the pointer (`c.pointer_stick`), as
+/// CONTROLS says them.
+fn sticks_said(pointer: Option<crate::config::Stick>, keyboard: bool) -> (&'static str, Option<&'static str>) {
     use crate::config::Stick;
-    match pointer {
-        None => ("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD", None),
-        Some(Stick::Left) => ("MOVE: ARROWS OR WASD, RIGHT STICK OR D-PAD", Some("POINTER: LEFT STICK")),
-        Some(Stick::Right) => ("MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD", Some("POINTER: RIGHT STICK")),
-    }
+    let right = pointer == Some(Stick::Left);
+    let walk = match (keyboard, right) {
+        (true, false) => "MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD",
+        (true, true) => "MOVE: ARROWS OR WASD, RIGHT STICK OR D-PAD",
+        (false, false) => "MOVE: LEFT STICK OR D-PAD",
+        (false, true) => "MOVE: RIGHT STICK OR D-PAD",
+    };
+    let pointing = match pointer {
+        None => None,
+        Some(Stick::Left) => Some("POINTER: LEFT STICK"),
+        Some(Stick::Right) => Some("POINTER: RIGHT STICK"),
+    };
+    (walk, pointing)
 }
 
 /// A heading for each seat with its three rows under it, then SWAP, RUMBLE
@@ -428,8 +437,13 @@ fn player_controls_page(out: &mut Vec<Instance>, pen: &Pen, seat: usize) {
     let x0 = (pen.layout.width / 2.0 - 110.0).round();
     let (kx, px) = binding_heads(out, pen, x0);
     let items = menu.items(Page::PlayerControls(seat), view.settings);
+    // How it walks where its directions are no rows of their own (the
+    // whole keyboard, or a pad alone), and the pointer's stick.
+    let half = matches!(part, crate::seating::Keys::Left | crate::seating::Keys::Right);
+    let (walk, pointer) = sticks_said(view.pointer_stick, part == crate::seating::Keys::Whole);
+    let under = if pointer.is_some() { 10.0 } else { 0.0 };
     // Down to above the hint at the bottom, closer where there are many.
-    let apart = ((top - 66.0 - 24.0) / (items.len().max(2) - 1) as f32).floor().min(12.0);
+    let apart = ((top - 66.0 - 24.0 - under) / (items.len().max(2) - 1) as f32).floor().min(12.0);
     let keys = view.settings.keys_of(part);
     let pad = view.settings.pad_of(seat);
     for (i, &item) in items.iter().enumerate() {
@@ -444,11 +458,13 @@ fn player_controls_page(out: &mut Vec<Instance>, pen: &Pen, seat: usize) {
         pen.text(out, &key, kx, y, TEXT);
         pen.text(out, &button, px, y, TEXT);
     }
-    // How it moves where its directions are no rows of their own.
-    if !matches!(part, crate::seating::Keys::Left | crate::seating::Keys::Right) {
-        let y = top - 66.0 - items.len() as f32 * apart - 4.0;
-        let moving = if part == crate::seating::Keys::Whole { "MOVE: ARROWS OR WASD, LEFT STICK OR D-PAD" } else { "MOVE: LEFT STICK OR D-PAD" };
-        pen.text(out, pen.say(moving), x0, y, MUTED_LIGHT);
+    let mut y = top - 66.0 - items.len() as f32 * apart - 4.0;
+    if !half {
+        pen.text(out, pen.say(walk), x0, y, MUTED_LIGHT);
+        y -= 10.0;
+    }
+    if let Some(pointer) = pointer {
+        pen.text(out, pen.say(pointer), x0, y, MUTED_LIGHT);
     }
 }
 

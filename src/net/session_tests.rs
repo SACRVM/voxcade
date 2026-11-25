@@ -524,3 +524,49 @@ fn a_click_carries_its_answer_and_text_comes_once_over_a_bad_network() {
     }
     assert!(crate::replay::check_going_back::<Lua>(&dir, 7).unwrap(), "going back every 7 ticks");
 }
+
+/// A guest's pad frame by frame, its left stick moving the pointer
+/// (`c.pointer_stick`) as the window glides it: nothing for `wait` frames,
+/// then the stick leaning left from (40, 30) at 60 UI voxels a second over
+/// the door, a button pressed at (20, 30) with its answer of that frame
+/// (`press`, as the window's pad presses carry it), the stick leaning on
+/// until the pointer is off the door's left edge.
+fn gliding_and_pressing(picture: u16, wait: usize) -> Vec<crate::input::Input> {
+    use crate::input::{Input, Panel, Pointer};
+    let door = |[x, y]: [f32; 2]| (10.0..=30.0).contains(&x) && (10.0..=50.0).contains(&y);
+    let answer = |at: [f32; 2], press: bool| {
+        let panel = door(at).then(|| Panel { name: "door".into(), index: 0, u: ((at[0] - 10.0) * 50.0) as u16, v: ((at[1] - 10.0) * 25.0) as u16 });
+        Pointer { x: at[0].round() as i32, y: at[1].round() as i32, picture: Some(picture), panel, level: None, press }
+    };
+    let mut keys = vec![Input::default(); wait];
+    let mut at = [40.0, 30.0];
+    for _ in 0..40 {
+        at = crate::input::glide(at, [-1.0, 0.0], 1.0 / 60.0, 60.0, 400.0, 225.0);
+        let press = at[0].round() == 20.0;
+        keys.push(Input { actions: press as u32, pointer: Some(Box::new(answer(at, press))), ..Input::default() });
+    }
+    keys.extend(std::iter::repeat_n(Input { pointer: Some(Box::new(answer(at, false))), ..Input::default() }, 300));
+    keys
+}
+
+/// Over a bad network a guest's pad button carries what the pointer its
+/// stick moves was over as it went down and where, though the stick moved
+/// it on the next frames, as a mouse's click does; every recording is the
+/// host's, and it plays back.
+#[test]
+fn a_pad_pointers_click_carries_its_answer_over_a_bad_network() {
+    let dir = pointing_game();
+    let conf = std::fs::read_to_string(dir.join("conf.lua")).unwrap().replace("c.pointer = \"system\"", "c.pointer = \"own\"\n  c.pointer_stick = \"left\"\n  c.pad.click = { \"south\" }");
+    std::fs::write(dir.join("conf.lua"), conf).unwrap();
+    for (seed, link) in [(21, Link::lan()), (22, Link::bad())] {
+        let mut game = Game::new(&dir, seed, link, "none:3000");
+        let picture = crate::input::picture_mark(game.game.game.level_mark());
+        game.guest_holding(0, gliding_and_pressing(picture, 120));
+        game.to(5_000_000);
+        let recorded = game.agree();
+        assert_eq!(game.game.game.eval("return table.concat(world.state.clicks, ',')").unwrap(), "\"2:door:nil:20,30:true:nil\"", "seed {seed}");
+        let moves: u32 = game.game.game.eval("return world.state.moves").unwrap().parse().unwrap();
+        assert!(moves >= 10, "seed {seed}: gliding, it moved tick by tick: {moves}");
+        assert_eq!(play_through::<Lua>(&dir, &recorded).unwrap(), Verdict::Same, "seed {seed}: plays back");
+    }
+}

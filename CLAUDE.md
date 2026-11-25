@@ -1280,16 +1280,20 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   window glides a place in the HUD's measure by its lean
   (`input::glide`: `v·|v|` past the dead zone, on the picture) and
   answers it through `Session::point` as the mouse's, so no wire, replay
-  or Lua word is new (`app::mouse::StickPointer`, `App::glide_sticks`,
-  `pointer_place`: the mouse while the keyboard was used last, back to it
-  when it moves; the stick's from where the mouse was, else the middle);
-  a pad button bound to one of the seat's actions carries the answers of
-  its moment (`App::stick_press`); CONTROLS says which stick points.
-  `frame.pointer` stays the mouse seat's alone. Tests
+  or Lua word is new (`app::mouse::StickPointer`, one a seat,
+  `App::glide_sticks`, `seat_place`: the mouse seat's the mouse while the
+  keyboard was used last, back to it when it moves, its stick's from
+  where the mouse was; another seat's its pad's stick's from the middle,
+  aimed at, `mouse_aim`; over the network each machine's local seats'
+  in their readings); a pad button bound to one of its seat's actions
+  carries the answers of its moment (`App::stick_press`); CONTROLS and a
+  seat's CONTROLS say which stick points. `frame.pointer` stays the mouse
+  seat's alone. Tests
   `a_pointer_stick_glides_at_its_speed_and_stays_on_the_picture`,
   `a_stick_given_to_the_pointer_holds_no_directions`,
   `a_pad_button_carries_the_pointers_answer_of_its_moment`,
-  `a_pads_pointer_is_answered_as_the_mouses`.
+  `a_pads_pointer_is_answered_as_the_mouses`,
+  `a_pad_pointers_click_carries_its_answer_over_a_bad_network`.
   Not yet: the IDE's PLAY takes no mouse, typing or pad's pointer, and a
   player's POINTER SPEED setting.
 - Every game can be tried late without playing there (the user: without

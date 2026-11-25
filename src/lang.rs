@@ -77,6 +77,7 @@ const WORDS: &[(&str, &str, &str)] = &[
     ("LEFT", "LINKS", "GAUCHE"),
     ("RIGHT", "RECHTS", "DROITE"),
     ("MOVE: LEFT STICK OR D-PAD", "LAUFEN: STICK ODER KREUZ", "BOUGER: STICK OU CROIX"),
+    ("MOVE: RIGHT STICK OR D-PAD", "LAUFEN: RECHTER STICK ODER KREUZ", "BOUGER: STICK DROIT OU CROIX"),
     ("JUST NOW", "GERADE EBEN", "À L'INSTANT"),
     ("{} MIN AGO", "VOR {} MIN", "IL Y A {} MIN"),
     ("{} H AGO", "VOR {} STD", "IL Y A {} H"),

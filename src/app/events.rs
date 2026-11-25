@@ -345,10 +345,10 @@ impl<G: Game> App<G> {
     /// seat's stick moving the pointer (`c.pointer_stick`): it carries the
     /// pointer's answers of this moment, as a mouse's click does.
     fn stick_press(&mut self, which: JoystickId, name: &str) {
-        let Some(seat) = self.seating.pad_seat(which.raw()).filter(|&s| s == 1 && s == self.mouse_seat()) else { return };
+        let Some(seat) = self.seating.pad_seat(which.raw()) else { return };
         let bound = self.settings.pad_of(seat).action_of(name).is_some_and(|a| self.game.actions().contains(&a));
-        if bound && !self.sticks.is_empty() {
-            let answer = self.pointer_now();
+        if bound && seat <= self.sticks.len() {
+            let answer = self.seat_pointer(seat);
             self.sticks[seat - 1].down(answer);
         }
     }

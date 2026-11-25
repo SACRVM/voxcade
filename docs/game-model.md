@@ -177,7 +177,8 @@ settings. Several players: `player` is seat 1, the others are in
     = "own"`, a mistake at load without it; the owner's yes,
     2026-11-25). Then that stick moves the pointer as the mouse does, the
     other stick and the d-pad walk, and `input.pointer` and
-    `frame.pointer` answer for the pad as for the mouse: the window glides
+    `frame.pointer` answer for the pad as for the mouse, every seat with a
+    pad its own (`p.input.pointer`, over the network too): the window glides
     a place in the HUD's measure by the stick's lean
     (`input::glide`: `c.pointer_speed` UI voxels a second leaning all the
     way, `c.ui.height` unless set, times the lean past the dead zone and
