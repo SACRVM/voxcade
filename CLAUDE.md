@@ -1597,7 +1597,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   none, no `world:save`, no pause); its code asks `world:new_game()` or
   `world:load(slot)` (save games: `world:save(slot, { label })`, `world:delete_save(slot)` at the tick's end through `Game::saving`'s `saves::Change`, `world.saves.newest` by the order saves were made in the run, `lua::host::Stage::newest_save`; `Game::anew`: the session begins the run in its
   place, `Session::new_run`, `begun` for the window to record),
-  `world:open("settings")`, `world:quit()` and `world:to_title()` (in a
+  `world:open("settings" | "pause")` (the pause page as its key opens it,
+  `Command::Pause`, for a game keeping Escape as its own action; a mistake on
+  the title, dropped in a fade, after the run's end and in a network game),
+  `world:quit()` and `world:to_title()` (in a
   run, any game: back to the title as QUIT TO TITLE, `Command::ToTitle`;
   on the title a mistake) (`game::Request`, the
   machine's, never the run's: `Session::requests`, `Front::asked`;

@@ -288,6 +288,9 @@ fn direction_word(way: &str) -> &'static str {
 pub enum Command {
     Start,
     Resume,
+    /// The pause page, opened by the game (`world:open("pause")`): the
+    /// window builds it, for it needs the game's slots.
+    Pause,
     Restart,
     ToTitle,
     Quit,

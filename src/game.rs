@@ -134,7 +134,7 @@ pub enum Request {
 }
 
 /// The engine's pages a game opens over itself (`world:open`).
-pub const PAGES: &[&str] = &["settings"];
+pub const PAGES: &[&str] = &["settings", "pause"];
 
 /// A seat after the first as a tick finds it (`Game::set_seats`): what its
 /// player holds, or nobody sitting there, and what they play with.

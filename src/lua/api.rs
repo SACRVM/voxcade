@@ -420,9 +420,11 @@ pub const API: &[Item] = &[
             of the title is kept. world:load(slot) there goes on from a save instead. One ask counts in a tick: world.leaving.\n- options: { \
             fade = seconds } for this change alone, as world:go_to's." },
     Item { of: "world", name: "open", what: Method { params: &[("page", "string")], returns: "" }, doc: "Opens a page of the engine's over \
-            the game, the game held while it shows as by the pause: \"settings\" (SETTINGS: the volumes, the picture, the keys). Closing \
-            it goes back to the game. For your own title's menu or pause menu. Only the window opens it: the game plays the same without \
-            one (a replay, shot, inspect)." },
+            the game, the game held while it shows as by the pause: \"settings\" (SETTINGS: the volumes, the picture, the keys), \
+            \"pause\" (the pause page as its own key opens it, SAVE and LOAD where the game has slots). Closing it goes back to the game. \
+            For your own title's menu or pause menu, and for a game that keeps Escape for itself. Only the window opens it: the game plays \
+            the same without one (a replay, shot, inspect, the IDE's PLAY), and in a network game nothing opens. On your game's own title \
+            \"pause\" is a mistake." },
     Item { of: "world", name: "quit", what: Method { params: &[], returns: "" }, doc: "Ends the program, as QUIT on the engine's title: for \
             your own title's menu. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the \
             game plays the same without one." },

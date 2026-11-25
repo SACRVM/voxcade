@@ -88,7 +88,7 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
 | `world:save(slot, options?)`, `world:load(slot, options?)`, `world:delete_save(slot)` | at the tick's end (save games, below); a save's `options` are `{ label = "..." }`, one line of 80 characters at most; a delete empties the slot for good at the tick's end (the script still sees it that tick, `world.saves[slot]` is nil from the next) and an empty slot is a mistake; loading an empty slot is a mistake with its line (`world.saves[slot]` tells first); on the game's own title `world:load` begins the run from the save and `world:save` is a mistake |
 | `world:new_game(options?)` | on the game's own title only (`c.title_screen.level`, below): a fresh run begins at the tick's end in the level a run begins in |
-| `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, the only one so far; another name is a mistake listing them): asked of the window, not of the run |
+| `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, and `"pause"`, the pause page as its key opens it, a mistake on the game's own title; another name is a mistake listing them): asked of the window, not of the run |
 | `world:quit()` | the program ends (the IDE's PLAY stops, `shot` and `inspect` end the run there): asked of the window, not of the run |
 | `world:to_title()` | back to the title after the tick, as the pause menu's QUIT TO TITLE (the run ends with `"quit"`, a score that beats a line asks for initials; a game with a title of its own goes back to its title level; the IDE's PLAY stops, `shot` and `inspect` end the run there; on the title itself a mistake): asked of the window, not of the run |
 
@@ -925,7 +925,10 @@ Then:
   still lists it, and `level.next` passes it over.
 - `world:open("settings")` (the title and a run alike) shows the
   engine's SETTINGS over the game, held as the pause holds it; back from
-  it the game goes on. `world:quit()` ends the program. `world:to_title()`
+  it the game goes on. `world:open("pause")` (in a run only: a mistake
+  on this title) shows the pause page as its key does, for a game that
+  keeps Escape as its own action; it waits out a fade and is dropped
+  after the run's end. `world:quit()` ends the program. `world:to_title()`
   in a run goes back to the title as the pause menu's QUIT TO TITLE does
   (the run ends, `on_level_end("quit")` and `on_world_end("quit")`, a
   score that beats a line asks for initials; this title level again,
@@ -1139,8 +1142,8 @@ also close it.
 On the game's own title only `restart`, `load` and `new_game` ask (the
 others are mistakes there), and `new_game` nowhere else. `world:open`,
 `world:quit` and `world:to_title` are no asks, nothing of the run:
-anywhere that changes the game (not `on_draw`; `to_title` not on the
-title), taking effect in the window after the tick.
+anywhere that changes the game (not `on_draw`; `to_title` and
+`open("pause")` not on the title), taking effect in the window after the tick.
 
 A mistake here names the handler and the line. A level that asks to be
 left in `on_level_start` again and again (a hub that sends on, a loop

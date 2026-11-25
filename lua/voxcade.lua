@@ -288,7 +288,7 @@ function World:lose(options) end
 ---@param options? LevelChange
 function World:new_game(options) end
 
----Opens a page of the engine's over the game, the game held while it shows as by the pause: "settings" (SETTINGS: the volumes, the picture, the keys). Closing it goes back to the game. For your own title's menu or pause menu. Only the window opens it: the game plays the same without one (a replay, shot, inspect).
+---Opens a page of the engine's over the game, the game held while it shows as by the pause: "settings" (SETTINGS: the volumes, the picture, the keys), "pause" (the pause page as its own key opens it, SAVE and LOAD where the game has slots). Closing it goes back to the game. For your own title's menu or pause menu, and for a game that keeps Escape for itself. Only the window opens it: the game plays the same without one (a replay, shot, inspect, the IDE's PLAY), and in a network game nothing opens. On your game's own title "pause" is a mistake.
 ---@param page string
 function World:open(page) end
 
