@@ -297,6 +297,9 @@ impl<A: Copy + PartialEq + std::fmt::Debug> Guest<A> {
         match kind {
             Kind::Refused => {
                 if let (Stage::Joining { .. }, Ok(why)) = (&self.stage, wire::read_refused(&mut r)) {
+                    // A host of another version refuses by the version it
+                    // speaks, whatever its words (a 0.6 host's are English).
+                    let why = if wire::version_of(datagram) != Some(wire::VERSION) { wire::VERSION_REFUSAL.to_string() } else { why };
                     self.stage = Stage::Gone(Gone::Refused(why));
                 }
             }

@@ -537,6 +537,13 @@ impl Here {
     }
 }
 
+/// What a host says to a HELLO of another version, in plain ASCII for a
+/// program of any version to show (a 0.6 guest shows it in capitals); a
+/// guest of this one knows such a refusal by the version in its header
+/// (`open` lets a `Refused` through) and shows it in its own language
+/// (`Joining::state`, "EVERY MACHINE NEEDS THE SAME VOXCADE VERSION").
+pub const VERSION_REFUSAL: &str = "every machine needs the same Voxcade version";
+
 /// Why a HELLO was not taken, for people.
 pub fn refused(reason: &str) -> Vec<u8> {
     let mut w = Writer::new(Kind::Refused, 0);

@@ -686,8 +686,7 @@ impl<A: Copy + Ord + std::fmt::Debug> Host<A> {
         }
         if kind == Kind::Hello {
             if wire::version_of(datagram) != Some(wire::VERSION) {
-                let why = format!("this game speaks the network's version {}, that program another: the same build on every machine", wire::VERSION);
-                self.refuse_to(now, from, &why);
+                self.refuse_to(now, from, wire::VERSION_REFUSAL);
                 return;
             }
             if let Ok(hello) = Hello::read(&mut r) {

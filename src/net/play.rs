@@ -725,6 +725,7 @@ impl<G: Game, A: Copy + PartialEq + std::fmt::Debug> Joining<G, A> {
             Some(Gone::HostLeft) if self.guest.in_hand() == 0 => return Joined::Gone("THE HOST LEFT".into()),
             Some(Gone::HostLeft) | None => {}
             Some(Gone::NoAnswer) => return Joined::Gone("NO ANSWER FROM THE HOST".into()),
+            Some(Gone::Refused(why)) if why == wire::VERSION_REFUSAL => return Joined::Gone("EVERY MACHINE NEEDS THE SAME VOXCADE VERSION".into()),
             Some(Gone::Refused(why)) => return Joined::Gone(why.to_uppercase()),
             Some(Gone::CannotKeepUp) => return Joined::Gone("THIS MACHINE CANNOT KEEP UP".into()),
             Some(Gone::Left) => return Joined::Gone("YOU LEFT".into()),

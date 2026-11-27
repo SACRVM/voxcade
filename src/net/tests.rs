@@ -422,6 +422,41 @@ fn refusals_are_forgotten_and_closed() {
     assert!(host.to_close(70_000_000).is_empty(), "each once");
 }
 
+/// A machine of another network version is refused in plain ASCII words a
+/// program of any version can show; a guest of this version knows a
+/// refusal from a host of another one by the version in its header (a 0.6
+/// host's words were English and long) and shows the sentence translated;
+/// a refusal for any other reason shows its own words as before.
+#[test]
+fn a_refusal_for_another_version_is_told_in_plain_words_and_translates() {
+    let mut host: Host<usize> = Host::new(7, "host", 2);
+    let mut other = Hello { id: [1; 16], nonce: 1, name: "old".into(), commit: "x".into() }.write();
+    other[3] = wire::VERSION + 1;
+    host.receive(1_000, 10, &other);
+    let out = host.outgoing(1_000);
+    let (_, d) = out.iter().find(|(to, d)| *to == 10 && matches!(wire::open(d), Ok((Kind::Refused, ..)))).expect("it is refused");
+    let said = wire::read_refused(&mut wire::open(d).unwrap().2).unwrap();
+    assert_eq!(said, wire::VERSION_REFUSAL);
+    assert!(said.is_ascii() && said.len() < 60, "{said}");
+
+    // The guest of the other version meets a host of this one's, or a 0.6
+    // host with the old sentence: the version in the header says it.
+    let refused_by = |version: u8, words: &str| {
+        let mut guest: Guest<usize> = Guest::new(1, [2; 16], 5, "anna", "x", 0);
+        let mut datagram = wire::refused(words);
+        datagram[3] = version;
+        guest.receive(10, 1, &datagram);
+        guest.gone().cloned()
+    };
+    let old = "this game speaks the network's version 1, that program another: the same build on every machine";
+    assert_eq!(refused_by(wire::VERSION + 1, old), Some(Gone::Refused(wire::VERSION_REFUSAL.into())));
+    assert_eq!(refused_by(wire::VERSION, "the game is full"), Some(Gone::Refused("the game is full".into())), "another reason, its own words");
+    let shown = "EVERY MACHINE NEEDS THE SAME VOXCADE VERSION";
+    assert_eq!(shown, wire::VERSION_REFUSAL.to_uppercase(), "what the window shows is the sentence");
+    assert_eq!(crate::lang::say_line("de", shown), "ALLE MASCHINEN BRAUCHEN DIESELBE VOXCADE-VERSION");
+    assert!(crate::lang::say_line("fr", shown).starts_with("CHAQUE MACHINE"));
+}
+
 /// A HELLO with a playing machine's id and a new nonce (its id read off
 /// the LAN, sent from elsewhere) kicks nobody while the machine is heard;
 /// once it has been silent a moment (it started again), the new one takes
