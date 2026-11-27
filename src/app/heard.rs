@@ -41,7 +41,7 @@ impl Heard {
             Opening::Run => front.straight_in(),
         }
         let mut settings = Settings::default();
-        settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
+        settings.adopt(game.actions(), &game.default_keys(), &game.default_pad(), game.has_pointer());
         Ok(Self { front, settings, mixer: Mixer::default(), samples: Vec::new() })
     }
 

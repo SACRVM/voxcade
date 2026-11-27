@@ -101,7 +101,7 @@ impl<G: Game> Play<G> {
         let mut game = Session::<G>::load_with(dir, Slots::on_disk(dir))?;
         begin(&mut game, scenario)?;
         let mut settings = Settings::load(&crate::settings::path_for(dir));
-        settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
+        settings.adopt(game.actions(), &game.default_keys(), &game.default_pad(), game.has_pointer());
         settings.offer_languages(&game.cfg.languages);
         settings.system_languages = crate::settings::system_languages();
         crate::controls::label_keys(&mut settings);
@@ -1048,7 +1048,7 @@ mod tests {
         use crate::controls::Bindings;
         use crate::seating::Keys;
         let mut settings = Settings::default();
-        settings.adopt(&["jump", "fire", "bomb"], &Bindings::new(&[("jump", &["Z"]), ("fire", &["X"])]), &Bindings::new(&[("jump", &["south"])]));
+        settings.adopt(&["jump", "fire", "bomb"], &Bindings::new(&[("jump", &["Z"]), ("fire", &["X"])]), &Bindings::new(&[("jump", &["south"])]), false);
         settings.key_names.insert("Z".into(), "Y".into());
         let line = |seat| keys_of(&["jump", "fire", "bomb"], seat, &settings).into_iter().map(|(a, k)| format!("{a} {k}")).collect::<Vec<_>>();
         assert_eq!(line(Keys::Whole), ["MOVE ARROWS", "JUMP Y", "FIRE X"]);

@@ -1015,7 +1015,7 @@ mod tests {
     #[test]
     fn the_players_page_steers_each_seat() {
         let mut s = Settings::default();
-        s.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad());
+        s.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad(), false);
         let seats = vec![SeatLine { keyboard: Keys::Left, pad: String::new(), taken: true }, SeatLine { keyboard: Keys::Right, pad: "Pad".into(), taken: true }];
         let mut m = Menu::title().with_seats(seats.clone());
         assert_eq!(m.items(Page::Title, &s), [Item::Start, Item::Settings, Item::Quit], "the title as in a game of one");
@@ -1195,7 +1195,7 @@ mod tests {
     #[test]
     fn rebinding_waits_for_a_press() {
         let mut s = Settings::default();
-        s.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad());
+        s.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad(), false);
         let mut m = Menu { stack: vec![(Page::Controls, 2)], ..Menu::default() };
         m.nav(Nav::Confirm, &mut s);
         assert_eq!(m.rebinding, Some("jump"));

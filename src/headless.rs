@@ -499,7 +499,7 @@ fn shot_options_agree(opts: &ShotOptions) -> Result<()> {
 /// and languages (`shot`, `inspect`).
 fn game_settings<G: Game>(game: &Session<G>) -> Settings {
     let mut settings = Settings::default();
-    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
+    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad(), game.has_pointer());
     settings.offer_languages(&game.cfg.languages);
     settings
 }

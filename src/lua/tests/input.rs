@@ -56,7 +56,7 @@ fn a_replay_carries_the_controls() {
     let dir = folder("controls-replay", main);
     let mut g = game_in(&dir);
     let mut settings = crate::settings::Settings::default();
-    settings.adopt(g.actions(), &g.default_keys(), &g.default_pad());
+    settings.adopt(g.actions(), &g.default_keys(), &g.default_pad(), g.has_pointer());
     let mut recorder = Recorder::default();
     for tick in 0..360 {
         let device = if (120..320).contains(&tick) { Device::Gamepad } else { Device::Keyboard };
@@ -276,7 +276,8 @@ fn a_direction_may_state_what_walks_it_and_nothing_else() {
 
 /// A player's settings with names no longer there (an action the game
 /// dropped, a key and a button no names) start the game as before: only
-/// the game's own `conf.lua` is checked, and the stale names do nothing.
+/// the game's own `conf.lua` is checked, and the stale names give way
+/// quietly to the game's own (`Settings::adopt`).
 #[test]
 fn a_stale_name_in_the_settings_starts_the_game() {
     let dir = binding("stale-settings", "  c.keys.act = { \"Space\" }\n  c.pad.act = { \"south\" }");
@@ -285,8 +286,9 @@ fn a_stale_name_in_the_settings_starts_the_game() {
     let (mut settings, trouble) = crate::settings::Settings::load_for(&file, false);
     assert_eq!(trouble, None);
     let mut g = game_in(&dir);
-    settings.adopt(g.actions(), &g.default_keys(), &g.default_pad());
-    assert_eq!((settings.keys.get("act"), settings.pad.get("act")), (&["Retrun".to_string()][..], &["a".to_string()][..]), "the player's own, kept");
+    settings.adopt(g.actions(), &g.default_keys(), &g.default_pad(), g.has_pointer());
+    assert_eq!((settings.keys.get("act"), settings.pad.get("act")), (&["Space".to_string()][..], &["south".to_string()][..]), "the game's own");
+    assert!(settings.keys.get("ghost").is_empty() && settings.pad.get("ghost").is_empty());
     steps(&mut g, 2);
     assert_eq!(halted(&g), "");
 }

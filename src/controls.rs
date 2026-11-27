@@ -164,6 +164,19 @@ impl Bindings {
         self.0.is_empty()
     }
 
+    /// Keeps only the actions of `actions` whose every key or button is
+    /// one `named` knows; the rest go (an action gone, a name that would do
+    /// nothing).
+    pub fn keep(&mut self, actions: &[&str], named: impl Fn(&str) -> bool) {
+        self.0.retain(|a, names| actions.contains(&a.as_str()) && names.iter().all(|n| named(n)));
+    }
+
+    /// Keeps only what differs from `game`'s (the player's own choices,
+    /// an action left with none among them).
+    pub fn keep_changed(&mut self, game: &Bindings) {
+        self.0.retain(|a, names| game.0.get(a) != Some(names));
+    }
+
     /// Every key or button named in it.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.0.values().flatten().map(String::as_str)
@@ -336,6 +349,17 @@ fn not_walking(table: &str, way: usize, name: &str) -> String {
     format!("\"{name}\" does not walk {dir}: {walk}, and a game's conf.lua cannot give the four directions other keys or buttons (stating those is fine); to have \"{name}\" do something, bind it to an action of your own (c.actions){players}")
 }
 
+/// Whether `name` is a key the engine reads: SDL's, or the mouse's
+/// (`input::MOUSE_KEYS`) in a game with a `pointer`.
+pub fn names_a_key(name: &str, pointer: bool) -> bool {
+    Scancode::from_name(name).is_some() || (pointer && crate::input::MOUSE_KEYS.contains(&name.to_lowercase().as_str()))
+}
+
+/// Whether `name` is a pad's button or trigger (`pad_names`).
+pub fn names_a_button(name: &str) -> bool {
+    pad_names().any(|n| n == name)
+}
+
 /// The letters on an Xbox pad's face buttons and where they lie (a
 /// Nintendo pad has them the other way round).
 const XBOX_LETTERS: [(&str, &str); 4] = [("a", "south"), ("b", "east"), ("x", "west"), ("y", "north")];
@@ -385,8 +409,7 @@ pub fn dead_bindings(keys: &Bindings, pad: &Bindings, actions: &[&str], pointer:
             for name in names {
                 // A direction may state what walks it anyway, nothing else.
                 if let Some(way) = way {
-                    let small = name.to_lowercase();
-                    let named = if table == "pad" { pads.contains(&name.as_str()) } else { Scancode::from_name(name).is_some() || (pointer && mouse.contains(&small.as_str())) };
+                    let named = if table == "pad" { names_a_button(name) } else { names_a_key(name, pointer) };
                     if named {
                         if !walks(table, way, name) {
                             out.push(dead(Some(name), not_walking(table, way, name)));

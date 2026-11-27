@@ -159,7 +159,7 @@ mod tests {
         use crate::controls::PadStyle;
         use crate::menu::Page;
         let mut settings = Settings::default();
-        settings.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad());
+        settings.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad(), false);
         let mut texts: Vec<String> = Vec::new();
         for page in [Page::Title, Page::Pause, Page::Settings, Page::Audio, Page::Video, Page::Controls, Page::Initials, Page::HighScores] {
             texts.push(page.heading().to_string());

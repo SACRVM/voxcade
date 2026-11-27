@@ -218,7 +218,7 @@ pub fn run<G: Game>(dir: &Path, options: RunOptions) -> Result<()> {
 
     let settings_path = settings::path_for(dir);
     let (mut settings, settings_trouble) = Settings::load_for(&settings_path, integrated);
-    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad());
+    settings.adopt(game.actions(), &game.default_keys(), &game.default_pad(), game.has_pointer());
     // The window's player speaks the system's language where the game does.
     settings.system_languages = settings::system_languages();
     if settings.adopt_scores(&game.cfg.high_scores) && let Err(e) = settings.save(&settings_path) {

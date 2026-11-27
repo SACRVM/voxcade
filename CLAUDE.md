@@ -1610,8 +1610,8 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   without `c.pointer`, a button none of `controls::pad_names` (the names
   `pad_held` reads and `voxcade api c.pad` says; "a", "b", "x", "y" told
   which place the Xbox pad's letter is, a Nintendo pad's lying the
-  other way round); a player's settings file is never checked, a stale
-  name there doing nothing as before; the upgrade step "key and button
+  other way round); a player's settings file is never a mistake, a stale
+  name there giving way quietly; the upgrade step "key and button
   names checked" names each by its line and changes nothing (tests
   `a_button_the_engine_does_not_know_is_a_mistake`,
   `a_key_the_engine_does_not_know_is_a_mistake`,
@@ -1619,7 +1619,23 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_direction_may_state_what_walks_it_and_nothing_else`,
   `a_stale_name_in_the_settings_starts_the_game`,
   `the_api_says_the_names_of_the_buttons_and_the_mouse`,
-  `dead_bindings_are_named_never_changed`). A Lua game names them too (`controls.device`, the
+  `dead_bindings_are_named_never_changed`). The player's settings keep
+  only the bindings the player changed (`Settings::save` through
+  `as_kept`: the keys, the pad and the halves compared with the game's
+  own `adopt` took, an action left with none written empty and read
+  back so; the seats' own pads whole), so a change to `c.keys` or `c.pad`
+  reaches every player who did not rebind that action (a pad's "a"
+  saved whole on 2026-11-25 kept a game's mended "south" from ever
+  arriving); `adopt` (told whether the game points: the mouse's keys)
+  drops what the file kept for an action the game no longer has or
+  naming a key or button the engine does not read (`Bindings::keep`,
+  `controls::names_a_key`, `names_a_button`), the action taking the
+  game's own; a file an older Voxcade wrote whole loads as before, what
+  equals the game's own today going at the next save, what differs
+  staying as the player's (RESET clears it) (tests
+  `a_saved_binding_the_engine_does_not_know_gives_way_to_the_games`,
+  `only_the_players_own_bindings_are_saved`,
+  `a_settings_file_of_every_binding_plays_as_before`). A Lua game names them too (`controls.device`, the
   device used last; `controls:key(action)`; in a text the action in
   braces, `frame:text("{undo} UNDO")`, drawn as the key's small sign
   where the engine has one, else its name, `{undo:name}` always the name:

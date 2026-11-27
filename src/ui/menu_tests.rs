@@ -10,7 +10,7 @@ fn settings_for(actions: &[&'static str]) -> Settings {
     let mut s = Settings::default();
     let keys: Vec<(&str, &[&str])> = actions.iter().map(|&a| (a, &["Z"][..])).collect();
     let pad: Vec<(&str, &[&str])> = actions.iter().map(|&a| (a, &["south"][..])).collect();
-    s.adopt(actions, &Bindings::new(&keys), &Bindings::new(&pad));
+    s.adopt(actions, &Bindings::new(&keys), &Bindings::new(&pad), false);
     s
 }
 

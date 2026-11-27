@@ -126,7 +126,7 @@ mod tests {
     /// pad's `previous` has the north button.
     fn settings_of_a_game_with_p() -> Settings {
         let mut settings = Settings::default();
-        settings.adopt(&["previous"], &Bindings::new(&[("previous", &["P"])]), &Bindings::new(&[("previous", &["north"])]));
+        settings.adopt(&["previous"], &Bindings::new(&[("previous", &["P"])]), &Bindings::new(&[("previous", &["north"])]), false);
         settings
     }
 
@@ -138,7 +138,7 @@ mod tests {
     fn pausing_gives_way_to_the_games_keys() {
         let plain = {
             let mut settings = Settings::default();
-            settings.adopt(&["fire"], &Bindings::new(&[("fire", &["Z"])]), &Bindings::new(&[("fire", &["south"])]));
+            settings.adopt(&["fire"], &Bindings::new(&[("fire", &["Z"])]), &Bindings::new(&[("fire", &["south"])]), false);
             settings
         };
         assert_eq!(play_key(Scancode::P, &plain, false, false), PlayKey::Pause, "P pauses a game that leaves it");

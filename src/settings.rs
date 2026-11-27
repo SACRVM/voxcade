@@ -283,10 +283,23 @@ impl Default for Settings {
 
 impl Settings {
     /// Takes on the game's actions (besides pause) and their keys and
-    /// buttons to start with; what the player bound stays, but pausing
-    /// gives way to the game's actions.
-    pub fn adopt(&mut self, actions: &[&'static str], keys: &Bindings, pad: &Bindings) {
+    /// buttons to start with (`pointer`: the game has one, the mouse's
+    /// keys are keys); what the player bound stays, but pausing gives way
+    /// to the game's actions. A binding kept for an action the game has
+    /// no more, or naming a key or button the engine does not read (a
+    /// game's own once, `controls::dead_bindings`), goes quietly: the
+    /// action takes the game's own.
+    pub fn adopt(&mut self, actions: &[&'static str], keys: &Bindings, pad: &Bindings, pointer: bool) {
+        use crate::input::DIRECTIONS;
         self.actions = actions.iter().copied().chain([crate::controls::PAUSE]).collect();
+        let known: Vec<&str> = self.actions.iter().copied().chain(DIRECTIONS).collect();
+        let key = |n: &str| crate::controls::names_a_key(n, pointer);
+        for b in [&mut self.keys, &mut self.left_keys, &mut self.right_keys] {
+            b.keep(&known, key);
+        }
+        for b in std::iter::once(&mut self.pad).chain(self.seat_pads.values_mut()) {
+            b.keep(&known, crate::controls::names_a_button);
+        }
         self.default_keys = keys.clone();
         self.default_keys.fill(&Bindings::pause_keys());
         self.default_pad = pad.clone();
@@ -296,9 +309,11 @@ impl Settings {
         for b in [&mut self.default_keys, &mut self.default_pad, &mut self.keys, &mut self.pad] {
             b.pause_gives_way();
         }
+        for b in self.seat_pads.values_mut() {
+            b.fill(&self.pad);
+        }
         // The keyboard's halves: their directions, the game's actions in
         // order, their pause.
-        use crate::input::DIRECTIONS;
         use crate::seating::{KEYBOARD_START, LEFT_HALF, LEFT_PAUSE, RIGHT_HALF};
         let half = |(dirs, keys): ([&str; 4], [&str; 6]), pause: &str| {
             let mut b = Bindings::default();
@@ -511,8 +526,25 @@ impl Settings {
     /// Written beside and moved over (`blocks::save_at_once`): a crash or a
     /// full disk leaves the old file, never half of one.
     pub fn save(&self, path: &Path) -> Result<()> {
-        let text = toml::to_string_pretty(self).context("writing settings")?;
+        let text = toml::to_string_pretty(&self.as_kept()).context("writing settings")?;
         crate::blocks::save_at_once(path, text.as_bytes())
+    }
+
+    /// The settings as their file keeps them: of the keys and buttons only
+    /// what the player changed from the game's own (`adopt`'s, the whole
+    /// keyboard's, the pad's and the halves'), an action left with none
+    /// among them, so a change to `c.keys` or `c.pad` reaches every player
+    /// who did not rebind that action. An older Voxcade wrote every
+    /// binding: those equal to the game's own today go at the next save,
+    /// those that differ cannot be told from a player's choice and stay
+    /// (RESET clears them). The seats' own pads stay whole.
+    fn as_kept(&self) -> Settings {
+        let mut kept = self.clone();
+        kept.keys.keep_changed(&self.default_keys);
+        kept.pad.keep_changed(&self.default_pad);
+        kept.left_keys.keep_changed(&self.default_halves.0);
+        kept.right_keys.keep_changed(&self.default_halves.1);
+        kept
     }
 
     /// What of the player's settings the game itself follows.
@@ -601,7 +633,7 @@ mod tests {
         std::fs::write(&path, "music = 5\n").unwrap();
         let mut old = Settings::load(&path);
         assert_eq!(old.music, 5);
-        old.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad());
+        old.adopt(&crate::shooter::ACTIONS, &crate::shooter::keys(), &crate::shooter::pad(), false);
         assert_eq!(old.keys.get("jump"), ["Space", "Z"], "the game's keys did not come in");
         assert_eq!(old.keys.get(crate::controls::PAUSE), ["Escape", "P"]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -693,5 +725,106 @@ mod tests {
         assert!(old.adopt_scores(&[]));
         assert_eq!(old.high_scores.iter().find(|h| h.score == 7777).map(|h| h.initials.as_str()), Some("???"));
         assert!(!toml::to_string(&old).unwrap().contains("high_score ="), "the old field is not written again");
+    }
+
+    /// A game of `act`, `click` and `info`, its own keys and buttons (the
+    /// pad's act `pad_act`), adopting the settings at `path`.
+    fn adopted(path: &Path, pad_act: &str) -> Settings {
+        let mut s = Settings::load(path);
+        let keys = Bindings::new(&[("act", &["Space"]), ("click", &["mouse_left"]), ("info", &["I"])]);
+        let pad = Bindings::new(&[("act", &[pad_act]), ("info", &["rightshoulder"])]);
+        s.adopt(&["act", "click", "info"], &keys, &pad, true);
+        s
+    }
+
+    /// The bindings a file names, table by table (`[pad] act = ...`).
+    fn written(path: &Path) -> toml::Table {
+        toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    /// A binding the file kept that would do nothing (a pad's "a", a key's
+    /// slip, the mouse's in a game without a pointer, an action the game
+    /// dropped) goes as the game is adopted, the action taking the game's
+    /// own; a real choice stays; the seats' own pads and the halves alike.
+    #[test]
+    fn a_saved_binding_the_engine_does_not_know_gives_way_to_the_games() {
+        let dir = crate::scratch::Scratch::new("settings-unknown");
+        let path = dir.join("game.toml");
+        std::fs::write(&path, "[keys]\ninfo = [\"Retrun\"]\nghost = [\"G\"]\n\n[pad]\nact = [\"a\"]\ninfo = [\"north\"]\n\n[right_keys]\nact = [\"Lshift\"]\nup = [\"Up\"]\n\n[seat_pads.2]\nact = [\"b\"]\n").unwrap();
+        let s = adopted(&path, "south");
+        assert_eq!(s.pad.get("act"), ["south"], "the pad's \"a\" gave way");
+        assert_eq!(s.pad.get("info"), ["north"], "the player's choice stays");
+        assert_eq!(s.keys.get("info"), ["I"], "a key's slip gave way");
+        assert_eq!(s.keys.get("ghost"), [] as [String; 0], "an action the game dropped");
+        assert_eq!(s.right_keys.get("act"), s.default_halves.1.get("act"), "a half's slip gave way");
+        assert_eq!(s.pad_of(2).get("act"), ["south"], "a seat's own pad");
+        s.save(&path).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("ghost"), "the dropped action is not written again");
+        // The mouse's keys only where the game points.
+        std::fs::write(&path, "[keys]\nact = [\"mouse_right\"]\n").unwrap();
+        assert_eq!(adopted(&path, "south").keys.get("act"), ["mouse_right"]);
+        let mut s = Settings::load(&path);
+        s.adopt(&["act"], &Bindings::new(&[("act", &["Space"])]), &Bindings::default(), false);
+        assert_eq!(s.keys.get("act"), ["Space"]);
+    }
+
+    /// Only what the player changed is written: right after adopting no
+    /// binding at all; a change to the game's own reaches a player who
+    /// never rebound that action and not one who did; RESET writes none
+    /// again; an action left with no key (its key bound to another) is
+    /// written empty and read back so; pausing still gives way.
+    #[test]
+    fn only_the_players_own_bindings_are_saved() {
+        let dir = crate::scratch::Scratch::new("settings-own");
+        let path = dir.join("game.toml");
+        let mut s = adopted(&path, "south");
+        s.save(&path).unwrap();
+        let file = written(&path);
+        for table in ["keys", "pad"] {
+            assert!(file[table].as_table().unwrap().is_empty(), "{table}: {file:?}");
+        }
+        assert!(!file.contains_key("left_keys") && !file.contains_key("right_keys"), "{file:?}");
+        // The game's own changes: it reaches the player.
+        assert_eq!(adopted(&path, "east").pad.get("act"), ["east"]);
+        // A player who rebinds keeps theirs.
+        s.pad.bind("act", "north");
+        s.keys.bind("info", "Space");
+        s.left_keys.bind("act", "Q");
+        s.save(&path).unwrap();
+        let s = adopted(&path, "east");
+        assert_eq!((s.pad.get("act"), s.keys.get("info"), s.left_keys.get("act")), (&["north".to_string(), "south".to_string()][..], &["Space".to_string(), "I".to_string()][..], &["Q".to_string(), "F".to_string()][..]), "the new first");
+        assert_eq!(s.keys.get("act"), [] as [String; 0], "act gave its key to info and stays without");
+        let file = written(&path);
+        assert_eq!(file["keys"].as_table().unwrap().keys().collect::<Vec<_>>(), ["act", "info"], "{file:?}");
+        // RESET: the game's own, nothing written.
+        let mut s = adopted(&path, "east");
+        s.reset_controls();
+        s.reset_seat(1, crate::seating::Keys::Left);
+        s.save(&path).unwrap();
+        let file = written(&path);
+        assert!(file["keys"].as_table().unwrap().is_empty() && file["pad"].as_table().unwrap().is_empty() && !file.contains_key("left_keys"), "{file:?}");
+        // Pausing gives way to the game's keys as ever.
+        let mut s = Settings::load(&path);
+        s.adopt(&["previous"], &Bindings::new(&[("previous", &["P"])]), &Bindings::default(), false);
+        assert_eq!(s.keys.get(crate::controls::PAUSE), ["Escape"]);
+    }
+
+    /// A file an older Voxcade wrote (every binding written out) loads and
+    /// plays as before where its names are known: entries equal to the
+    /// game's own go at the next save, those that differ stay the player's.
+    #[test]
+    fn a_settings_file_of_every_binding_plays_as_before() {
+        let dir = crate::scratch::Scratch::new("settings-old");
+        let path = dir.join("game.toml");
+        std::fs::write(&path, "music = 4\n\n[keys]\nact = [\"Space\"]\nclick = [\"mouse_left\"]\ninfo = [\"I\"]\npause = [\"Escape\", \"P\"]\n\n[pad]\nact = [\"south\"]\ninfo = [\"leftshoulder\"]\npause = [\"start\"]\n").unwrap();
+        let s = adopted(&path, "south");
+        assert_eq!((s.music, s.pad.get("info")), (4, &["leftshoulder".to_string()][..]));
+        assert_eq!(s.keys, s.default_keys);
+        s.save(&path).unwrap();
+        let file = written(&path);
+        assert!(file["keys"].as_table().unwrap().is_empty(), "{file:?}");
+        assert_eq!(file["pad"].as_table().unwrap().keys().collect::<Vec<_>>(), ["info"], "{file:?}");
+        assert_eq!(file["music"].as_integer(), Some(4));
+        assert_eq!(adopted(&path, "south"), s, "the same after the save");
     }
 }
