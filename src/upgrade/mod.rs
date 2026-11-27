@@ -59,10 +59,11 @@ const STEPS: &[Step] = &[
     // it came).
     Step { since: "0.7.0", name: "the title's song named", plan: title_song::plan, apply: title_song::apply, left: None, joins: None },
     Step { since: "0.7.0", name: "see-through colors on the HUD", plan: see_through::plan, apply: see_through::plan, left: None, joins: None },
+    Step { since: "0.7.0", name: "key and button names checked", plan: bindings::plan, apply: bindings::plan, left: None, joins: None },
 ];
 
 /// The steps that only say what the author should change and write nothing.
-const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls", "kinds facing their way", "see-through colors on the HUD"];
+const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls", "kinds facing their way", "see-through colors on the HUD", "key and button names checked"];
 
 impl Step {
     /// Whether a game stating version `made` (None: none) needs the step.
@@ -497,6 +498,11 @@ mod title_song;
 /// literal one by file and line and how to keep the old look; it changes
 /// nothing.
 mod see_through;
+/// Step 0.7.0: a binding of `conf.lua` that would do nothing (an action
+/// the game lacks, a key or button no name of) is a mistake as the game
+/// loads now: the step names each by its line and the name meant where
+/// that is clear; it changes nothing.
+mod bindings;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

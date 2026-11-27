@@ -152,6 +152,13 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
             }),
         ),
         (
+            "key and button names checked",
+            game("step-bindings", &|d| {
+                put(d, "conf.lua", &conf(BINDINGS));
+                put(d, "main.lua", "function on_world_start() end\n");
+            }),
+        ),
+        (
             "worlds and prefabs as text",
             game("step-worlds", &|d| {
                 put(d, "conf.lua", &conf("  c.world.file = \"world.vox\"\n"));
@@ -242,7 +249,7 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
         put(d, "main.lua", "function on_world_start() end\n");
     });
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code", "kinds facing their way", "the title's song named", "see-through colors on the HUD"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code", "kinds facing their way", "the title's song named", "see-through colors on the HUD", "key and button names checked"]);
     assert!(steps[1].would.is_empty(), "no lamps to speak of");
     let e = opens(&dir).unwrap_err().to_string();
     assert!(e.contains("made for Voxcade 0.6.0"), "{e}");
@@ -405,5 +412,41 @@ fn see_through_colors_are_named_never_changed() {
     // Nothing to say without a literal one.
     put(dir, "main.lua", "function on_draw(frame)\n  frame:box(1, 1, 2, 2, { 10, 20, 30 })\n  frame:box(1, 1, 2, 2, shade)\nend\n");
     put(dir, "conf.lua", "function conf(c)\n  c.voxcade = \"0.5.0\"\nend\n");
+    assert!((step.plan)(dir).unwrap().is_empty());
+}
+
+/// Bindings of every kind that did nothing in 0.6: a pad's letters, a
+/// typo of a button and of a key, an action the game lacks; the rest work.
+const BINDINGS: &str = "  c.actions = { \"act\", \"back\", \"info\" }
+  c.keys = { act = { \"Space\" }, back = { \"Retrun\", \"X\" } }
+  c.keys.ghost = { \"G\" }
+  c.pad = {
+    act = { \"a\" },
+    back = { \"east\" },
+    info = { \"rightshoulde\" },
+  }
+";
+
+/// The step names each binding that did nothing by its line, the Xbox
+/// pad's letter with the place it means and a typo with the name meant,
+/// says once what to do, and changes nothing; a game whose bindings all
+/// work has nothing to change.
+#[test]
+fn dead_bindings_are_named_never_changed() {
+    let games = old_games();
+    let (_, dir) = games.iter().find(|(n, _)| *n == "key and button names checked").unwrap();
+    let step = STEPS.iter().find(|s| s.name == "key and button names checked").unwrap();
+    let before = files(dir);
+    let planned = (step.plan)(dir).unwrap();
+    assert_eq!(planned, (step.apply)(dir).unwrap());
+    assert_eq!(files(dir), before);
+    let at = |prefix: &str, words: &str| planned.iter().any(|l| l.starts_with(prefix) && l.contains(words));
+    assert!(at("conf.lua:4: c.keys.back: \"Retrun\"", "(did you mean \"Return\"?)"), "{planned:#?}");
+    assert!(at("conf.lua:5: c.keys.ghost:", "the game has no action ghost"), "{planned:#?}");
+    assert!(at("conf.lua:7: c.pad.act: \"a\"", "the Xbox pad's A is \"south\""), "{planned:#?}");
+    assert!(at("conf.lua:9: c.pad.info: \"rightshoulde\"", "(did you mean \"rightshoulder\"?)"), "{planned:#?}");
+    assert_eq!(planned.len(), 5, "the four, and what to do once: {planned:#?}");
+    assert!(planned[4].contains("nothing here is changed"), "{planned:#?}");
+    put(dir, "conf.lua", "function conf(c)\n  c.voxcade = \"0.5.0\"\n  c.actions = { \"act\" }\n  c.keys.act = { \"Space\" }\n  c.pad.act = { \"south\", \"righttrigger\" }\nend\n");
     assert!((step.plan)(dir).unwrap().is_empty());
 }

@@ -254,6 +254,12 @@ settings. Several players: `player` is seat 1, the others are in
     click shorter than a tick still holds its tick; a wheel's notch is one
     press, several queued one a tick with a tick between, none lost (over
     the network two readings a tick merge as keys do).
+  - Since 0.7 a binding of `c.keys` or `c.pad` that would do nothing is
+    a mistake as the game loads, naming it and the name meant: an action
+    the game lacks, a key SDL does not name, a pad's button by a letter
+    ("a" for "south": buttons go by where they lie, the letters differ
+    from pad to pad) or a slip. A player's settings are not checked. The
+    upgrade step "key and button names checked" names each by its line.
   - `input.typed` while the player types (`player.state.typing = true`,
     `p.state.typing`, the engine's key of a player's state, nil until
     set): `text` (only the signs the small letters write, at most 8 bytes

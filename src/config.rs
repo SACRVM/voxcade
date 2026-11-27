@@ -59,11 +59,9 @@ pub struct GameConfig {
     /// A Lua game's actions besides the four directions (a kit brings its
     /// own), and the keys and gamepad buttons bound to them at first.
     pub actions: Vec<String>,
-    /// The keys bound to each action at first, by their US names
-    /// (`c.keys.jump = { "Z" }`); the player may change them.
+    /// The keys bound to each action at first, by their names on a US keyboard as SDL writes them (`c.keys.jump = { "Z", "Space" }`, "Left Shift", "Return"); the player may change them. With `c.pointer` the mouse's too: mouse_left, mouse_right, mouse_middle, wheel_up, wheel_down. A name that is no key's, or an action the game lacks, is a mistake.
     pub keys: crate::controls::Bindings,
-    /// The gamepad's buttons bound to each action at first
-    /// (`c.pad.jump = { "A" }`).
+    /// The gamepad's buttons bound to each action at first, by where they lie, as the letters on them differ from pad to pad (`c.pad.jump = { "south" }`: an Xbox pad's A, a Nintendo pad's B). The names: south, east, west, north, leftshoulder, rightshoulder, leftstick, rightstick, start, back, dpup, dpdown, dpleft, dpright, lefttrigger, righttrigger. Another name is a mistake.
     pub pad: crate::controls::Bindings,
     /// No more: `frame:model` draws any model file of the game by its
     /// path, loaded when it is first drawn. Kept to say so to a `conf.lua`

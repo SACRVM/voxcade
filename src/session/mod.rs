@@ -431,11 +431,14 @@ pub fn config_in<G: Game>(files: &Files) -> Result<GameConfig> {
     if cfg.models.is_some() {
         anyhow::bail!("c.models is no more: frame:model draws any model file of the game by its path (\"sheet.vvx\", \"props/sheet.vvx\"), loaded when it is first drawn; take the c.models lines out (`voxcade upgrade {}` does it)", files.dir().display());
     }
-    // The mouse's buttons and wheel are keys only where it points.
-    if cfg.pointer.is_none()
-        && let Some((action, key)) = cfg.keys.pairs().find(|(_, k)| crate::input::MOUSE_KEYS.contains(&k.to_lowercase().as_str()))
+    // A binding that would do nothing (an action the game lacks, a key or
+    // button no name of; the mouse's buttons and wheel are keys only where
+    // it points). A kit that could not read its actions says why later.
+    let actions = G::actions(&cfg);
+    if (!actions.is_empty() || cfg.kit.is_none())
+        && let Some(dead) = crate::controls::dead_bindings(&cfg.keys, &cfg.pad, &actions, cfg.pointer.is_some()).first()
     {
-        anyhow::bail!("c.keys.{action}: \"{key}\" is the mouse's, and the game has no pointer: c.pointer = \"system\" (the system's arrow) or \"own\" (the game draws its own) in conf.lua");
+        anyhow::bail!("conf.lua: {}", dead.said());
     }
     // A pad's stick moves a pointer only the game draws.
     if cfg.pointer_stick.is_some() && cfg.pointer != Some(crate::config::PointerStyle::Own) {

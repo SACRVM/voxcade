@@ -186,3 +186,91 @@ fn every_games_keys_are_keys() {
     }
     assert!(seen > 20, "{seen} keys looked at");
 }
+
+/// A game folder whose `conf.lua` binds `bindings` over two actions.
+fn binding(name: &str, bindings: &str) -> crate::scratch::Scratch {
+    let dir = crate::scratch::Scratch::new(&format!("lua-{name}"));
+    std::fs::write(dir.join("conf.lua"), format!("function conf(c)\n  c.world.size = {{ 64, 64, 16 }}\n  c.player.spawn = {{ 32, 32 }}\n  c.actions = {{ \"act\", \"prev\" }}\n{bindings}\nend\n")).unwrap();
+    std::fs::write(dir.join("main.lua"), "").unwrap();
+    dir
+}
+
+/// A pad's button the engine does not know is a mistake as the game
+/// loads, naming the binding: the Xbox pad's letters with the place each
+/// means (buttons go by where they lie), a slip with the name meant, and
+/// the names there are, `controls::pad_names`, which `pad_held` reads.
+#[test]
+fn a_button_the_engine_does_not_know_is_a_mistake() {
+    let e = start_error(&binding("pad-a", "  c.pad = { act = { \"a\" }, prev = { \"east\" } }"));
+    assert!(e.starts_with("conf.lua: c.pad.act: \"a\" is no button's name: a pad's buttons go by where they lie"), "{e}");
+    assert!(e.contains("so the Xbox pad's A is \"south\"") && e.contains("a Nintendo pad has its letters the other way round"), "{e}");
+    let names: Vec<&str> = crate::controls::pad_names().collect();
+    assert!(e.ends_with(&format!("the names: {}", names.join(", "))), "{e}");
+    for (letter, at) in [("b", "east"), ("x", "west"), ("y", "north"), ("A", "south")] {
+        let e = start_error(&binding("pad-letter", &format!("  c.pad.act = {{ \"{letter}\" }}")));
+        assert!(e.contains(&format!("so the Xbox pad's {} is \"{at}\"", letter.to_uppercase())), "{e}");
+    }
+    let e = start_error(&binding("pad-slip", "  c.pad.prev = { \"south\", \"leftshoulde\" }"));
+    assert!(e.starts_with("conf.lua: c.pad.prev: \"leftshoulde\" is no button's name (did you mean \"leftshoulder\"?)"), "{e}");
+    // Every name there is loads, the triggers too.
+    let all = names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(", ");
+    assert_eq!(start_error(&binding("pad-all", &format!("  c.pad.act = {{ {all} }}"))), "");
+    assert_eq!(names.len(), 16);
+}
+
+/// `voxcade api c.pad` says every name a pad's button has, in the order
+/// a mistake lists them (`controls::pad_names`), and `c.keys` the mouse's.
+#[test]
+fn the_api_says_the_names_of_the_buttons_and_the_mouse() {
+    let keys = crate::lua::api::conf_keys("GameConfig");
+    let doc = |key: &str| keys.iter().find(|k| k.key == key).map(|k| k.doc.clone()).unwrap();
+    let names: Vec<&str> = crate::controls::pad_names().collect();
+    assert!(doc("pad").contains(&format!("The names: {}.", names.join(", "))), "{}", doc("pad"));
+    assert!(doc("keys").contains(&crate::input::MOUSE_KEYS.join(", ")), "{}", doc("keys"));
+}
+
+/// A key the engine does not know is a mistake as the game loads, naming
+/// the binding and the key meant (SDL's name, any case); the mouse's keys
+/// with a pointer only.
+#[test]
+fn a_key_the_engine_does_not_know_is_a_mistake() {
+    let e = start_error(&binding("key-slip", "  c.keys = { act = { \"Space\", \"Retrun\" } }"));
+    assert!(e.starts_with("conf.lua: c.keys.act: \"Retrun\" is no key's name (did you mean \"Return\"?): keys go by their names on a US keyboard"), "{e}");
+    assert!(!e.contains("mouse_left"), "no pointer, no mouse: {e}");
+    let e = start_error(&binding("key-escape", "  c.keys.prev = { \"escpe\" }"));
+    assert!(e.contains("\"escpe\" is no key's name (did you mean \"Escape\"?)"), "{e}");
+    let e = start_error(&binding("key-mouse", "  c.pointer = \"own\"\n  c.keys.act = { \"mouse_lft\" }"));
+    assert!(e.contains("(did you mean \"mouse_left\"?)") && e.contains("or the mouse's: mouse_left, mouse_right"), "{e}");
+    assert_eq!(start_error(&binding("key-fine", "  c.pointer = \"own\"\n  c.keys = { act = { \"left shift\", \"Return\", \"mouse_left\" }, prev = { \"Z\" } }")), "");
+}
+
+/// A binding of an action the game lacks (`c.actions`, a kit's, `pause`)
+/// or of a direction (walked with the arrows, WASD, a stick and the d-pad)
+/// did nothing: it is a mistake as the game loads, naming the action meant.
+#[test]
+fn an_action_the_game_lacks_is_a_mistake() {
+    let e = start_error(&binding("action-slip", "  c.keys.prv = { \"Q\" }"));
+    assert_eq!(e, "conf.lua: c.keys.prv: the game has no action prv (did you mean prev?); its actions: act, prev, pause (c.actions names its own)");
+    let e = start_error(&binding("action-pad", "  c.pad.jump = { \"south\" }"));
+    assert!(e.starts_with("conf.lua: c.pad.jump: the game has no action jump"), "{e}");
+    let e = start_error(&binding("action-way", "  c.keys.left = { \"J\" }"));
+    assert!(e.starts_with("conf.lua: c.keys.left: the four directions are no binding"), "{e}");
+    assert_eq!(start_error(&binding("action-pause", "  c.keys.pause = { \"Q\" }\n  c.pad.pause = { \"back\" }")), "");
+}
+
+/// A player's settings with names no longer there (an action the game
+/// dropped, a key and a button no names) start the game as before: only
+/// the game's own `conf.lua` is checked, and the stale names do nothing.
+#[test]
+fn a_stale_name_in_the_settings_starts_the_game() {
+    let dir = binding("stale-settings", "  c.keys.act = { \"Space\" }\n  c.pad.act = { \"south\" }");
+    let file = dir.join("settings.toml");
+    std::fs::write(&file, "[keys]\nact = [\"Retrun\"]\nghost = [\"G\"]\n\n[pad]\nact = [\"a\"]\nghost = [\"south\"]\n").unwrap();
+    let (mut settings, trouble) = crate::settings::Settings::load_for(&file, false);
+    assert_eq!(trouble, None);
+    let mut g = game_in(&dir);
+    settings.adopt(g.actions(), &g.default_keys(), &g.default_pad());
+    assert_eq!((settings.keys.get("act"), settings.pad.get("act")), (&["Retrun".to_string()][..], &["a".to_string()][..]), "the player's own, kept");
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+}

@@ -1598,7 +1598,24 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   names (More Blood's Z and X side by side on any layout); the menus label
   them as the keyboard in use does (`Settings::key_names`: a German
   keyboard's Y for the bindings' Z), and typed initials are the letters
-  the keys say. A Lua game names them too (`controls.device`, the
+  the keys say. A binding of the game's own `conf.lua` that would do
+  nothing is a mistake as it loads (`controls::dead_bindings`, in
+  `session::config_in`; a gamepad bound a pad's "a" once and nothing
+  said so): an action the game lacks (`c.actions`, a kit's, `pause`; a
+  direction, which the arrows, WASD, a stick and the d-pad walk), a key
+  SDL does not name (the one meant within two letters), the mouse's
+  without `c.pointer`, a button none of `controls::pad_names` (the names
+  `pad_held` reads and `voxcade api c.pad` says; "a", "b", "x", "y" told
+  which place the Xbox pad's letter is, a Nintendo pad's lying the
+  other way round); a player's settings file is never checked, a stale
+  name there doing nothing as before; the upgrade step "key and button
+  names checked" names each by its line and changes nothing (tests
+  `a_button_the_engine_does_not_know_is_a_mistake`,
+  `a_key_the_engine_does_not_know_is_a_mistake`,
+  `an_action_the_game_lacks_is_a_mistake`,
+  `a_stale_name_in_the_settings_starts_the_game`,
+  `the_api_says_the_names_of_the_buttons_and_the_mouse`,
+  `dead_bindings_are_named_never_changed`). A Lua game names them too (`controls.device`, the
   device used last; `controls:key(action)`; in a text the action in
   braces, `frame:text("{undo} UNDO")`, drawn as the key's small sign
   where the engine has one, else its name, `{undo:name}` always the name:

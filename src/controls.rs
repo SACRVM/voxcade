@@ -292,13 +292,109 @@ pub fn button_name(button: Button) -> Option<&'static str> {
     BUTTONS.iter().find(|(b, _)| *b == button).map(|(_, name)| *name)
 }
 
+/// The gamepad's triggers, bound as its buttons are.
+const TRIGGERS: [(Axis, &str); 2] = [(Axis::TriggerLeft, "lefttrigger"), (Axis::TriggerRight, "righttrigger")];
+
+/// Every name a binding gives a pad's button or trigger (`c.pad`), by
+/// where it lies: the names `pad_held` reads.
+pub fn pad_names() -> impl Iterator<Item = &'static str> {
+    BUTTONS.iter().map(|(_, n)| *n).chain(TRIGGERS.iter().map(|(_, n)| *n))
+}
+
 /// Whether the button (or trigger) a binding names is held on `pad`.
 pub fn pad_held(pad: &Gamepad, name: &str) -> bool {
-    match name {
-        "lefttrigger" => pad.axis(Axis::TriggerLeft) > 12_000,
-        "righttrigger" => pad.axis(Axis::TriggerRight) > 12_000,
-        _ => BUTTONS.iter().find(|(_, n)| *n == name).is_some_and(|(b, _)| pad.button(*b)),
+    if let Some((axis, _)) = TRIGGERS.iter().find(|(_, n)| *n == name) {
+        return pad.axis(*axis) > 12_000;
     }
+    BUTTONS.iter().find(|(_, n)| *n == name).is_some_and(|(b, _)| pad.button(*b))
+}
+
+/// The letters on an Xbox pad's face buttons and where they lie (a
+/// Nintendo pad has them the other way round).
+const XBOX_LETTERS: [(&str, &str); 4] = [("a", "south"), ("b", "east"), ("x", "west"), ("y", "north")];
+
+/// A binding a game's `conf.lua` gives (`c.keys`, `c.pad`) that would do
+/// nothing: its table (`keys`, `pad`), the action, the key or button (none:
+/// the action is the mistake) and the mistake in a game author's words.
+pub struct DeadBinding {
+    pub table: &'static str,
+    pub action: String,
+    pub name: Option<String>,
+    pub why: String,
+}
+
+impl DeadBinding {
+    /// The mistake as `conf.lua`'s others read: `c.pad.act: ...`.
+    pub fn said(&self) -> String {
+        format!("c.{}.{}: {}", self.table, self.action, self.why)
+    }
+}
+
+/// The bindings of a game's own `conf.lua` that would do nothing, in the
+/// tables' order: an action the game lacks (`actions`: a kit's and
+/// `c.actions`; `pause` besides) or a direction (the arrows and WASD, the
+/// sticks and the d-pad walk), a key no key's name (SDL's, as on a US
+/// keyboard; the mouse's, `input::MOUSE_KEYS`, with a `pointer` only), a
+/// button none of `pad_names`. A player's settings are never asked: a
+/// stale name there does nothing, as before.
+pub fn dead_bindings(keys: &Bindings, pad: &Bindings, actions: &[&str], pointer: bool) -> Vec<DeadBinding> {
+    use crate::audio::words::near;
+    let mut out = Vec::new();
+    let known: Vec<&str> = actions.iter().copied().chain([PAUSE]).collect();
+    let pads: Vec<&str> = pad_names().collect();
+    let mouse = crate::input::MOUSE_KEYS;
+    // SDL's names of the keys, small, to find the one meant.
+    let sdl: Vec<String> = (1..Scancode::Count as i32).filter_map(Scancode::from_i32).map(|c| c.name().to_lowercase()).filter(|n| !n.is_empty()).collect();
+    for (table, bindings) in [("keys", keys), ("pad", pad)] {
+        for (action, names) in &bindings.0 {
+            let dead = |name: Option<&String>, why: String| DeadBinding { table, action: action.clone(), name: name.cloned(), why };
+            if crate::input::DIRECTIONS.contains(&action.as_str()) {
+                out.push(dead(None, "the four directions are no binding: the arrows and WASD, a stick and the d-pad walk".into()));
+                continue;
+            }
+            if !known.contains(&action.as_str()) {
+                let meant = near(action, known.iter().copied()).map_or(String::new(), |n| format!(" (did you mean {n}?)"));
+                out.push(dead(None, format!("the game has no action {action}{meant}; its actions: {} (c.actions names its own)", known.join(", "))));
+                continue;
+            }
+            for name in names {
+                let why = if table == "pad" {
+                    if pads.contains(&name.as_str()) {
+                        continue;
+                    }
+                    let list = pads.join(", ");
+                    match XBOX_LETTERS.iter().find(|(l, _)| name.eq_ignore_ascii_case(l)) {
+                        Some((letter, at)) => format!(
+                            "\"{name}\" is no button's name: a pad's buttons go by where they lie, as the letters on them differ (an Xbox pad's A is \"south\", B \"east\", X \"west\", Y \"north\"; a Nintendo pad has its letters the other way round), so the Xbox pad's {} is \"{at}\"; the names: {list}",
+                            letter.to_uppercase()
+                        ),
+                        None => {
+                            let meant = near(name, pads.iter().copied()).map_or(String::new(), |n| format!(" (did you mean \"{n}\"?)"));
+                            format!("\"{name}\" is no button's name{meant}; a pad's buttons go by where they lie: {list}")
+                        }
+                    }
+                } else {
+                    let small = name.to_lowercase();
+                    if mouse.contains(&small.as_str()) {
+                        if pointer {
+                            continue;
+                        }
+                        format!("\"{name}\" is the mouse's, and the game has no pointer: c.pointer = \"system\" (the system's arrow) or \"own\" (the game draws its own) in conf.lua")
+                    } else if Scancode::from_name(name).is_some() {
+                        continue;
+                    } else {
+                        let among = sdl.iter().map(String::as_str).chain(mouse.iter().copied().filter(|_| pointer));
+                        let meant = near(&small, among).map(|n| Scancode::from_name(n).map_or(n.to_string(), |c| c.name().to_string()));
+                        let meant = meant.map_or(String::new(), |n| format!(" (did you mean \"{n}\"?)"));
+                        let theirs = if pointer { format!(", or the mouse's: {}", mouse.join(", ")) } else { String::new() };
+                        format!("\"{name}\" is no key's name{meant}: keys go by their names on a US keyboard, as SDL writes them (\"Z\", \"Space\", \"Left Shift\", \"Return\"){theirs}")
+                    }
+                };
+                out.push(dead(Some(name), why));
+            }
+        }
+    }
+    out
 }
 
 /// Which keys are down: the keyboard, or the keyboard with keys held
