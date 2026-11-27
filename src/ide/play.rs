@@ -1,32 +1,44 @@
-//! Play in the IDE's main area: the game straight from its folder, no
-//! title and no menus, stepped at the simulation's fixed tick and drawn
-//! into a texture of its own on the IDE's GPU, as big as the area. Its
-//! sounds and music come out of the player's speaker, its keys and pads
-//! are bound as the player set them (`controls::read_input`, as `voxcade
-//! run` reads them). It holds still while the main area shows a file or
-//! the window is elsewhere; a file saved comes in at once (hot reload),
-//! and a script's error halts it until mended (`trouble`). A local of the
-//! game's that changes while it plays, state no snapshot keeps, is named
-//! in OUTPUT within a second (`lua::hidden::Watch`). Its runs are
-//! recorded as `voxcade run` records them (`replay::Runs`: kept in the
-//! config folder from 10 s on, F9 puts one in the game's `replays/`; a
-//! run with a file saved during it is not kept). In a game with a pointer
-//! the mouse over its picture is the pointer, as a window's mouse is, its
-//! buttons and wheel the keys the game binds, a pad's stick moving it where
-//! `c.pointer_stick` says (`crate::mouse`, the window's own); the text a
-//! player types goes to the game while it has the keys.
+//! Play in the IDE's main area: the game from its folder begun as a
+//! window begins it (on its own title where it has one, `c.title_screen.
+//! level`, else the run at once: PLAY shows no engine's title), stepped at
+//! the simulation's fixed tick and drawn into a texture of its own on the
+//! IDE's GPU, as big as the area. The engine's pages the game opens over
+//! itself (SETTINGS, the pause page, its pause keys' too) show over it as
+//! in a window, the window's front end (`crate::front`): the game holds
+//! while one shows, the settings it changes are the player's of that game,
+//! saved and taking effect at once. Its sounds and music come out of the
+//! player's speaker, its keys and pads are bound as the player set them
+//! (`controls::read_input`, as `voxcade run` reads them). It holds still
+//! while the main area shows a file or the window is elsewhere; a file
+//! saved comes in at once (hot reload), and a script's error halts it
+//! until mended (`trouble`). A local of the game's that changes while it
+//! plays, state no snapshot keeps, is named in OUTPUT within a second
+//! (`lua::hidden::Watch`). Its runs are recorded as `voxcade run` records
+//! them (`replay::Runs`: kept in the config folder from 10 s on, F9 puts
+//! one in the game's `replays/`; a run with a file saved during it is not
+//! kept; a title counts for nothing). In a game with a pointer the mouse
+//! over its picture is the pointer, as a window's mouse is, its buttons
+//! and wheel the keys the game binds (over a page, its rows), a pad's
+//! stick moving it where `c.pointer_stick` says (`crate::mouse`, the
+//! window's own); the text a player types goes to the game while it has
+//! the keys.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::Result;
+use sdl3::gamepad::{Axis, Button};
+use sdl3::keyboard::Scancode;
 
-use crate::controls::{Device, PadStyle};
+use crate::controls::{Device, PAUSE, PadStyle};
+use crate::front::keys::{PlayKey, play_button, play_key};
+use crate::front::{Front, apply_settings, pause_for, pause_menu, planned_keyboard, planned_pad, reseat};
 use crate::game::Game;
-use crate::saves::Slots;
-use crate::menu::Menu;
+use crate::menu::{Command, Menu};
 use crate::render::Renderer;
 use crate::replay::Runs;
+use crate::saves::Slots;
+use crate::seating::{Keys, Start};
 use crate::session::{Reloaded, Scene, Session};
 use crate::settings::Settings;
 use crate::watch::FolderWatch;
@@ -43,6 +55,24 @@ struct Target {
     id: egui::TextureId,
 }
 
+/// The frames counted for SHOW FPS, as a window counts them: since when,
+/// how many, the rate last counted.
+struct Rate {
+    since: Instant,
+    frames: u32,
+    fps: f32,
+}
+
+impl Rate {
+    fn frame(&mut self) {
+        self.frames += 1;
+        let seconds = self.since.elapsed().as_secs_f32();
+        if seconds >= 0.5 {
+            (self.fps, self.frames, self.since) = (self.frames as f32 / seconds, 0, Instant::now());
+        }
+    }
+}
+
 /// A game being played.
 pub struct Play<G: Game> {
     dir: PathBuf,
@@ -51,10 +81,16 @@ pub struct Play<G: Game> {
     mask: crate::mesh::FaceMask,
     target: Option<Target>,
     settings: Settings,
+    /// Where the player's settings are written, as a window writes them
+    /// (`settings::path_for`), and whether the saves are the player's on
+    /// disk (`Slots::on_disk`; a test keeps them in memory).
+    settings_path: PathBuf,
+    on_disk: bool,
     watch: FolderWatch,
     speaker: Option<crate::audio::Speaker>,
     runs: Runs,
-    /// Files that would not load since last asked (for OUTPUT).
+    /// Files that would not load since last asked (for OUTPUT), and what
+    /// the pages asked that failed (a save, a load).
     failed: Vec<String>,
     /// The files that would not load when they changed, by name, with what
     /// was said; a file leaves when it loads again or is gone.
@@ -80,32 +116,44 @@ pub struct Play<G: Game> {
     /// Seat 1's keys as the line under the game shows them (`keys_of`),
     /// made anew only when the seating or the game changes.
     keys: Vec<(String, String)>,
-    /// The game asked to end (`world:quit()`): PLAY stops it, never the IDE.
+    /// The game asked to end (`world:quit()`, QUIT): PLAY stops it, never
+    /// the IDE.
     quit: bool,
+    /// The front end over the game, as a window's (`crate::front`): the
+    /// engine's page open over it, what seat 1 played with last
+    /// (`controls.device`), the letters on the pad in hand, the stick
+    /// steering a page. Always playing: a title is the game's own level.
+    front: Front,
     /// The mouse over the game's picture (its place in the picture's pixels
     /// from the top left, None off it), its buttons and wheel, and the text
     /// typed while the keyboard's player types; each seat's pointer its
     /// pad's stick moves (`c.pointer_stick`), seat 1's first: as a window's.
     mouse: crate::mouse::Mouse,
     sticks: Vec<crate::mouse::StickPointer>,
-    /// What seat 1 played with last (`controls.device`), and which seats
-    /// have a pad, as read last.
-    played_with: Device,
+    /// Which seats have a pad, and the pads plugged in by name (the
+    /// players page), as read last.
     seat_pads: Vec<bool>,
+    named: Vec<(u32, String)>,
+    /// The world is built anew on the GPU at the next picture (another
+    /// game in place of the one played).
+    remesh: bool,
+    rate: Rate,
 }
 
 impl<G: Game> Play<G> {
     /// The game in `dir`, its sound through `speaker` (none in tests),
-    /// begun from `scenario` if one is given.
+    /// begun from `scenario` if one is given, else as a window begins it
+    /// (`begin`).
     pub fn start(dir: &Path, device: &wgpu::Device, queue: &wgpu::Queue, speaker: Option<crate::audio::Speaker>, scenario: Option<&str>) -> Result<Self> {
         let mut game = Session::<G>::load_with(dir, Slots::on_disk(dir))?;
-        begin(&mut game, scenario)?;
-        let mut settings = Settings::load(&crate::settings::path_for(dir));
+        begin(&mut game, scenario, true)?;
+        let settings_path = crate::settings::path_for(dir);
+        let mut settings = Settings::load(&settings_path);
         settings.adopt(game.actions(), &game.default_keys(), &game.default_pad(), game.has_pointer());
-        settings.offer_languages(&game.cfg.languages);
         settings.system_languages = crate::settings::system_languages();
+        settings.embedded = true;
         crate::controls::label_keys(&mut settings);
-        game.options = settings.options();
+        apply_settings(&mut game, &mut settings);
         let mut renderer = Renderer::new(device, FORMAT, 64, 64);
         let mask = game.face_mask();
         renderer.rebuild_all(device, queue, game.world_mut(), &mask);
@@ -113,33 +161,166 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), clock: Default::default(), last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false, mouse: Default::default(), sticks: Vec::new(), played_with: Device::Keyboard, seat_pads: Vec::new() };
+        let mut front = Front::new(Menu::default());
+        front.straight_in();
+        let rate = Rate { since: Instant::now(), frames: 0, fps: 0.0 };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, settings_path, on_disk: true, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), clock: Default::default(), last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false, front, mouse: Default::default(), sticks: Vec::new(), seat_pads: Vec::new(), named: Vec::new(), remesh: false, rate };
         play.guard.begin(play.game.game.hidden());
         play.name_keys();
         Ok(play)
     }
 
-    /// The game from its files again (F5), as it starts.
-    pub fn restart(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-        let mut fresh = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir))?;
-        begin(&mut fresh, self.scenario.as_deref())?;
-        self.adopt(fresh, device, queue);
+    /// The game from its files again (F5, AGAIN), as PLAY began it: from
+    /// its scenario, else on its own title where it has one, else the run.
+    pub fn restart(&mut self) -> Result<()> {
+        let mut fresh = self.load()?;
+        begin(&mut fresh, self.scenario.as_deref(), true)?;
+        self.adopt(fresh);
         // Played again from its start, its song too.
         self.game.restart_music();
         Ok(())
     }
 
-    /// `fresh`, a game just begun, plays in place of the one played.
-    fn adopt(&mut self, fresh: Session<G>, device: &wgpu::Device, queue: &wgpu::Queue) {
+    /// RESTART on the pause page, as a window's: the run begun anew from
+    /// the files (from PLAY's scenario if it was played from one), its
+    /// song from the start.
+    fn restart_run(&mut self) {
+        let scenario = self.scenario.clone();
+        match self.load().and_then(|mut fresh| begin(&mut fresh, scenario.as_deref(), false).map(|()| fresh)) {
+            Ok(fresh) => {
+                self.adopt(fresh);
+                self.game.restart_music();
+            }
+            Err(e) => self.failed.push(format!("RESTART: the game would not begin again: {e:#}")),
+        }
+    }
+
+    /// Back to the game's own title (`world:to_title()`, QUIT TO TITLE, a
+    /// run's end), as a window goes (`leave_the_run`): the run ended (quit
+    /// where it was not over), the game loaded afresh, its title begun, the
+    /// same song playing on.
+    fn back_to_title(&mut self) {
+        if self.game.game.outcome().is_none() {
+            self.game.game.quit();
+        }
+        match self.load().and_then(|mut fresh| begin(&mut fresh, None, true).map(|()| fresh)) {
+            Ok(fresh) => self.adopt(fresh),
+            Err(e) => self.failed.push(format!("Back to the title: the game would not begin again: {e:#}")),
+        }
+    }
+
+    /// The run over and the player going on (Enter, the pause key, the
+    /// pad's START or bottom button): back to the game's own title, as in
+    /// a window; a game without one, which PLAY shows no title of, begins
+    /// again.
+    fn ended(&mut self) {
+        if self.game.cfg.title_screen.level.is_some() {
+            self.back_to_title();
+        } else if let Err(e) = self.restart() {
+            self.failed.push(format!("The game would not begin again: {e:#}"));
+        }
+    }
+
+    /// The game loaded afresh from its folder, with the player's saves (as
+    /// a window loads it).
+    fn load(&self) -> Result<Session<G>> {
+        let slots = if self.on_disk { Slots::on_disk(&self.dir) } else { self.game.slots.clone() };
+        Session::<G>::load_with(&self.dir, slots)
+    }
+
+    /// `fresh`, a game just begun, plays in place of the one played (no
+    /// page over it), its world built at the next picture.
+    fn adopt(&mut self, fresh: Session<G>) {
         self.runs.end(&self.game);
         self.game = fresh;
         self.mark = self.game.start_mark();
         self.guard.begin(self.game.game.hidden());
         self.runs.start(&self.game);
-        self.game.options = self.settings.options();
-        self.mask = self.game.face_mask();
-        self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
+        apply_settings(&mut self.game, &mut self.settings);
+        self.front.straight_in();
+        self.remesh = true;
         self.name_keys();
+    }
+
+    /// What a page or the game asked (`Command`), done as a window does it
+    /// where PLAY has it: QUIT stops PLAY, QUIT TO TITLE goes back to the
+    /// game's own title or, where it has none, stops PLAY too (PLAY shows
+    /// no engine's title); the engine's title, its high score table and
+    /// network play are a window's alone.
+    fn command(&mut self, command: Command) {
+        match command {
+            Command::Quit => self.quit = true,
+            Command::Resume => self.front.menu = Menu::default(),
+            // The game opened the pause as its key does: not over a fade,
+            // after the run's end, on a title or over another page.
+            Command::Pause => {
+                if !self.front.menu.is_open() && !self.game.on_title() && !self.game.fading() && self.game.game.outcome().is_none() {
+                    pause_for(&mut self.front, &self.game, true, None);
+                }
+            }
+            Command::Restart => self.restart_run(),
+            Command::ToTitle if self.game.cfg.title_screen.level.is_some() => self.back_to_title(),
+            Command::ToTitle => self.quit = true,
+            Command::Save(slot) => {
+                self.game.set_clock(crate::saves::now());
+                if let Err(e) = self.game.save_to(slot) {
+                    self.failed.push(format!("Saving into slot {slot} failed: {e:#}"));
+                }
+                // Back on the pause page, the slot's new line in it.
+                self.front.menu.slots = pause_menu(&self.game, true).slots;
+                self.front.menu.stack.pop();
+            }
+            Command::Load(slot) => self.load_slot(slot),
+            Command::Changed | Command::Fullscreen => {
+                crate::controls::label_keys(&mut self.settings);
+                apply_settings(&mut self.game, &mut self.settings);
+                self.save_settings();
+                self.name_keys();
+            }
+            // The players page (CONTROLS in a game of several): the run's
+            // seats; the settings keep the plan.
+            Command::SeatKeys(..) | Command::SeatPad(..) | Command::Swap => {
+                self.seating = reseat(command, self.seating.clone(), &mut self.settings, &self.named);
+                self.save_settings();
+                self.name_keys();
+            }
+            Command::Leave(seat) => {
+                self.seating.leave(seat);
+                self.front.menu = Menu::default();
+                self.name_keys();
+            }
+            _ => {}
+        }
+    }
+
+    /// Going on from the save in `slot` (LOAD), a run of its own: the game
+    /// loaded afresh, then the save; one that does not load leaves the run
+    /// as it was, paused.
+    fn load_slot(&mut self, slot: u32) {
+        let loaded = self.game.slots.read(slot).map(str::to_string).map(|text| self.load().and_then(|mut fresh| fresh.start_from(&text).map(|()| fresh)));
+        match loaded {
+            Some(Ok(fresh)) => self.adopt(fresh),
+            Some(Err(e)) => {
+                self.failed.push(format!("Loading slot {slot} failed: {e:#}"));
+                self.front.menu = pause_menu(&self.game, true);
+            }
+            None => self.front.menu = pause_menu(&self.game, true),
+        }
+    }
+
+    /// The player's settings written, as a window writes them; a failure
+    /// said in OUTPUT.
+    fn save_settings(&mut self) {
+        if let Err(e) = self.settings.save(&self.settings_path) {
+            self.failed.push(format!("The settings were not saved: {e:#}"));
+        }
+    }
+
+    /// `commands`, the pages' asks, done in turn.
+    fn commands(&mut self, commands: Vec<Command>) {
+        for command in commands {
+            self.command(command);
+        }
     }
 
     /// A console line run in the game between two ticks (the line under
@@ -156,7 +337,7 @@ impl<G: Game> Play<G> {
     pub fn read(&mut self, keys: Option<&dyn crate::controls::KeyState>, pads: &[sdl3::gamepad::Gamepad]) -> crate::input::Input {
         use crate::seating::Keys;
         let mouse_seat = self.seating.mouse_seat();
-        let typing = keys.is_some() && self.game.typing(mouse_seat);
+        let typing = keys.is_some() && !self.front.menu.is_open() && self.game.typing(mouse_seat);
         if typing != self.mouse.typing {
             self.mouse.typing = typing;
             if !typing {
@@ -168,6 +349,11 @@ impl<G: Game> Play<G> {
         let stick = self.game.cfg.pointer_stick;
         self.size_sticks();
         let aspect = self.aspect();
+        // The players page shows the run's seats, the pads by name.
+        self.named = crate::pads::named(pads);
+        if self.game.cfg.players > 1 && self.front.menu.is_open() {
+            self.front.menu.seats = crate::menu::SeatLine::all(&self.seating, &self.named);
+        }
         let seating = &self.seating;
         let of_seat = |seat: usize| pads.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
         let (input, lean) = if seating.alone() {
@@ -214,10 +400,11 @@ impl<G: Game> Play<G> {
     }
 
     /// Whether the system's arrow hides over the game's picture
-    /// (`c.pointer = "own"`, as a window hides it), and the picture's own
-    /// shape in its room (`c.camera.aspect`: bars round it).
+    /// (`c.pointer = "own"` with no page over the game, as a window hides
+    /// it), and the picture's own shape in its room (`c.camera.aspect`:
+    /// bars round it).
     pub fn arrow_hidden(&self) -> bool {
-        self.game.cfg.pointer == Some(crate::config::PointerStyle::Own)
+        self.game.cfg.pointer == Some(crate::config::PointerStyle::Own) && !self.front.menu.is_open()
     }
 
     pub fn shape(&self) -> Option<f32> {
@@ -226,30 +413,44 @@ impl<G: Game> Play<G> {
 
     /// The mouse at `at` of the game's picture (its pixels from the top
     /// left; None: off it, the bars round a picture of its own shape too):
-    /// moved there, the keyboard's player uses it.
+    /// moved there, the keyboard's player uses it; over a page the row
+    /// under it is chosen.
     pub fn mouse_at(&mut self, at: Option<[f32; 2]>) {
         if !self.game.has_pointer() {
             return;
         }
         match at {
-            Some(at) if self.mouse.move_to(at) => self.played_with = Device::Keyboard,
+            Some(at) if self.mouse.move_to(at) => self.front.played_with = Device::Keyboard,
             Some(_) => {}
             None => self.mouse.at = None,
         }
+        if let Some(row) = self.menu_row() {
+            self.front.menu.choose(row);
+        }
     }
 
-    /// A mouse button went down at `at` of the picture: the game's, with
-    /// what the pointer is over now (`Mouse::down`).
+    /// A mouse button went down at `at` of the picture: a page's (a binding
+    /// CONTROLS waits for, the row under it confirmed, back), else the
+    /// game's, with what the pointer is over now (`Mouse::down`).
     pub fn mouse_down(&mut self, button: sdl3::mouse::MouseButton, at: [f32; 2]) {
         if !self.game.has_pointer() {
             return;
         }
         self.mouse.at = Some(at);
-        self.played_with = Device::Keyboard;
+        self.front.played_with = Device::Keyboard;
+        let (row, mut commands) = (self.menu_row(), Vec::new());
+        if self.front.menu_click(button, row, &mut self.settings, &mut commands) {
+            return self.commands(commands);
+        }
         if let Some(i) = crate::mouse::Mouse::index(button) {
             let answer = self.seat_pointer(self.seating.mouse_seat());
             self.mouse.down(i, answer);
         }
+    }
+
+    /// The row of the page open under the mouse, as last drawn.
+    fn menu_row(&self) -> Option<usize> {
+        self.front.row_at(self.mouse_place(), || self.game.menu_rows(&self.front.menu, &self.settings, self.aspect()))
     }
 
     pub fn mouse_up(&mut self, button: sdl3::mouse::MouseButton) {
@@ -258,10 +459,19 @@ impl<G: Game> Play<G> {
         }
     }
 
-    /// The wheel turned `notches` over the picture (above 0: up).
+    /// The wheel turned `notches` over the picture (above 0: up): bound
+    /// where CONTROLS waits for a key, nothing over another page, else the
+    /// game's.
     pub fn wheel(&mut self, notches: f32) {
-        if self.game.has_pointer() {
-            self.played_with = Device::Keyboard;
+        let mut commands = Vec::new();
+        if !self.game.has_pointer() {
+            return;
+        }
+        if self.front.wheel_bind(notches, &mut self.settings, &mut commands) {
+            return self.commands(commands);
+        }
+        if !self.front.menu.is_open() {
+            self.front.played_with = Device::Keyboard;
             self.mouse.turned(notches);
         }
     }
@@ -283,26 +493,116 @@ impl<G: Game> Play<G> {
 
     /// A key went down for the game: seat 1 plays on the keyboard.
     pub fn keyboard_used(&mut self) {
-        self.played_with = Device::Keyboard;
+        self.front.played_with = Device::Keyboard;
     }
 
-    /// A pad leaned or pressed: seat 1 plays on it (where it is seat 1's).
-    pub fn pad_used(&mut self) {
-        self.played_with = Device::Gamepad;
+    /// A key went down while the game has the keys, taken as a window takes
+    /// it before the game hears it: a binding CONTROLS waits for; a page
+    /// open steered (Escape a page back, from the first closing it; F5 and
+    /// F9 stay the maker's); else, pressed and not held, a half's pause, the
+    /// keyboard's start taking a seat or pausing (a game of several), the
+    /// pause keys opening the pause page where the game does not take them
+    /// (`pause_gives_way`; not on the game's own title), and with the run
+    /// over the pause key or Enter going on (`ended`). Escape is the
+    /// maker's otherwise (back to the file). Whether it was taken: the IDE
+    /// does nothing more with it.
+    pub fn key_down(&mut self, code: Scancode, repeat: bool) -> bool {
+        let mut commands = Vec::new();
+        let taken = self.key_taken(code, repeat, &mut commands);
+        self.commands(commands);
+        taken
     }
 
-    /// A pad's button went down (`pad`, its id): one bound to one of its
-    /// seat's actions carries the pointer's answers of this moment where
-    /// the seat's stick moves it, as a click does (`App::stick_press`).
-    pub fn pad_button(&mut self, pad: u32, button: sdl3::gamepad::Button) {
-        self.pad_used();
+    fn key_taken(&mut self, code: Scancode, repeat: bool, commands: &mut Vec<Command>) -> bool {
+        if self.front.rebind_key(code, repeat, &mut self.settings, commands) {
+            return true;
+        }
+        if self.front.menu.is_open() {
+            if matches!(code, Scancode::F5 | Scancode::F9) {
+                return false;
+            }
+            self.front.menu_key(code, repeat, &mut self.settings, commands);
+            return true;
+        }
+        if repeat || code == Scancode::Escape {
+            return false;
+        }
+        let (name, over, fading, pauses) = (code.name(), self.game.game.outcome().is_some(), self.game.fading(), !self.game.on_title());
+        let (front, game, settings, seating) = (&mut self.front, &self.game, &self.settings, &mut self.seating);
+        let half = (1..=seating.seats()).filter(|&n| matches!(seating.keys(n), Keys::Left | Keys::Right)).find(|&n| settings.keys_of(seating.keys(n)).and_then(|b| b.action_of(name)) == Some(PAUSE));
+        if pauses && !over && let Some(seat) = half {
+            // A half's pause: its seat's (LEAVE offered after the first).
+            if !fading {
+                pause_for(front, game, true, (seat > 1).then_some(seat));
+            }
+            return true;
+        }
+        if pauses && !over && !seating.alone() && name == crate::seating::KEYBOARD_START && settings.keys.action_of(name).is_none() {
+            // The keyboard (whole, or its right half): a seat taken, then
+            // its pause.
+            match seating.keyboard_start(planned_keyboard(settings)) {
+                Start::Pause(seat) if !fading => pause_for(front, game, true, (seat > 1).then_some(seat)),
+                Start::Join(_) => self.name_keys(),
+                _ => {}
+            }
+            return true;
+        }
+        match play_key(code, settings, over, fading) {
+            PlayKey::ToTitle => self.ended(),
+            // The whole keyboard another seat's: LEAVE offered.
+            PlayKey::Pause if pauses => pause_for(front, game, true, seating.keyboard_seat().filter(|&s| seating.keys(s) == Keys::Whole)),
+            PlayKey::Pause | PlayKey::Game => return false,
+        }
+        true
+    }
+
+    /// A pad's button went down (`pad` its id, printing its buttons as
+    /// `style` says; `plugged` the pads plugged in), taken as a window takes
+    /// it: a binding CONTROLS waits for, a page open steered; else the run
+    /// over going on (`ended`), START taking a seat or pausing (not on the
+    /// game's own title), and a button bound to one of its seat's actions
+    /// carrying the pointer's answers of this moment where the seat's stick
+    /// moves it, as a click does (`App::stick_press`).
+    pub fn pad_button(&mut self, pad: u32, style: PadStyle, button: Button, plugged: &[u32]) {
+        self.front.pad_kind = style;
         let Some(name) = crate::controls::button_name(button) else { return };
+        let mut commands = Vec::new();
+        if self.front.menu_button(button, name, &mut self.settings, &mut commands) {
+            return self.commands(commands);
+        }
+        self.front.played_with = Device::Gamepad;
+        match play_button(button, name, &self.settings, self.game.game.outcome().is_some(), self.game.fading()) {
+            PlayKey::Game => self.stick_press(pad, name),
+            PlayKey::ToTitle => self.ended(),
+            PlayKey::Pause if !self.game.on_title() => match self.seating.pad_start(pad, plugged, planned_pad(&self.settings, &self.named, pad)) {
+                Start::Pause(seat) => pause_for(&mut self.front, &self.game, true, (seat > 1).then_some(seat)),
+                Start::Join(_) => self.name_keys(),
+                Start::Full => {}
+            },
+            PlayKey::Pause => {}
+        }
+    }
+
+    /// A pad's button bound to one of its seat's actions, the seat's stick
+    /// moving the pointer: it carries the pointer's answers of this moment.
+    fn stick_press(&mut self, pad: u32, name: &str) {
         let Some(seat) = self.seating.pad_seat(pad) else { return };
         let bound = self.settings.pad_of(seat).action_of(name).is_some_and(|a| self.game.actions().contains(&a));
         if bound && seat <= self.sticks.len() {
             let answer = self.seat_pointer(seat);
             self.sticks[seat - 1].down(answer);
         }
+    }
+
+    /// A pad's stick or trigger moved to `value`: a page open steered by
+    /// the left stick, a trigger bound where CONTROLS waits for one; else,
+    /// leant far, seat 1 plays on its pad.
+    pub fn axis(&mut self, axis: Axis, value: i16) {
+        let mut commands = Vec::new();
+        if !self.front.menu_axis(axis, value, &mut self.settings, &mut commands) && (value as f32 / 32767.0).abs() > 0.5 {
+            self.front.played_with = Device::Gamepad;
+        }
+        self.commands(commands);
     }
 
     /// Nothing held or waiting any more (the window lost the focus, the
@@ -338,7 +638,7 @@ impl<G: Game> Play<G> {
             return None;
         }
         let stick = self.sticks.get(seat - 1).and_then(|s| s.at);
-        crate::mouse::seat_place(seat, self.seating.mouse_seat(), self.played_with, self.mouse_place(), stick, self.seat_pads.get(seat - 1).copied().unwrap_or(false))
+        crate::mouse::seat_place(seat, self.seating.mouse_seat(), self.front.played_with, self.mouse_place(), stick, self.seat_pads.get(seat - 1).copied().unwrap_or(false))
     }
 
     /// Where the mouse is in the HUD's measure, over the picture as last
@@ -371,17 +671,18 @@ impl<G: Game> Play<G> {
         }
     }
 
-    /// Each seat's stick's pointer glided over `seconds` (`mouse::glide_sticks`).
+    /// Each seat's stick's pointer glided over `seconds`, while no page is
+    /// over the game (`mouse::glide_sticks`).
     fn glide(&mut self, seconds: f32) {
         self.size_sticks();
         if self.sticks.is_empty() {
             return;
         }
-        let mouse = self.mouse_place().filter(|_| self.played_with == Device::Keyboard);
+        let mouse = self.mouse_place().filter(|_| self.front.played_with == Device::Keyboard);
         let speed = self.game.cfg.pointer_speed.unwrap_or(self.game.cfg.ui.height);
-        let (mouse_seat, hud) = (self.seating.mouse_seat(), self.hud_size());
-        if crate::mouse::glide_sticks(&mut self.sticks, mouse, mouse_seat, hud, speed, seconds, true) {
-            self.played_with = Device::Gamepad;
+        let (mouse_seat, hud, playing) = (self.seating.mouse_seat(), self.hud_size(), !self.front.menu.is_open());
+        if crate::mouse::glide_sticks(&mut self.sticks, mouse, mouse_seat, hud, speed, seconds, playing) {
+            self.front.played_with = Device::Gamepad;
         }
     }
 
@@ -413,29 +714,6 @@ impl<G: Game> Play<G> {
     /// Names seat 1's keys anew (the game begun, a seat taken).
     fn name_keys(&mut self) {
         self.keys = keys_of(self.game.actions(), self.seating.keys(1), &self.settings);
-    }
-
-    /// A pad's START: a seat taken (a pad no seat has), else nothing.
-    pub fn pad_start(&mut self, pad: u32, plugged: &[u32]) {
-        if !self.seating.alone()
-            && let crate::seating::Start::Join(seat) = self.seating.pad_start(pad, plugged, None)
-        {
-            self.game.set_seat(seat, Some(crate::input::Input::default()));
-            self.name_keys();
-        }
-    }
-
-    /// The keyboard's start key (unless the game binds it): a seat taken,
-    /// the keyboard shared (seat 1 plays on it here).
-    pub fn keyboard_start(&mut self) {
-        let name = crate::seating::KEYBOARD_START;
-        if !self.seating.alone()
-            && self.settings.keys.action_of(name).is_none()
-            && let crate::seating::Start::Join(seat) = self.seating.keyboard_start(None)
-        {
-            self.game.set_seat(seat, Some(crate::input::Input::default()));
-            self.name_keys();
-        }
     }
 
     /// What stops the game: a script's error (its file and line in it) or
@@ -488,7 +766,7 @@ impl<G: Game> Play<G> {
         // What a level is built from is built when it begins: if the game
         // would begin otherwise now, it begins anew (a number of the rules
         // alone goes on).
-        if took && !failed && self.begins_otherwise(device, queue) {
+        if took && !failed && self.begins_otherwise() {
             return true;
         }
         // Code taken in: its functions keep locals of their own.
@@ -505,20 +783,35 @@ impl<G: Game> Play<G> {
 
     /// Whether the game as the files have it now begins otherwise than the
     /// run being played did (the world's voxels, the first states, the
-    /// settings that wait for a restart): then it plays anew from the
-    /// fresh game, said in OUTPUT. A game that would not load or begin
-    /// leaves things as they are.
-    fn begins_otherwise(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
-        let Ok(mut fresh) = Session::<G>::load_with(&self.dir, Slots::on_disk(&self.dir)) else { return false };
-        if begin(&mut fresh, self.scenario.as_deref()).is_err() || fresh.trouble().is_some() {
+    /// settings that wait for a restart), begun as it began (`as_begun`):
+    /// then it plays anew from the fresh game, said in OUTPUT. A game that
+    /// would not load or begin leaves things as they are.
+    fn begins_otherwise(&mut self) -> bool {
+        let Ok(fresh) = self.as_begun() else { return false };
+        if fresh.trouble().is_some() || (fresh.start_mark() == self.mark && self.game.cfg.restart_only(&fresh.cfg).is_empty()) {
             return false;
         }
-        if fresh.start_mark() == self.mark && self.game.cfg.restart_only(&fresh.cfg).is_empty() {
-            return false;
-        }
-        self.adopt(fresh, device, queue);
+        self.adopt(fresh);
         self.notes.push("The game's beginning changed: begun anew.".to_string());
         true
+    }
+
+    /// The game from its files anew, begun as the run being played began:
+    /// on its own title, from the save it went on from, from its scenario,
+    /// else as loaded (a run its title began with `world:new_game()` is the
+    /// very run a fresh load begins).
+    fn as_begun(&self) -> Result<Session<G>> {
+        let mut fresh = self.load()?;
+        let begun = if self.game.on_title() {
+            fresh.begin_title()
+        } else if let Some(text) = &self.game.started_from {
+            fresh.start_from(text)
+        } else if let Some(name) = &self.game.scenario {
+            fresh.start_scenario(name)
+        } else {
+            Ok(())
+        };
+        begun.map(|()| fresh)
     }
 
     /// What the game said since last asked, for OUTPUT: what it did of
@@ -532,26 +825,27 @@ impl<G: Game> Play<G> {
         notes.chain(failed).chain(printed).collect()
     }
 
-    /// A tick played: once a second the hidden-state guard looks at the
-    /// locals the game's functions keep and says which changed.
-    /// After a tick: a run the game's own title began (`world:new_game()`)
-    /// recorded from here, its locals looked at afresh, its song;
-    /// `world:quit()` heard (the shell stops the game, `quits`), a page it
-    /// asks for said in OUTPUT; the
-    /// hidden-state guard.
-    fn guard_tick(&mut self) {
-        if std::mem::take(&mut self.game.begun) {
-            self.runs.start(&self.game);
-            self.mark = self.game.start_mark();
-            self.guard.begin(self.game.game.hidden());
+    /// A run the game's own title began in its place (`world:new_game()`,
+    /// `world:load` there), as a window takes it: recorded from here, its
+    /// locals looked at afresh. Whether one began.
+    fn began(&mut self) -> bool {
+        if !std::mem::take(&mut self.game.begun) {
+            return false;
         }
-        for asked in self.game.requests() {
-            match asked {
-                // Back to the title: PLAY has none, it stops as at QUIT.
-                crate::game::Request::Quit | crate::game::Request::ToTitle => self.quit = true,
-                // PLAY has no menus: said, so a row that seems to do nothing is explained.
-                crate::game::Request::Open(page) => self.notes.push(format!("The game opens the engine's {} page here: shown when it plays in its own window, not in PLAY.", page.to_uppercase())),
-            }
+        self.runs.start(&self.game);
+        self.mark = self.game.start_mark();
+        self.guard.begin(self.game.game.hidden());
+        true
+    }
+
+    /// After a tick: what the game asked of the machine done as a window
+    /// does it (`Front::asked`: SETTINGS or the pause page opened over it,
+    /// QUIT, back to the title); once a second the hidden-state guard looks
+    /// at the locals the game's functions keep and says which changed.
+    fn after_tick(&mut self) {
+        let asked = self.game.requests();
+        if let Some(then) = self.front.asked(&asked) {
+            self.command(then);
         }
         let game = &self.game.game;
         self.hidden.extend(self.guard.tick(|| game.hidden()));
@@ -563,15 +857,9 @@ impl<G: Game> Play<G> {
         self.unloaded.values().next().cloned()
     }
 
-    /// Whether the game asked to end (`world:quit()`): STOP for it.
+    /// Whether the game asked to end (`world:quit()`, QUIT): STOP for it.
     pub fn quits(&self) -> bool {
         self.quit
-    }
-
-    /// Whether the run is won or lost (PRESS START: the IDE has no title
-    /// to go back to, so it starts over).
-    pub fn over(&self) -> bool {
-        self.game.game.outcome().is_some()
     }
 
     /// Puts the run being played, or else the last one, in the game's
@@ -583,17 +871,22 @@ impl<G: Game> Play<G> {
     /// What the player plays with, for the ticks to come: the device seat
     /// 1 used last, the keyboard (and mouse) or a pad.
     fn controls(&mut self) {
-        let controls = self.game.player_controls(self.played_with, PadStyle::default(), &self.settings);
+        let controls = self.game.player_controls(self.front.played_with, self.front.pad_kind, &self.settings);
         self.game.set_controls(controls);
     }
 
     /// Steps `ticks` ticks with `input` at once (a shot, a test; not
-    /// recorded).
+    /// recorded), the game held while a page shows over it.
     pub fn step(&mut self, ticks: u32, input: &crate::input::Input) {
         self.controls();
         for _ in 0..ticks {
+            if self.front.menu.is_open() {
+                self.front.menu.update();
+                continue;
+            }
             self.game.step(input);
-            self.guard_tick();
+            self.began();
+            self.after_tick();
         }
     }
 
@@ -610,13 +903,17 @@ impl<G: Game> Play<G> {
         let elapsed = self.last.map_or(0.0, |l| (now - l).as_secs_f32());
         self.last = Some(now);
         self.reload(device, queue);
+        self.rate.frame();
         // The frame's time owed to the game (all of it while its own song
-        // keeps time with its clock: `app::TickClock`).
-        let keep = self.game.steers_music();
+        // keeps time with its clock and no page holds it: `app::TickClock`),
+        // and the time a save in its ticks is stamped with.
+        let held = self.front.menu.is_open();
+        let keep = self.game.steers_music() && !held;
         self.clock.frame(elapsed, keep);
+        self.game.set_clock(crate::saves::now());
 
         // The music (started over when it changed), the player's volume.
-        let music_gain = self.settings.music_gain();
+        let volume = self.music_volume();
         if let Some(speaker) = self.speaker.as_mut() {
             // A song is made before the mixer is locked: the audio device
             // waits on the lock. (A level's fade holds no song:
@@ -624,11 +921,12 @@ impl<G: Game> Play<G> {
             self.game.music_ahead(self.clock.behind(0.0));
             let new = self.game.new_music();
             if let Some(mut mixer) = speaker.lock() {
-                // A song begun now begins at the clock: nothing owed before it.
-                if self.game.hand_music(&mut mixer, new, false) {
+                // A song begun now begins at the clock: nothing owed before
+                // it. (Held under a page, as in a window.)
+                if self.game.hand_music(&mut mixer, new, held) {
                     self.clock.settle();
                 }
-                mixer.set_music_volume(self.game.cfg.audio.music_volume * music_gain);
+                mixer.set_music_volume(volume);
                 mixer.set_drive(self.game.cfg.audio.drive);
                 mixer.set_ceiling(self.game.cfg.audio.ceiling);
             }
@@ -637,33 +935,49 @@ impl<G: Game> Play<G> {
         // The pointer where it is now, for the pictures and the ticks.
         self.glide(elapsed);
         self.pointer_shown();
-        // The ticks due.
+        // The ticks due (a page over the game: its animations alone).
         self.controls();
         for _ in 0..self.clock.due(keep) {
-            self.play_tick(input);
+            if self.front.menu.is_open() {
+                self.front.menu.update();
+            } else {
+                self.play_tick(input);
+            }
         }
         self.draw(device, queue, egui, size)
     }
 
+    /// The music's volume PLAY's speaker plays at: the game's times the
+    /// player's (AUDIO's MUSIC).
+    fn music_volume(&self) -> f32 {
+        self.game.cfg.audio.music_volume * self.settings.music_gain()
+    }
+
     /// A tick played as a frame plays it: seat 1's keys `held` with the
-    /// mouse's, the text typed and a pad's pointer (`tick_input`), the
-    /// hidden-state guard, recorded, its sounds.
+    /// mouse's, the text typed and a pad's pointer (`tick_input`), recorded
+    /// (from its start, a run the title began), its sounds, what it asked.
     fn play_tick(&mut self, held: &crate::input::Input) {
         self.game.fades = true;
         let input = self.tick_input(held);
         self.game.step(&input);
-        self.guard_tick();
-        self.runs.step(&self.game);
+        if !self.began() {
+            self.runs.step(&self.game);
+        }
         if !self.game.game.sim().sounds.is_empty()
             && let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock())
         {
             self.game.play_sounds(&mut mixer, self.settings.sound_gain());
         }
+        self.after_tick();
     }
 
     /// Draws the game as it stands into its texture, `size` pixels big;
     /// its name to egui.
     pub fn draw(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer, size: [u32; 2]) -> egui::TextureId {
+        if std::mem::take(&mut self.remesh) {
+            self.mask = self.game.face_mask();
+            self.renderer.rebuild_all(device, queue, self.game.world_mut(), &self.mask);
+        }
         self.mask = self.game.face_mask();
         let location = self.game.location();
         self.renderer.update_level(device, queue, self.game.world_mut(), &self.mask, location);
@@ -697,7 +1011,13 @@ impl<G: Game> Play<G> {
         // What stops it is said in the IDE's red line over the picture
         // (the traceback in OUTPUT), not in the game's big letters.
         self.game.problem_shown = false;
-        let frame = self.game.menu_frame(&Menu::default(), &self.settings, self.clock.fraction(), aspect, Scene::Play);
+        // A page over the game, its hints for what seat 1 played with last.
+        let menu = &mut self.front.menu;
+        (menu.device, menu.pad_style) = (self.front.played_with, self.front.pad_kind);
+        let mut frame = self.game.menu_frame(&self.front.menu, &self.settings, self.clock.fraction(), aspect, Scene::Play);
+        if self.settings.show_fps {
+            crate::ui::fps(&mut frame.ui, self.rate.fps.round() as u32, &self.game.cfg.ui, aspect);
+        }
         // A picture at another pitch or field of view (`frame:camera`) may
         // need faces the meshes left out: built anew with them, once.
         let faces = self.game.face_mask();
@@ -745,7 +1065,7 @@ impl<G: Game> Play<G> {
 /// out first), without a window: the error if not.
 pub fn begins<G: Game>(dir: &Path) -> Result<()> {
     let mut game = Session::<G>::load_with(dir, Slots::on_disk(dir))?;
-    begin(&mut game, None)
+    begin(&mut game, None, true)
 }
 
 /// What seat 1 does with which key, for the line under the game: moving
@@ -813,22 +1133,27 @@ pub fn plain_words(trouble: &str) -> Option<String> {
     Some(said)
 }
 
-/// A fresh run begun from `scenario`: a mistake in the scenario's code
-/// stops the game, shown over it until mended (as one in `main.lua`); a
+/// A game just loaded begun as PLAY begins it: from `scenario` if one is
+/// given, else on the game's own title where `title` asks and it has one
+/// (`c.title_screen.level`, as a window opens it), else the run as loaded.
+/// A mistake in the game's code stops it, shown over it until mended; a
 /// scenario that is not there is said at once.
-fn begin<G: Game>(game: &mut Session<G>, scenario: Option<&str>) -> Result<()> {
-    if let Some(name) = scenario
-        && let Err(e) = game.start_scenario(name)
-        && game.game.halted().is_none()
-    {
-        return Err(e);
+fn begin<G: Game>(game: &mut Session<G>, scenario: Option<&str>, title: bool) -> Result<()> {
+    let begun = match scenario {
+        Some(name) => game.start_scenario(name),
+        None if title && game.cfg.title_screen.level.is_some() => game.begin_title(),
+        None => Ok(()),
+    };
+    match begun {
+        Err(e) if game.game.halted().is_none() => Err(e),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::menu::{Item, Page};
 
     /// Played, the game steps as `voxcade shot` steps it (the same state
     /// after the same ticks and keys) and is drawn into a texture of the
@@ -1172,18 +1497,18 @@ end
         play.size_sticks();
         play.sticks[0].lean = [1.0, 0.0];
         play.glide(0.1);
-        assert_eq!(play.played_with, Device::Gamepad, "leaning, seat 1 plays on its pad");
+        assert_eq!(play.front.played_with, Device::Gamepad, "leaning, seat 1 plays on its pad");
         let speed = play.game.cfg.ui.height;
         let at = play.seat_place(1).unwrap();
         assert!((at[0] - (w / 2.0 + speed * 0.1)).abs() < 1e-3 && (at[1] - h / 2.0).abs() < 1e-3, "{at:?}");
         play.sticks[0] = Default::default();
         play.sticks[0].at = Some(hud);
-        play.pad_button(0, sdl3::gamepad::Button::South);
+        play.pad_button(0, PadStyle::default(), Button::South, &[0]);
         play.sticks[0].at = Some([1.0, 1.0]);
         play.play_tick(&crate::input::Input::default());
         play.mouse_at(Some(px));
         play.mouse_at(Some([px[0] + 10.0, px[1]]));
-        assert_eq!(play.played_with, Device::Keyboard, "the mouse moved: its pointer again");
+        assert_eq!(play.front.played_with, Device::Keyboard, "the mouse moved: its pointer again");
         assert_eq!(seen(&mut play)[0], "crate||", "the button's press carried the crate");
         let _ = dir;
         play.end(&mut egui);
@@ -1203,11 +1528,269 @@ end
         let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, Some("late")).unwrap();
         play.step(5, &crate::input::Input::default());
         assert_eq!(play.game.game.sim().tick, 5);
-        play.restart(device, queue).unwrap();
+        play.restart().unwrap();
         assert_eq!(play.game.game.sim().tick, 0, "from the start");
         play.step(3, &crate::input::Input::default());
         assert_eq!(play.scenario.as_deref(), Some("late"), "the scenario again");
         let score = play.eval("player.state.score").unwrap();
         assert!(score.contains("1003"), "begun from the scenario's 1000, three ticks on: {score}");
+    }
+
+    /// A game with a title of its own (`lua::tests::title::title_folder`):
+    /// each tick counted, a point a tick while right is held, and what
+    /// `world.state.ask` says asked of the machine (a console line sets it).
+    const TITLED: &str = r#"
+function on_level_start(how)
+  world.state.how = how
+end
+function on_tick()
+  world.state.ticks = (world.state.ticks or 0) + 1
+  if input.right then player.state.score = player.state.score + 1 end
+  local ask = world.state.ask
+  world.state.ask = nil
+  if ask == "new" then world:new_game()
+  elseif ask == "load" then world:load(1)
+  elseif ask == "title" then world:to_title()
+  elseif ask == "quit" then world:quit()
+  elseif ask == "win" then world:win()
+  elseif ask then world:open(ask) end
+end
+"#;
+
+    /// `TITLED` with these lines more in `conf.lua`, played in PLAY: its
+    /// settings and saves kept in `kept`, a scratch config, not the
+    /// player's.
+    fn titled(name: &str, conf: &str, kept: &Path, device: &wgpu::Device, queue: &wgpu::Queue) -> (crate::scratch::Scratch, Play<crate::Voxcade>) {
+        let dir = crate::lua::tests::title::title_folder(name, TITLED);
+        let text = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
+        std::fs::write(dir.join("conf.lua"), text.replace("\nend", &format!("\n{conf}end"))).unwrap();
+        let play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
+        (dir, in_scratch(play, kept))
+    }
+
+    /// `play` keeping its settings and saves in the scratch folder `kept`.
+    fn in_scratch(mut play: Play<crate::Voxcade>, kept: &Path) -> Play<crate::Voxcade> {
+        play.settings_path = kept.join("settings.toml");
+        play.on_disk = false;
+        play.game.adopt_slots(Default::default());
+        play
+    }
+
+    /// `line` run in the game, then a tick played as a frame plays it.
+    fn asked(play: &mut Play<crate::Voxcade>, line: &str) {
+        play.eval(line).unwrap();
+        play.play_tick(&crate::input::Input::default());
+    }
+
+    /// Ticks played as a frame plays them until `done` (a level change's
+    /// fade seen out, as a window shows it), a few seconds at most.
+    fn until(play: &mut Play<crate::Voxcade>, done: impl Fn(&Play<crate::Voxcade>) -> bool) {
+        for _ in 0..300 {
+            if done(play) {
+                return;
+            }
+            play.play_tick(&crate::input::Input::default());
+        }
+        panic!("not done in 300 ticks: {:?}", play.trouble());
+    }
+
+    /// The run the title began with `world:new_game()`, its fade seen out.
+    fn new_game(play: &mut Play<crate::Voxcade>) {
+        asked(play, "world.state.ask = 'new'");
+        until(play, |p| !p.game.on_title() && !p.game.fading());
+    }
+
+    fn state(play: &mut Play<crate::Voxcade>, key: &str) -> String {
+        play.eval(&format!("world.state.{key}")).unwrap()
+    }
+
+    /// PLAY begins a game with a title of its own on it, as a window opens
+    /// it, and keeps no run there; `world:new_game()` begins the run,
+    /// recorded from there (F9 keeps it and it replays as played), the
+    /// title's console line no part of it; AGAIN (F5) goes back to the
+    /// title, PLAY's start. A game without one begins its run at once.
+    #[test]
+    fn play_begins_on_the_games_own_title_and_new_game_begins_the_run() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let kept = crate::scratch::Scratch::new("play-title-kept");
+        let (dir, mut play) = titled("play-title", "", &kept, device, queue);
+        assert!(play.game.on_title() && !play.front.menu.is_open(), "the game's own title, no page over it");
+        let right = crate::input::Input { right: true, ..Default::default() };
+        for _ in 0..5 {
+            play.play_tick(&right);
+        }
+        assert!(play.keep().is_err(), "the title counts for nothing");
+        new_game(&mut play);
+        assert_eq!(play.game.game.sim().tick, 0, "the run begun, its first tick to come");
+        for _ in 0..30 {
+            play.play_tick(&right);
+        }
+        let replay = crate::replay::Replay::load(&play.keep().unwrap()).unwrap();
+        assert!(replay.ticks == 30 && replay.score == 30, "{} ticks, {} points", replay.ticks, replay.score);
+        assert!(matches!(crate::replay::play_through::<crate::Voxcade>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
+        play.restart().unwrap();
+        assert!(play.game.on_title(), "AGAIN: the title again");
+
+        let plain = crate::lua::tests::levels_folder("play-plain", TITLED, &[("a", &[])]);
+        let play = Play::<crate::Voxcade>::start(&plain, device, queue, None, None).unwrap();
+        assert!(!play.game.on_title() && play.game.game.sim().tick == 0, "no title of its own: the run at once");
+    }
+
+    /// `world:to_title()` in a run, and a run's end with Enter, go back to
+    /// the game's own title as in a window, the run ended; `world:quit()`
+    /// stops PLAY. In a game without a title of its own `world:to_title()`
+    /// stops PLAY too (it shows no engine's title).
+    #[test]
+    fn to_title_and_a_runs_end_go_back_to_the_title_and_quit_stops() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let kept = crate::scratch::Scratch::new("play-back-kept");
+        let (_dir, mut play) = titled("play-back", "", &kept, device, queue);
+        new_game(&mut play);
+        play.step(3, &crate::input::Input::default());
+        asked(&mut play, "world.state.ask = 'title'");
+        assert!(play.game.on_title() && !play.quits(), "back on the title");
+        assert_eq!(state(&mut play, "how"), "\"start\"", "begun afresh");
+        new_game(&mut play);
+        asked(&mut play, "world.state.ask = 'win'");
+        until(&mut play, |p| p.game.game.outcome().is_some());
+        assert!(play.key_down(Scancode::Return, false) && play.game.on_title(), "the run over, Enter: the title");
+        asked(&mut play, "world.state.ask = 'quit'");
+        assert!(play.quits(), "QUIT stops PLAY");
+
+        let plain = crate::lua::tests::levels_folder("play-back-plain", TITLED, &[("a", &[])]);
+        let mut play = Play::<crate::Voxcade>::start(&plain, device, queue, None, None).unwrap();
+        asked(&mut play, "world.state.ask = 'title'");
+        assert!(play.quits(), "no title to go back to: PLAY stops");
+    }
+
+    /// `world:open("settings")` shows SETTINGS over the game in PLAY, the
+    /// game held while it shows; on CONTROLS a key bound and RESET put the
+    /// game's bindings back, each saved as a window saves them; Escape
+    /// goes back a page and from the first closes it, the game going on;
+    /// with no page Escape is the IDE's (back to the file). FULLSCREEN and
+    /// FRAME RATE, the IDE window's, are not on VIDEO.
+    #[test]
+    fn settings_open_over_play_and_reset_puts_the_bindings_back() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let kept = crate::scratch::Scratch::new("play-settings-kept");
+        let (_dir, mut play) = titled("play-settings", "  c.actions = { \"jump\" }\n  c.keys.jump = { \"Z\" }\n", &kept, device, queue);
+        asked(&mut play, "world.state.ask = 'settings'");
+        assert_eq!(play.front.menu.page(), Some(Page::Settings), "SETTINGS over the title");
+        let ticks = state(&mut play, "ticks");
+        play.step(10, &crate::input::Input::default());
+        assert_eq!(state(&mut play, "ticks"), ticks, "held while it shows");
+        let video = play.front.menu.items(Page::Video, &play.settings);
+        assert!(!video.contains(&Item::Fullscreen) && !video.contains(&Item::FrameRate) && video.contains(&Item::Shadows), "{video:?}");
+        let key = |play: &mut Play<crate::Voxcade>, code| assert!(play.key_down(code, false), "{code:?} taken by the page");
+        for code in [Scancode::Down, Scancode::Down, Scancode::Return] {
+            key(&mut play, code);
+        }
+        assert_eq!(play.front.menu.page(), Some(Page::Controls));
+        key(&mut play, Scancode::Return);
+        assert_eq!(play.front.menu.rebinding, Some("jump"));
+        key(&mut play, Scancode::K);
+        assert_eq!(play.settings.keys.action_of("K"), Some("jump"));
+        let saved = || std::fs::read_to_string(kept.join("settings.toml")).unwrap();
+        assert!(saved().contains("\"K\""), "saved: {}", saved());
+        // RESET: the second row from the end.
+        for code in [Scancode::Up, Scancode::Up, Scancode::Return] {
+            key(&mut play, code);
+        }
+        assert_eq!((play.settings.keys.action_of("K"), play.settings.keys.action_of("Z")), (None, Some("jump")), "the game's own again");
+        assert!(!saved().contains("\"K\""), "saved: {}", saved());
+        key(&mut play, Scancode::Escape);
+        assert_eq!(play.front.menu.page(), Some(Page::Settings), "a page back");
+        key(&mut play, Scancode::Escape);
+        assert!(!play.front.menu.is_open(), "closed from the first");
+        play.step(2, &crate::input::Input::default());
+        assert_ne!(state(&mut play, "ticks"), ticks, "the game goes on");
+        assert!(!play.key_down(Scancode::Escape, false), "no page: Escape is the IDE's");
+    }
+
+    /// AUDIO's MUSIC turned down in PLAY reaches its speaker at once: the
+    /// song plays at the game's volume times the player's.
+    #[test]
+    fn a_volume_changed_in_play_reaches_its_speaker() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let kept = crate::scratch::Scratch::new("play-volume-kept");
+        let dir = crate::lua::tests::title::title_folder("play-volume", "function on_level_start(how)\n  music:play('song', { from = 'now' })\nend\nfunction on_tick()\n  if world.tick == 2 then world:open('settings') end\nend\n");
+        std::fs::create_dir_all(dir.join("music")).unwrap();
+        std::fs::write(dir.join("music/song.mml"), "#tempo 120\n@s sine\nA: @s o4 c1\n").unwrap();
+        let text = std::fs::read_to_string(dir.join("conf.lua")).unwrap();
+        std::fs::write(dir.join("conf.lua"), text.replace("\nend", "\n  c.audio.music = { \"music/song.mml\" }\nend")).unwrap();
+        let play = Play::<crate::Voxcade>::start(&dir, device, queue, Some(crate::audio::Speaker::without_device()), None).unwrap();
+        let mut play = in_scratch(play, &kept);
+        let mut egui = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
+        let heard = |play: &mut Play<crate::Voxcade>| play.speaker.as_mut().unwrap().lock().unwrap().music_volume();
+        // (A song asked in on_level_start begins with the first tick.)
+        play.step(1, &crate::input::Input::default());
+        play.frame(device, queue, &mut egui, [64, 64], &crate::input::Input::default());
+        let before = heard(&mut play).expect("the song plays");
+        play.step(2, &crate::input::Input::default());
+        assert_eq!(play.front.menu.page(), Some(Page::Settings));
+        for code in [Scancode::Return, Scancode::Left, Scancode::Left] {
+            assert!(play.key_down(code, false));
+        }
+        play.frame(device, queue, &mut egui, [64, 64], &crate::input::Input::default());
+        let after = heard(&mut play).unwrap();
+        assert!(after < before && (after - play.music_volume()).abs() < 1e-6, "{before} then {after}");
+        play.end(&mut egui);
+    }
+
+    /// `world:load(slot)` on the title goes on from the save, which SAVE on
+    /// the pause page (`world:open("pause")` in a run) put there; the pause
+    /// key opens it too, in a game that does not take it.
+    #[test]
+    fn the_pause_page_saves_and_load_on_the_title_goes_on_from_it() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let kept = crate::scratch::Scratch::new("play-save-kept");
+        let (_dir, mut play) = titled("play-save", "", &kept, device, queue);
+        new_game(&mut play);
+        play.eval("world.state.kept = 7").unwrap();
+        asked(&mut play, "world.state.ask = 'pause'");
+        assert_eq!(play.front.menu.page(), Some(Page::Pause));
+        // RESUME, SAVE: its first slot.
+        for code in [Scancode::Down, Scancode::Return, Scancode::Return] {
+            assert!(play.key_down(code, false));
+        }
+        assert!(play.game.slots.read(1).is_some(), "saved into slot 1");
+        assert_eq!(play.front.menu.page(), Some(Page::Pause), "back on the pause page");
+        assert!(play.key_down(Scancode::Escape, false) && !play.front.menu.is_open());
+        assert!(play.key_down(Scancode::P, false) && play.front.menu.page() == Some(Page::Pause), "P pauses");
+        play.key_down(Scancode::Escape, false);
+        asked(&mut play, "world.state.ask = 'title'");
+        assert!(play.game.on_title());
+        asked(&mut play, "world.state.ask = 'load'");
+        until(&mut play, |p| !p.game.on_title());
+        assert!(play.game.started_from.is_some());
+        assert!(state(&mut play, "kept").contains('7'), "gone on from the save");
+    }
+
+    /// A rule changed during a run the title began keeps the run, as in any
+    /// run; a changed beginning begins that run anew, never the title.
+    /// PLAY SCENARIO begins in the scenario, not on the title.
+    #[test]
+    fn a_file_saved_in_a_run_the_title_began_keeps_it_a_run() {
+        let canvas = crate::headless::Canvas::new(64, 64, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let kept = crate::scratch::Scratch::new("play-reload-kept");
+        let (dir, mut play) = titled("play-reload", "", &kept, device, queue);
+        new_game(&mut play);
+        play.step(5, &crate::input::Input::default());
+        saved(&dir, "main.lua", &TITLED.replace("score + 1", "score + 2"), &mut play, device, queue);
+        assert!(!play.game.on_title() && play.game.game.sim().tick == 5, "played on");
+        assert!(!noted(&mut play));
+        saved(&dir, "main.lua", &TITLED.replace("world.state.how = how", "world.state.how = how .. '!'"), &mut play, device, queue);
+        assert!(noted(&mut play) && !play.game.on_title() && play.game.game.sim().tick == 0, "the run begun anew");
+
+        std::fs::create_dir_all(dir.join("scenarios")).unwrap();
+        std::fs::write(dir.join("scenarios/late.lua"), "return {\n  about = \"late\",\n  setup = function()\n    world.state.late = true\n  end,\n}\n").unwrap();
+        let play = Play::<crate::Voxcade>::start(&dir, device, queue, None, Some("late")).unwrap();
+        assert!(!play.game.on_title() && play.game.scenario.is_some(), "the scenario, not the title");
     }
 }

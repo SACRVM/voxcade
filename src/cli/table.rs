@@ -150,6 +150,7 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--console", "CMD", "CMD run in the console and waited for"),
             look("--play", "TICKS", "the game played in the main area, TICKS in (with --open: held behind the file)"),
             look("--pointer", "X,Y", "with --play: the mouse over the game's picture at X,Y, its pixels from the top left (a game with c.pointer)"),
+            look("--do", "LINE", "with --play: a line of Lua run in the game played before its ticks, as for run (again for more; world:open(\"settings\") shows the page over it)"),
             look("--find", "WORD", "the find row open over the text"),
             look("--replace", "TEXT", "with --find: the replace row too"),
             look("--search", "WORD", "the search through the game's files"),

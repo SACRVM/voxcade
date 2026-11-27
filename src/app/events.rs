@@ -7,9 +7,11 @@ use sdl3::gamepad::{Axis, Button};
 use sdl3::joystick::JoystickId;
 use sdl3::keyboard::{Keycode, Mod, Scancode};
 
-use super::keys::{self, PlayKey};
-use super::{App, Flow, pause_for, planned_keyboard, planned_pad};
+use super::keys;
+use super::{App, Flow};
 use crate::controls::{Device, Nav, PAUSE};
+use crate::front::keys::{self as front_keys, PlayKey};
+use crate::front::{pause_for, planned_keyboard, planned_pad};
 use crate::game::Game;
 use crate::menu::{Command, Page};
 use crate::seating::{Keys, Start};
@@ -51,10 +53,8 @@ impl<G: Game> App<G> {
                     self.mouse.up(i);
                 }
             }
-            Event::MouseWheel { y, .. } if self.game.has_pointer() && self.front.menu.rebinding.is_some() && self.front.menu.page() == Some(Page::Controls) && y != 0.0 => {
-                let name = if y > 0.0 { "wheel_up" } else { "wheel_down" };
-                commands.extend(self.front.menu.bind(Device::Keyboard, name, false, &mut self.settings));
-            }
+            // CONTROLS waiting for a key binds a notch (`Front::wheel_bind`).
+            Event::MouseWheel { y, .. } if self.game.has_pointer() && self.front.wheel_bind(y, &mut self.settings, commands) => {}
             Event::MouseWheel { y, direction, .. } if self.game.has_pointer() && self.front.playing && !self.front.menu.is_open() => {
                 let flip = if matches!(direction, sdl3::mouse::MouseWheelDirection::Flipped) { -1.0 } else { 1.0 };
                 self.front.played_with = Device::Keyboard;
@@ -114,10 +114,7 @@ impl<G: Game> App<G> {
             return Flow::Go;
         }
         let name = code.name();
-        if front.menu.rebinding.is_some() {
-            if !repeat {
-                commands.extend(front.menu.bind(Device::Keyboard, name, code == Scancode::Escape, settings));
-            }
+        if front.rebind_key(code, repeat, settings, commands) {
             return Flow::Go;
         }
         // Initials are typed, the letter keys taken as the letters they say
@@ -157,10 +154,7 @@ impl<G: Game> App<G> {
                 Err(e) => println!("F9: {e:#}"),
             }
         } else if front.menu.is_open() {
-            front.played_with = Device::Keyboard;
-            if let Some(nav) = keys::key_nav(code, settings).filter(|n| !repeat || keys::is_direction(*n)) {
-                commands.extend(front.menu.nav(nav, settings));
-            }
+            front.menu_key(code, repeat, settings, commands);
         } else if in_play
             && pauses
             && !phase_over
@@ -181,7 +175,7 @@ impl<G: Game> App<G> {
             }
         } else if in_play {
             front.played_with = Device::Keyboard;
-            match keys::play_key(code, settings, phase_over, game.fading()) {
+            match front_keys::play_key(code, settings, phase_over, game.fading()) {
                 PlayKey::ToTitle => commands.push(Command::ToTitle),
                 // A level change's fade is seen out first; the whole
                 // keyboard another seat's, LEAVE offered.
@@ -254,27 +248,9 @@ impl<G: Game> App<G> {
             return;
         }
         // CONTROLS waits for a key: the mouse's button is one (a game of
-        // one's, the keyboard's bindings).
-        if self.front.menu.rebinding.is_some() {
-            if self.front.menu.page() == Some(Page::Controls)
-                && let Some(i) = crate::mouse::Mouse::index(button)
-            {
-                commands.extend(self.front.menu.bind(Device::Keyboard, crate::input::MOUSE_KEYS[i], false, &mut self.settings));
-            }
-            return;
-        }
-        if self.front.menu.is_open() {
-            let App { front, settings, .. } = self;
-            match button {
-                sdl3::mouse::MouseButton::Left => {
-                    if let Some(row) = self.menu_row_at(at) {
-                        self.front.menu.choose(row);
-                        commands.extend(self.front.menu.nav(Nav::Confirm, &mut self.settings));
-                    }
-                }
-                sdl3::mouse::MouseButton::Right => commands.extend(front.menu.nav(Nav::Back, settings)),
-                _ => {}
-            }
+        // one's, the keyboard's bindings); over a page it steers.
+        let row = self.menu_row_at(at);
+        if self.front.menu_click(button, row, &mut self.settings, commands) {
             return;
         }
         if let Some(i) = crate::mouse::Mouse::index(button).filter(|_| self.front.playing && self.watching.is_none()) {
@@ -285,12 +261,7 @@ impl<G: Game> App<G> {
 
     /// The engine's menu row under window point `at`, if one is.
     fn menu_row_at(&self, at: [f32; 2]) -> Option<usize> {
-        if !self.front.menu.is_open() || self.front.menu.rebinding.is_some() {
-            return None;
-        }
-        let [x, y] = self.hud_at(at)?;
-        let rows = self.game.menu_rows(&self.front.menu, &self.settings, self.display.screen.aspect());
-        rows.into_iter().find(|&(_, rx, ry, w, h)| x >= rx && y >= ry && x < rx + w && y < ry + h).map(|(i, ..)| i)
+        self.front.row_at(self.hud_at(at), || self.game.menu_rows(&self.front.menu, &self.settings, self.display.screen.aspect()))
     }
 
     /// A gamepad's button: the pad's kind noted, a menu's, a seat taken or
@@ -304,23 +275,17 @@ impl<G: Game> App<G> {
         let App { pads, front, last_pad, settings, game, seating, watching, .. } = self;
         // The letters on the pad in hand, for the menus' hints.
         if let Some(pad) = pads.open.iter().find(|p| p.id().ok() == Some(which)) {
-            front.pad_kind = keys::pad_style(pad.r#type());
+            front.pad_kind = front_keys::pad_style(pad.r#type());
         }
         if !front.playing {
             *last_pad = Some(which.raw());
         }
-        if front.menu.rebinding.is_some() {
-            commands.extend(front.menu.bind(Device::Gamepad, name, button == Button::Back, settings));
+        if front.menu_button(button, name, settings, commands) {
             return;
         }
-        if front.menu.is_open() {
+        if front.playing && watching.is_none() {
             front.played_with = Device::Gamepad;
-            if let Some(nav) = keys::pad_nav(button) {
-                commands.extend(front.menu.nav(nav, settings));
-            }
-        } else if front.playing && watching.is_none() {
-            front.played_with = Device::Gamepad;
-            match keys::play_button(button, name, settings, phase_over, game.fading()) {
+            match front_keys::play_button(button, name, settings, phase_over, game.fading()) {
                 PlayKey::Game => self.stick_press(which, name),
                 PlayKey::ToTitle => commands.push(Command::ToTitle),
                 // A pad no seat has takes one; a seat's START pauses (a
@@ -363,42 +328,8 @@ impl<G: Game> App<G> {
             }
         }
         let App { front, settings, watching, .. } = self;
-        if front.menu.rebinding.is_some() {
-            let trigger = match axis {
-                Axis::TriggerLeft => Some("lefttrigger"),
-                Axis::TriggerRight => Some("righttrigger"),
-                _ => None,
-            };
-            if let Some(name) = trigger.filter(|_| v > 0.6) {
-                commands.extend(front.menu.bind(Device::Gamepad, name, false, settings));
-            }
-            return;
-        }
-        if !front.menu.is_open() {
-            if v.abs() > 0.5 && front.playing && watching.is_none() {
-                front.played_with = Device::Gamepad;
-            }
-            return;
-        }
-        if !matches!(axis, Axis::LeftX | Axis::LeftY) {
-            return;
-        }
-        let way = match (axis, v) {
-            (Axis::LeftX, v) if v < -0.6 => Some(Nav::Left),
-            (Axis::LeftX, v) if v > 0.6 => Some(Nav::Right),
-            (Axis::LeftY, v) if v < -0.6 => Some(Nav::Up),
-            (Axis::LeftY, v) if v > 0.6 => Some(Nav::Down),
-            _ => None,
-        };
-        let along = |n: Nav| matches!((axis, n), (Axis::LeftX, Nav::Left | Nav::Right) | (Axis::LeftY, Nav::Up | Nav::Down));
-        match way {
-            Some(nav) if front.stick != Some(nav) => {
-                front.stick = Some(nav);
-                front.played_with = Device::Gamepad;
-                commands.extend(front.menu.nav(nav, settings));
-            }
-            None if v.abs() < 0.3 && front.stick.is_some_and(along) => front.stick = None,
-            _ => {}
+        if !front.menu_axis(axis, value, settings, commands) && v.abs() > 0.5 && front.playing && watching.is_none() {
+            front.played_with = Device::Gamepad;
         }
     }
 }

@@ -391,7 +391,9 @@ Stage by stage (the plan of 2026-10-18):
    between two ticks, its answer in OUTPUT (up and down bring earlier
    lines back); the agent's `eval` does the same.
 4. **Play in the main area** (done): PLAY saves the text being changed
-   and plays the game straight in, no title and no menus
+   and starts the game as it starts when run (the owner, 2026-11-27): on
+   its own title where it has one (`c.title_screen.level`), else straight
+   into the run (no engine's title), a scenario where it begins
    (`src/ide/play.rs`: a `Session` stepped at the fixed tick, drawn into
    a texture of its own as big as the area, its sound through the
    player's speaker, its keys bound as the player set them;
@@ -401,8 +403,30 @@ Stage by stage (the plan of 2026-10-18):
    console takes them, one on the game gives them back); Escape goes
    back to the file and the game holds still, BACK TO THE GAME in the bar
    (instead of PLAY; a game that waits behind the file says so) shows it
-   again, AGAIN (F5) starts it over, from its scenario if it was played
-   from one, STOP ends it; the window elsewhere holds it too. Under
+   again, AGAIN (F5) starts it over as PLAY began it (its title, its
+   scenario), STOP ends it; the window elsewhere holds it too. From its
+   own title everything works as in a window, the window's front end
+   shared (`src/front/`: `Front`, its steering by keys, pads and the
+   pointer, `Front::asked`, the pause page, `reseat`): `world:new_game()`
+   and `world:load(slot)` begin the run, recorded; `world:to_title()`, and
+   a run's end with Enter, the pause key or START, go back to the title,
+   the same song playing on; `world:quit()` and QUIT stop PLAY;
+   `world:open("settings")` and `"pause"`, and the pause keys where the
+   game does not take them (P, Start; Escape stays the IDE's), show the
+   engine's pages over the game, held while they show, steered by keys,
+   pads and (a game with a pointer) the mouse, Escape a page back and
+   from the first closing it; the settings are the player's of that game,
+   saved as a window saves them, taking effect at once (VIDEO without
+   FULLSCREEN and FRAME RATE, the IDE window's: `Settings::embedded`;
+   RESTART on the pause page begins the run anew as in a window, QUIT TO
+   TITLE in a game without a title of its own stops PLAY). A file saved
+   during a run its title began keeps it a run (`Play::as_begun`; tests
+   `play_begins_on_the_games_own_title_and_new_game_begins_the_run`,
+   `to_title_and_a_runs_end_go_back_to_the_title_and_quit_stops`,
+   `settings_open_over_play_and_reset_puts_the_bindings_back`,
+   `a_volume_changed_in_play_reaches_its_speaker`,
+   `the_pause_page_saves_and_load_on_the_title_goes_on_from_it`,
+   `a_file_saved_in_a_run_the_title_began_keeps_it_a_run`). Under
    the game a line says what its keys do (`MOVE ARROWS · JUMP SPACE`: moving, then
    the game's actions by their names with the keys as the player's keyboard
    names them, `play::keys_of`, the same the game's own controls menu
@@ -426,8 +450,9 @@ Stage by stage (the plan of 2026-10-18):
    all as a window does (`src/mouse.rs`, shared with `src/app/`; test
    `the_mouse_and_typing_in_play_are_the_windows`). Gamepads drive it too, any
    plugged in, at the start or later (the keyboard only while the game
-   has the keys). A run won or lost (PRESS START) starts over with Enter,
-   or Start or A on a pad: the IDE has no title to go back to. Its runs
+   has the keys). A run won or lost (PRESS START) goes back to the
+   game's own title with Enter, or Start or A on a pad, and starts over
+   in a game without one. Its runs
    are recorded as `voxcade run` records them
    (`replay::Runs`): kept in the config folder from 10 s on, F9 (the IDE's PLAY always has the maker's keys, `voxcade run` only with `--maker`) puts the
    run being played (or the last) in the game's `replays/`, the bar says

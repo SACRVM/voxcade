@@ -451,9 +451,14 @@ impl Menu {
     /// A page's items: the pause page's SAVE and LOAD with save slots, the
     /// slots on theirs, LANGUAGE in the settings of a game that speaks
     /// more than one, the players page's seats (`settings` its actions and
-    /// languages).
+    /// languages); played in another program's window
+    /// (`Settings::embedded`), VIDEO without FULLSCREEN and FRAME RATE.
     pub fn items(&self, page: Page, settings: &Settings) -> Vec<Item> {
-        self.items_with(page, &settings.actions, settings.languages.len())
+        let items = self.items_with(page, &settings.actions, settings.languages.len());
+        match page {
+            Page::Video if settings.embedded => items.into_iter().filter(|i| !matches!(i, Item::Fullscreen | Item::FrameRate)).collect(),
+            _ => items,
+        }
     }
 
     fn items_with(&self, page: Page, actions: &[&'static str], languages: usize) -> Vec<Item> {

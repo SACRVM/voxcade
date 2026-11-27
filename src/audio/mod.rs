@@ -435,6 +435,12 @@ impl Mixer {
         self.limiter.set_ceiling_db(f64::from(ceiling_db));
     }
 
+    /// How loud the song that plays is set to play (a test's look).
+    #[cfg(test)]
+    pub fn music_volume(&self) -> Option<f32> {
+        self.music.as_ref().map(|m| m.volume)
+    }
+
     pub fn set_music_volume(&mut self, volume: f32) {
         if let Some(m) = &mut self.music {
             m.volume = volume;
@@ -582,6 +588,13 @@ pub struct Speaker {
 }
 
 impl Speaker {
+    /// A speaker with no device (a test's): its mixer is handed what a
+    /// window hands, nothing pulls the sound.
+    #[cfg(test)]
+    pub fn without_device() -> Self {
+        Speaker { mixer: Arc::new(Mutex::new(Mixer::default())), held: Arc::new(AtomicBool::new(false)), calls: Arc::new(Calls::default()), stream: None }
+    }
+
     /// What it did, in a line (`Tally::said`): where anything but plain
     /// playing happened (the music jumped, the device ran dry), or always
     /// (`always`: `run --maker`).

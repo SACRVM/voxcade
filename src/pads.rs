@@ -97,15 +97,20 @@ impl Pads {
     /// PLAYERS page's plan): their own, a second of the same name
     /// "NAME#2", in the order they came.
     pub fn named(&self) -> Vec<(u32, String)> {
-        let mut out: Vec<(u32, String)> = Vec::new();
-        for pad in &self.open {
-            let Ok(id) = pad.id() else { continue };
-            let name = pad.name().unwrap_or_else(|| "Gamepad".into());
-            let before = out.iter().filter(|(_, n)| n.split('#').next() == Some(name.as_str())).count();
-            out.push((id.raw(), if before == 0 { name } else { format!("{name}#{}", before + 1) }));
-        }
-        out
+        named(&self.open)
     }
+}
+
+/// The pads `open` by the names the settings keep them by (`Pads::named`).
+pub fn named(open: &[Gamepad]) -> Vec<(u32, String)> {
+    let mut out: Vec<(u32, String)> = Vec::new();
+    for pad in open {
+        let Ok(id) = pad.id() else { continue };
+        let name = pad.name().unwrap_or_else(|| "Gamepad".into());
+        let before = out.iter().filter(|(_, n)| n.split('#').next() == Some(name.as_str())).count();
+        out.push((id.raw(), if before == 0 { name } else { format!("{name}#{}", before + 1) }));
+    }
+    out
 }
 
 pub fn pads(seconds: f32) -> Result<()> {

@@ -22,10 +22,12 @@ pub struct ShotOptions {
     /// A command to run in the console (through the system's shell) and
     /// wait for, at most ten seconds; else the console stays empty.
     pub console: Option<String>,
-    /// The game played in the main area, this many ticks in, and the mouse
-    /// over its picture at this place (its pixels from the top left).
+    /// The game played in the main area, this many ticks in, the mouse
+    /// over its picture at this place (its pixels from the top left), and
+    /// lines of Lua run in it before its ticks (`--do`).
     pub play: Option<u32>,
     pub pointer: Option<[f32; 2]>,
+    pub lines: Vec<String>,
     /// A game made for another Voxcade: its upgrade's page as after
     /// UPGRADE, the upgrade run dry (nothing changed).
     pub upgraded: bool,
@@ -225,6 +227,12 @@ impl<G: Game> Page for GamePage<'_, G> {
             if frame == 0 {
                 match Play::<G>::start(self.dir, device, queue, None, None) {
                     Ok(mut p) => {
+                        for line in &self.opts.lines {
+                            match p.eval(line) {
+                                Ok(said) => println!("> {line}\n{said}"),
+                                Err(e) => eprintln!("> {line}\n{e:#}"),
+                            }
+                        }
                         p.step(ticks, &crate::input::Input::default());
                         self.shell.stage = Some(Stage { shown: self.opts.open.is_none(), trouble: p.trouble(), unloaded: p.unloaded(), ..Stage::default() });
                         self.play = Some(p);

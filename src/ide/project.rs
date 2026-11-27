@@ -203,10 +203,13 @@ impl<G: Game> Project<'_, G> {
     /// The mouse and the typing where the game has them, as a window's: the
     /// mouse over its picture is its pointer, its buttons once the game has
     /// the keys (the click that gives them is the IDE's) and its wheel
-    /// there; while its player types, the text, Backspace, Enter and Escape
-    /// (Escape cancels the typing: back to the file it goes only once the
-    /// game types no more). A key the game hears is the keyboard used.
-    /// Whether the event was the game's alone (egui does not see it).
+    /// there (over one of the engine's pages, its rows); while its player
+    /// types, the text, Backspace, Enter and Escape (Escape cancels the
+    /// typing: back to the file it goes only once the game types no more).
+    /// A key the game hears is the keyboard used, and taken where a window
+    /// takes it before the game (`Play::key_down`: a page steered, Escape a
+    /// page back, the pause keys). Whether the event was the game's alone
+    /// (egui does not see it).
     fn game_event(&mut self, event: &Event) -> bool {
         use sdl3::keyboard::Scancode;
         let keys = self.shell.keys_to_game(&self.window.ctx);
@@ -250,7 +253,10 @@ impl<G: Game> Project<'_, G> {
                     return true;
                 }
             }
-            Event::KeyDown { .. } if keys => p.keyboard_used(),
+            Event::KeyDown { scancode: Some(code), repeat, .. } if keys => {
+                p.keyboard_used();
+                return p.key_down(*code, *repeat);
+            }
             _ => {}
         }
         false
@@ -259,50 +265,39 @@ impl<G: Game> Project<'_, G> {
     /// Pads plugged in and out; their buttons and sticks are read while
     /// the game runs (drawn every frame then), so they draw nothing
     /// themselves (a drifting stick would redraw the IDE all the time).
-    /// The run over (PRESS START): from the start, as F5; else a pad's
-    /// START takes a seat (a game of several), and any button or a stick
-    /// leant far is the pad used (`controls.device`), a button carrying
-    /// the pointer's answers where its stick moves it (`Play::pad_button`).
+    /// A button, a stick or a trigger goes to the game as a window takes
+    /// it (`Play::pad_button`, `Play::axis`): a page over it steered, the
+    /// run over going on, START taking a seat or pausing, the pad used
+    /// (`controls.device`), a button carrying the pointer's answers where
+    /// its stick moves it.
     fn pad_event(&mut self, event: &Event) {
-        use sdl3::gamepad::Button;
         let playing = self.shell.stage.as_ref().is_some_and(|s| s.shown) && self.focused;
+        let pads = &self.window.pads;
         match event {
             Event::GamepadAdded { which, .. } => self.window.pads.added(*which),
             Event::GamepadRemoved { which, .. } => self.window.pads.removed(*which),
-            Event::GamepadButtonDown { button: Button::Start | Button::South, .. } if playing && self.play.as_ref().is_some_and(Play::over) => self.restart(),
             Event::GamepadButtonDown { button, which, .. } if playing => {
+                let style = pads.open.iter().find(|p| p.id().ok() == Some(*which)).map_or_else(Default::default, |p| crate::front::keys::pad_style(p.r#type()));
                 if let Some(p) = self.play.as_mut() {
-                    if *button == Button::Start {
-                        p.pad_start(which.raw(), &self.window.pads.ids());
-                    }
-                    p.pad_button(which.raw(), *button);
+                    p.pad_button(which.raw(), style, *button, &pads.ids());
                 }
             }
-            Event::GamepadAxisMotion { value, .. } if playing && (*value as f32 / 32767.0).abs() > 0.5 => {
+            Event::GamepadAxisMotion { axis, value, .. } if playing => {
                 if let Some(p) = self.play.as_mut() {
-                    p.pad_used();
+                    p.axis(*axis, *value);
                 }
             }
             _ => {}
         }
     }
 
-    /// The game's keys while it has them: Escape back to the file, Return
-    /// a seat for the keyboard's right half (a game of several), or the
-    /// run over, Enter starting it over as F5 does; F9 keeps the run in
-    /// the game's replays. Whether the key was the game's alone (egui
-    /// does not see it).
+    /// The game's keys while it has them and no page of the engine's took
+    /// them (`Play::key_down`): Escape back to the file; F5 begins it anew
+    /// as PLAY began it, F9 keeps the run in the game's replays. Whether
+    /// the key was the game's alone (egui does not see it).
     fn game_key(&mut self, key: Keycode) -> bool {
-        let over = self.play.as_ref().map(Play::over);
         match key {
             Keycode::Escape => self.shell.back_to_file(),
-            Keycode::Return if over == Some(false) => {
-                if let Some(p) = &mut self.play {
-                    p.keyboard_start();
-                }
-                return false;
-            }
-            Keycode::Return | Keycode::KpEnter if over == Some(true) => self.restart(),
             Keycode::F5 => self.restart(),
             Keycode::F9 => {
                 if let Some(p) = &self.play {
@@ -317,11 +312,10 @@ impl<G: Game> Project<'_, G> {
         true
     }
 
-    /// The game begun anew from its files (F5, AGAIN, the run over).
+    /// The game begun anew from its files as PLAY began it (F5, AGAIN).
     fn restart(&mut self) {
-        let screen = &self.window.screen;
         if let Some(p) = &mut self.play
-            && let Err(e) = p.restart(&screen.device, &screen.queue)
+            && let Err(e) = p.restart()
         {
             self.shell.tell(format!("{e:#}"));
         }

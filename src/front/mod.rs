@@ -1,20 +1,31 @@
-//! The window's front end as a state of its own: the title, the glide from
-//! it into the game, the game, a replay the title plays (attract mode), the
-//! high score table in the title's round, and the menu over them. Its moves
-//! need neither SDL nor a GPU, so they are tested here.
+//! The front end of a game played as a state of its own: the title, the
+//! glide from it into the game, the game, a replay the title plays
+//! (attract mode), the high score table in the title's round, and the
+//! engine's menu over them, steered by keys, pads and the pointer, and
+//! the pages it builds. The window's (`crate::app`) and the IDE's PLAY's
+//! (`crate::ide`, always playing, its menu over the game alone). Its moves
+//! need neither a window nor a GPU, so they are tested here.
+
+pub mod keys;
+
+use anyhow::Result;
+use sdl3::gamepad::{Axis, Button};
+use sdl3::keyboard::Scancode;
 
 use crate::controls::{Device, Nav, PadStyle};
-use crate::game::Request;
+use crate::game::{Game, Request};
 use crate::menu::{Command, Menu, Page};
-use crate::session::{INTRO_TIME, Scene};
+use crate::seating::{Keys, Seating};
+use crate::session::{INTRO_TIME, Scene, Session};
+use crate::settings::Settings;
 
 /// Ticks the high score table shows before the title (or the replay of the
 /// title's round) comes.
-pub(super) const HIGH_SCORES_TICKS: u64 = 8 * 60;
+pub const HIGH_SCORES_TICKS: u64 = 8 * 60;
 
 /// What the title does after a while without a key (`Front::idle`).
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Idle {
+pub enum Idle {
     /// Nothing yet.
     Wait,
     /// The high score table shows (the first of the title's round).
@@ -36,7 +47,7 @@ pub enum Wanted {
     Game,
 }
 
-pub(super) struct Front {
+pub struct Front {
     /// The menu open over the title or the game (`Menu::default()`: none).
     pub menu: Menu,
     /// What the player pressed last, kept whatever menu opens: the menus'
@@ -235,6 +246,215 @@ impl Front {
             None => Scene::Title { time: self.title_time },
         }
     }
+
+    /// A key while CONTROLS waits for one: bound (Escape keeps what was
+    /// bound), what the menu then asks in `commands`. Whether one was
+    /// waited for: the key is then taken, whatever it is.
+    pub fn rebind_key(&mut self, code: Scancode, repeat: bool, settings: &mut Settings, commands: &mut Vec<Command>) -> bool {
+        if self.menu.rebinding.is_none() {
+            return false;
+        }
+        if !repeat {
+            commands.extend(self.menu.bind(Device::Keyboard, code.name(), code == Scancode::Escape, settings));
+        }
+        true
+    }
+
+    /// A key steering the menu that is open (`keys::key_nav`; held down,
+    /// only a direction steps on): the keyboard used.
+    pub fn menu_key(&mut self, code: Scancode, repeat: bool, settings: &mut Settings, commands: &mut Vec<Command>) {
+        self.played_with = Device::Keyboard;
+        if let Some(nav) = keys::key_nav(code, settings).filter(|n| !repeat || keys::is_direction(*n)) {
+            commands.extend(self.menu.nav(nav, settings));
+        }
+    }
+
+    /// A pad's button (its binding's `name`) for the menus: bound while
+    /// CONTROLS waits for one (Back keeps what was bound), else steering
+    /// the menu that is open, the pad used. Whether it was the menus'.
+    pub fn menu_button(&mut self, button: Button, name: &str, settings: &mut Settings, commands: &mut Vec<Command>) -> bool {
+        if self.menu.rebinding.is_some() {
+            commands.extend(self.menu.bind(Device::Gamepad, name, button == Button::Back, settings));
+            return true;
+        }
+        if !self.menu.is_open() {
+            return false;
+        }
+        self.played_with = Device::Gamepad;
+        if let Some(nav) = keys::pad_nav(button) {
+            commands.extend(self.menu.nav(nav, settings));
+        }
+        true
+    }
+
+    /// A pad's stick or trigger leaning to `value` for the menus: a
+    /// trigger bound while CONTROLS waits for a button, the left stick
+    /// steering the menu that is open (once past the middle, back to it
+    /// before it counts again). Whether it was the menus'.
+    pub fn menu_axis(&mut self, axis: Axis, value: i16, settings: &mut Settings, commands: &mut Vec<Command>) -> bool {
+        let v = value as f32 / 32767.0;
+        if self.menu.rebinding.is_some() {
+            let trigger = match axis {
+                Axis::TriggerLeft => Some("lefttrigger"),
+                Axis::TriggerRight => Some("righttrigger"),
+                _ => None,
+            };
+            if let Some(name) = trigger.filter(|_| v > 0.6) {
+                commands.extend(self.menu.bind(Device::Gamepad, name, false, settings));
+            }
+            return true;
+        }
+        if !self.menu.is_open() {
+            return false;
+        }
+        if !matches!(axis, Axis::LeftX | Axis::LeftY) {
+            return true;
+        }
+        let way = match (axis, v) {
+            (Axis::LeftX, v) if v < -0.6 => Some(Nav::Left),
+            (Axis::LeftX, v) if v > 0.6 => Some(Nav::Right),
+            (Axis::LeftY, v) if v < -0.6 => Some(Nav::Up),
+            (Axis::LeftY, v) if v > 0.6 => Some(Nav::Down),
+            _ => None,
+        };
+        let along = |n: Nav| matches!((axis, n), (Axis::LeftX, Nav::Left | Nav::Right) | (Axis::LeftY, Nav::Up | Nav::Down));
+        match way {
+            Some(nav) if self.stick != Some(nav) => {
+                self.stick = Some(nav);
+                self.played_with = Device::Gamepad;
+                commands.extend(self.menu.nav(nav, settings));
+            }
+            None if v.abs() < 0.3 && self.stick.is_some_and(along) => self.stick = None,
+            _ => {}
+        }
+        true
+    }
+
+    /// A mouse button down for the menus, `row` the row of the page under
+    /// the pointer (`row_at`): bound while CONTROLS waits for a key (a game
+    /// of one's, the keyboard's bindings), else over a page the left one
+    /// confirming the row under it, the right going back. Whether it was
+    /// the menus'.
+    pub fn menu_click(&mut self, button: sdl3::mouse::MouseButton, row: Option<usize>, settings: &mut Settings, commands: &mut Vec<Command>) -> bool {
+        if self.menu.rebinding.is_some() {
+            if self.menu.page() == Some(Page::Controls)
+                && let Some(i) = crate::mouse::Mouse::index(button)
+            {
+                commands.extend(self.menu.bind(Device::Keyboard, crate::input::MOUSE_KEYS[i], false, settings));
+            }
+            return true;
+        }
+        if !self.menu.is_open() {
+            return false;
+        }
+        match button {
+            sdl3::mouse::MouseButton::Left => {
+                if let Some(row) = row {
+                    self.menu.choose(row);
+                    commands.extend(self.menu.nav(Nav::Confirm, settings));
+                }
+            }
+            sdl3::mouse::MouseButton::Right => commands.extend(self.menu.nav(Nav::Back, settings)),
+            _ => {}
+        }
+        true
+    }
+
+    /// The wheel turned `y` notches (above 0: up) while CONTROLS waits for
+    /// a key: bound as one. Whether it was.
+    pub fn wheel_bind(&mut self, y: f32, settings: &mut Settings, commands: &mut Vec<Command>) -> bool {
+        if self.menu.rebinding.is_none() || self.menu.page() != Some(Page::Controls) || y == 0.0 {
+            return false;
+        }
+        let name = if y > 0.0 { "wheel_up" } else { "wheel_down" };
+        commands.extend(self.menu.bind(Device::Keyboard, name, false, settings));
+        true
+    }
+
+    /// The row of the open page under the pointer at `at` (the HUD's
+    /// measure; None off the picture), among the rows as drawn (`rows`,
+    /// `Session::menu_rows`); none while CONTROLS waits for a key.
+    pub fn row_at(&self, at: Option<[f32; 2]>, rows: impl FnOnce() -> Vec<crate::ui::RowBox>) -> Option<usize> {
+        if !self.menu.is_open() || self.menu.rebinding.is_some() {
+            return None;
+        }
+        let [x, y] = at?;
+        rows().into_iter().find(|&(_, rx, ry, w, h)| x >= rx && y >= ry && x < rx + w && y < ry + h).map(|(i, ..)| i)
+    }
+}
+
+/// The game's own title (`c.title_screen.level`) begun in place of the
+/// engine's, if it has one: straight in, no menu. Whether it has one.
+pub fn own_title<G: Game>(game: &mut Session<G>, front: &mut Front) -> Result<bool> {
+    if game.cfg.title_screen.level.is_none() {
+        return Ok(false);
+    }
+    front.straight_in();
+    game.begin_title()?;
+    Ok(true)
+}
+
+/// The pause page; SAVE and LOAD where the game has save slots and someone
+/// plays (not while a replay is watched).
+pub fn pause_menu<G: Game>(game: &Session<G>, playing: bool) -> Menu {
+    if !playing {
+        return Menu::pause();
+    }
+    let now = crate::saves::now();
+    Menu::pause().with_slots((1..=game.slots.count()).map(|n| game.slots.info(n).map(|i| crate::menu::slot_line(n, Some(&i), now, &game.language()))).collect())
+}
+
+/// The game paused (`pause_menu`), LEAVE offered to the player on
+/// `leaving`.
+pub fn pause_for<G: Game>(front: &mut Front, game: &Session<G>, playing: bool, leaving: Option<usize>) {
+    front.menu = pause_menu(game, playing);
+    front.menu.leaving = leaving;
+}
+
+/// The seats as the plan in the settings has them, with the pads plugged
+/// in (the players page before a run, and where its runs begin).
+pub fn planned(settings: &Settings, named: &[(u32, String)], seats: u32) -> Seating {
+    let mut s = Seating::new(seats);
+    s.begin(None, &crate::seating::resolve(&settings.players, named));
+    s
+}
+
+/// The seat after the first the plan gives the keyboard (its start key
+/// takes it).
+pub fn planned_keyboard(settings: &Settings) -> Option<usize> {
+    settings.players.iter().enumerate().skip(1).find(|(_, p)| p.keyboard != Keys::Nothing).map(|(i, _)| i + 1)
+}
+
+/// The seat the plan gives a pad (its START takes it).
+pub fn planned_pad(settings: &Settings, named: &[(u32, String)], pad: u32) -> Option<usize> {
+    let name = named.iter().find(|(id, _)| *id == pad).map(|(_, n)| n)?;
+    settings.players.iter().position(|p| p.pad.as_ref() == Some(name)).map(|i| i + 1)
+}
+
+/// The players page's `command` (a seat's part of the keyboard or its pad
+/// a step on, SWAP) done on `seats`, the pads plugged in `named`, and the
+/// plan in the settings made of them (the settings keep it): the seats as
+/// they are now.
+pub fn reseat(command: Command, mut seats: Seating, settings: &mut Settings, named: &[(u32, String)]) -> Seating {
+    let mut chosen = None;
+    match command {
+        Command::SeatKeys(seat, step) => seats.set_keyboard(seat, seats.keys(seat).step(step)),
+        Command::SeatPad(seat, step) => {
+            let choices: Vec<Option<u32>> = std::iter::once(None).chain(named.iter().map(|(id, _)| Some(*id))).collect();
+            seats.set_pad(seat, crate::settings::cycle(&choices, seats.pad(seat), step));
+            chosen = Some(seat);
+        }
+        _ => seats.swap(1, 2),
+    }
+    settings.players = crate::seating::plan_of(&seats, named, &settings.players, chosen);
+    seats
+}
+
+/// The player's settings that the game itself follows, and the game's
+/// languages they choose from.
+pub fn apply_settings<G: Game>(game: &mut Session<G>, settings: &mut Settings) {
+    settings.offer_languages(&game.cfg.languages);
+    game.options = settings.options();
 }
 
 #[cfg(test)]

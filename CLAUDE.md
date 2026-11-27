@@ -451,9 +451,35 @@ nearest; its replay `tests/two_ships`);
   change (`ide/buffer.rs`, a journal in the config folder, `ide/<folder>.journal/`,
   naming the file's whole path and offered on no other, against
   crashes; a change on disk comes in, or the IDE asks whose to keep).
-  PLAY plays the game in the main area (`ide/play.rs`, no title or
-  menus; its keys on a line under it, `play::keys_of`, the keyboard's
-  names; AGAIN beside STOP begins it anew, a game held behind the file
+  PLAY plays the game in the main area (`ide/play.rs`), begun as it
+  begins when run (the owner, 2026-11-27: "PLAY startet das game einfach
+  so wie ein spiel starten würde"): on its own title where it has one,
+  else straight into the run (no engine's title), PLAY SCENARIO in its
+  scenario; from the title all as in a window, its front end shared
+  (`src/front/`: `Front` moved out of `src/app/`, its steering of the
+  engine's pages by keys, pads and the pointer, `rebind_key`,
+  `menu_key`, `menu_button`, `menu_axis`, `menu_click`, `wheel_bind`,
+  `row_at`; `Front::asked`, `pause_menu`, `reseat`, `front::keys`'s
+  `play_key`): `world:new_game()`/`world:load` begin the run, recorded
+  (`Play::began`), `world:to_title()` and a run's end (Enter, the pause
+  key, START) back to the title, the song playing on, `world:quit()` and
+  QUIT stop PLAY (QUIT TO TITLE too in a game without a title),
+  `world:open` and the pause keys the game leaves (P, Start) show the
+  engine's pages over the game, held while they show, Escape a page
+  back, from the first closing it, else the IDE's (back to the file);
+  the settings the player's of the game, saved (`Play::settings_path`),
+  taking effect at once, VIDEO without FULLSCREEN and FRAME RATE
+  (`Settings::embedded`), SHOW FPS drawn; a file saved begins the game
+  anew as the run began (`Play::as_begun`: the title, a save, a
+  scenario, or fresh); saves stamped with the time (`set_clock` every
+  frame); tests `play_begins_on_the_games_own_title_and_new_game_begins_the_run`,
+  `to_title_and_a_runs_end_go_back_to_the_title_and_quit_stops`,
+  `settings_open_over_play_and_reset_puts_the_bindings_back`,
+  `a_volume_changed_in_play_reaches_its_speaker`,
+  `the_pause_page_saves_and_load_on_the_title_goes_on_from_it`,
+  `a_file_saved_in_a_run_the_title_began_keeps_it_a_run`;
+  its keys on a line under it, `play::keys_of`, the keyboard's
+  names; AGAIN beside STOP begins it anew as PLAY began it, a game held behind the file
   has BACK TO THE GAME in place of PLAY; a file saved comes in at once, and where the game would now
   begin otherwise (`Session::start_mark`: the world's voxels and the
   states as a fresh load has them, or a restart-only setting) the fresh
@@ -466,7 +492,8 @@ nearest; its replay `tests/two_ships`);
   error panel over the game, `Session::problem_shown`, one plain line
   under the script's mistake, `play::plain_words`, and OUTPUT gets the
   whole traceback); `--shot
-  --play TICKS` draws it (with `--open` the file over the game held; a game
+  --play TICKS [--do LINE]` draws it (a title of its own on it; `--do
+  'world:open("settings")'` the page over it; with `--open` the file over the game held; a game
   that would not start with its red line, test
   `a_shot_of_a_game_that_would_not_start_shows_the_red_line`).
   The headings LOGIC, SCENARIOS, MODELS and MUSIC are always there, each with a plus
@@ -1590,8 +1617,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   run, any game: back to the title as QUIT TO TITLE, `Command::ToTitle`;
   on the title a mistake) (`game::Request`, the
   machine's, never the run's: `Session::requests`, `Front::asked`;
-  `shot`/`inspect` end at a quit or `to_title`, the IDE's PLAY stops); PLAY, `shot`,
-  `inspect` begin past it, `shot --screen title` shows it (tests in
+  `shot`/`inspect` end at a quit or `to_title`, the IDE's PLAY does as a
+  window does, a quit stopping it); the IDE's PLAY begins on it as a
+  window does, `shot` and `inspect` past it, `shot --screen title` shows it (tests in
   `src/lua/tests/title.rs`); the menus (`src/menu.rs`,
   drawn in `src/ui/menus.rs`) work with keyboard and gamepad alike, Escape pauses
   instead of quitting. Key bindings are places on the keyboard by their US
@@ -1733,9 +1761,10 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   is kept as `NAME.toml.broken` before defaults are saved, and a failed
   SAVE or LOAD, a settings error or an unreadable save is said on the
   screen (`parting` in `src/app/mod.rs`; the window's front end is
-  `src/app/`: `App`'s steps, `front::Front` the front-end state, `keys.rs`
-  `play_key` and `maker_key`, `events.rs`, `commands.rs`, `network.rs`,
-  `draw.rs`; tests `pausing_gives_way_to_the_games_keys`,
+  `src/app/`: `App`'s steps, `keys.rs` `maker_key`, `events.rs`,
+  `commands.rs`, `network.rs`, `draw.rs`; the front-end state and the
+  menus' steering it shares with the IDE's PLAY in `src/front/`,
+  `front::Front`, `front::keys` `play_key`; tests `pausing_gives_way_to_the_games_keys`,
   `the_title_plays_its_round_after_a_while`).
   `shot --screen` takes the names in `headless::SCREENS` (`voxcade shot
   --help` lists them). Check menus with

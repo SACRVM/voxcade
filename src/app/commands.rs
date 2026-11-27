@@ -4,7 +4,8 @@
 
 use anyhow::{Context, Result};
 
-use super::{App, Flow, apply_settings, failure, next_initials, pause_for, pause_menu, planned, say_now, title_menu, trouble};
+use super::{App, Flow, failure, next_initials, say_now, title_menu, trouble};
+use crate::front::{apply_settings, pause_for, pause_menu, planned, reseat};
 use crate::game::Game;
 use crate::menu::{Command, Menu, Page};
 use crate::replay::{Playback, replay_session};
@@ -124,18 +125,8 @@ impl<G: Game> App<G> {
             // the settings keep it.
             Command::SeatKeys(..) | Command::SeatPad(..) | Command::Swap => {
                 let named = self.pads.named();
-                let mut seats = if self.front.playing { self.seating.clone() } else { planned(&self.settings, &named, self.game.cfg.players) };
-                let mut chosen = None;
-                match command {
-                    Command::SeatKeys(seat, step) => seats.set_keyboard(seat, seats.keys(seat).step(step)),
-                    Command::SeatPad(seat, step) => {
-                        let choices: Vec<Option<u32>> = std::iter::once(None).chain(named.iter().map(|(id, _)| Some(*id))).collect();
-                        seats.set_pad(seat, crate::settings::cycle(&choices, seats.pad(seat), step));
-                        chosen = Some(seat);
-                    }
-                    _ => seats.swap(1, 2),
-                }
-                self.settings.players = crate::seating::plan_of(&seats, &named, &self.settings.players, chosen);
+                let seats = if self.front.playing { self.seating.clone() } else { planned(&self.settings, &named, self.game.cfg.players) };
+                let seats = reseat(command, seats, &mut self.settings, &named);
                 self.save_settings();
                 if self.front.playing {
                     self.seating = seats;

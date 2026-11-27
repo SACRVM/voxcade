@@ -8,15 +8,15 @@
 //! (`commands.rs`), the title's replay ended, hot reload, music, the
 //! devices' keys, the title's round, the ticks, a guest's ticks, the
 //! network sent, the picture (`draw.rs`). The front end's state, the
-//! title, the glide in, the game, attract mode, is `front::Front`; what
-//! keys mean before the game hears them is `keys.rs`.
+//! title, the glide in, the game, attract mode, is `crate::front::Front`
+//! (shared with the IDE's PLAY, with what keys mean before the game hears
+//! them, `front::keys`); the maker's keys are `keys.rs`.
 
 mod clock;
 mod commands;
 pub mod heard;
 mod draw;
 mod events;
-mod front;
 mod keys;
 mod network;
 
@@ -42,7 +42,7 @@ use crate::settings::{self, FrameRate, Settings};
 use crate::sim::DT;
 use crate::watch::FolderWatch;
 use crate::window::Screen;
-use front::{Front, Idle, Wanted};
+use crate::front::{Front, Idle, Wanted, apply_settings, own_title, planned};
 
 pub use clock::{MAX_CATCH_UP, TickClock};
 /// How loud the game's sounds are under the title music while the title
@@ -990,17 +990,6 @@ fn hand_made<G: Game>(made: Made, game: &mut Session<G>, mixer: &mut crate::audi
     began
 }
 
-/// The game's own title (`c.title_screen.level`) begun in place of the
-/// engine's, if it has one: straight in, no menu. Whether it has one.
-fn own_title<G: Game>(game: &mut Session<G>, front: &mut Front) -> Result<bool> {
-    if game.cfg.title_screen.level.is_none() {
-        return Ok(false);
-    }
-    front.straight_in();
-    game.begin_title()?;
-    Ok(true)
-}
-
 /// The title's menu: CONTINUE first when a save slot holds a save (the
 /// newest).
 fn title_menu<G: Game>(game: &Session<G>) -> Menu {
@@ -1022,31 +1011,6 @@ fn next_initials(lines: &mut Vec<(Option<usize>, u32)>, settings: &Settings) -> 
         }
     }
     None
-}
-
-/// The pause page; SAVE and LOAD where the game has save slots and someone
-/// plays (not while a replay is watched).
-fn pause_menu<G: Game>(game: &Session<G>, playing: bool) -> Menu {
-    if !playing {
-        return Menu::pause();
-    }
-    let now = crate::saves::now();
-    Menu::pause().with_slots((1..=game.slots.count()).map(|n| game.slots.info(n).map(|i| crate::menu::slot_line(n, Some(&i), now, &game.language()))).collect())
-}
-
-/// The game paused (`pause_menu`), LEAVE offered to the player on
-/// `leaving`.
-fn pause_for<G: Game>(front: &mut Front, game: &Session<G>, playing: bool, leaving: Option<usize>) {
-    front.menu = pause_menu(game, playing);
-    front.menu.leaving = leaving;
-}
-
-/// The seats as the plan in the settings has them, with the pads plugged
-/// in (the players page before a run, and where its runs begin).
-fn planned(settings: &Settings, named: &[(u32, String)], seats: u32) -> Seating {
-    let mut s = Seating::new(seats);
-    s.begin(None, &crate::seating::resolve(&settings.players, named));
-    s
 }
 
 /// The seats as a run begins: the plan in the settings, the pad pressed
@@ -1074,28 +1038,9 @@ fn seat_controls<G: Game>(game: &Session<G>, settings: &Settings, front: &Front,
         (1, Keys::Nothing) => game.player_controls(Device::Gamepad, front.pad_kind, settings),
         (1, _) => game.player_controls(front.played_with, front.pad_kind, settings),
         (_, Keys::Whole) => Controls::of(actions, Device::Keyboard, front.pad_kind, settings),
-        (_, Keys::Nothing) => Controls::of_pad(actions, pad.map_or(front.pad_kind, |p| keys::pad_style(p.r#type())), settings.pad_of(seat), settings),
+        (_, Keys::Nothing) => Controls::of_pad(actions, pad.map_or(front.pad_kind, |p| crate::front::keys::pad_style(p.r#type())), settings.pad_of(seat), settings),
         (_, half) => Controls::of_half(actions, half, settings),
     }
-}
-
-/// The seat after the first the plan gives the keyboard (its start key
-/// takes it).
-fn planned_keyboard(settings: &Settings) -> Option<usize> {
-    settings.players.iter().enumerate().skip(1).find(|(_, p)| p.keyboard != Keys::Nothing).map(|(i, _)| i + 1)
-}
-
-/// The seat the plan gives a pad (its START takes it).
-fn planned_pad(settings: &Settings, named: &[(u32, String)], pad: u32) -> Option<usize> {
-    let name = named.iter().find(|(id, _)| *id == pad).map(|(_, n)| n)?;
-    settings.players.iter().position(|p| p.pad.as_ref() == Some(name)).map(|i| i + 1)
-}
-
-/// The player's settings that the game itself follows, and the game's
-/// languages they choose from.
-fn apply_settings<G: Game>(game: &mut Session<G>, settings: &mut Settings) {
-    settings.offer_languages(&game.cfg.languages);
-    game.options = settings.options();
 }
 
 /// `fresh` in place of `game`, the player's settings on it, its world
@@ -1158,6 +1103,7 @@ fn begun<G: Game>(begin: &crate::session::Begin, game: &mut Session<G>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::front::pause_menu;
 
     /// A failure to save says why on the screen, in the player's language,
     /// in the cause's own words.

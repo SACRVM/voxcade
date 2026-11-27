@@ -244,6 +244,10 @@ pub struct Settings {
     pub languages: Vec<String>,
     #[serde(skip)]
     pub system_languages: Vec<String>,
+    /// The game plays in another program's window (the IDE's PLAY): VIDEO
+    /// offers neither FULLSCREEN nor FRAME RATE, which are that window's.
+    #[serde(skip)]
+    pub embedded: bool,
 }
 
 impl Default for Settings {
@@ -277,6 +281,7 @@ impl Default for Settings {
             language: None,
             languages: Vec::new(),
             system_languages: Vec::new(),
+            embedded: false,
         }
     }
 }

@@ -88,9 +88,9 @@ where nothing is (`thing.name`, `thing.wall`, `level.next`, `music.song`).
 | `world:read(name)` | a file of the game folder as text, while `main.lua` starts |
 | `world:save(slot, options?)`, `world:load(slot, options?)`, `world:delete_save(slot)` | at the tick's end (save games, below); a save's `options` are `{ label = "..." }`, one line of 80 characters at most; a delete empties the slot for good at the tick's end (the script still sees it that tick, `world.saves[slot]` is nil from the next) and an empty slot is a mistake; loading an empty slot is a mistake with its line (`world.saves[slot]` tells first); on the game's own title `world:load` begins the run from the save and `world:save` is a mistake |
 | `world:new_game(options?)` | on the game's own title only (`c.title_screen.level`, below): a fresh run begins at the tick's end in the level a run begins in |
-| `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, and `"pause"`, the pause page as its key opens it, a mistake on the game's own title; another name is a mistake listing them): asked of the window, not of the run |
+| `world:open(page)` | a page of the engine's over the game, held while it shows (`"settings"`, and `"pause"`, the pause page as its key opens it, a mistake on the game's own title; another name is a mistake listing them; the IDE's PLAY shows it over the game too): asked of the window, not of the run |
 | `world:quit()` | the program ends (the IDE's PLAY stops, `shot` and `inspect` end the run there): asked of the window, not of the run |
-| `world:to_title()` | back to the title after the tick, as the pause menu's QUIT TO TITLE (the run ends with `"quit"`, a score that beats a line asks for initials; a game with a title of its own goes back to its title level; the IDE's PLAY stops, `shot` and `inspect` end the run there; on the title itself a mistake): asked of the window, not of the run |
+| `world:to_title()` | back to the title after the tick, as the pause menu's QUIT TO TITLE (the run ends with `"quit"`, a score that beats a line asks for initials; a game with a title of its own goes back to its title level, in the IDE's PLAY too, where one without stops; `shot` and `inspect` end the run there; on the title itself a mistake): asked of the window, not of the run |
 
 ### `level`: the level being played
 
@@ -1006,13 +1006,15 @@ Then:
   score that beats a line asks for initials; this title level again,
   begun anew); on the title it is a mistake, as the run's asks are there.
   All three are asked of the machine, not the run (`game::Request`): no
-  state, no hash, nothing in a replay; a window does them, `shot`,
-  `inspect` and `check` do not (`world:quit()` and `world:to_title()` end
-  their run there), the IDE's PLAY stops on either. In a network game the
-  window does none of them yet.
-- The IDE's PLAY, `shot`, `inspect` and `check` begin in the level a run
-  begins in, past the title, as they pass the engine's; a scenario with
-  `level = "title"` plays the title. `voxcade shot GAME --screen title`
+  state, no hash, nothing in a replay; a window does them, and the IDE's
+  PLAY as a window does (`world:quit()` stops it), `shot`, `inspect` and
+  `check` do not (`world:quit()` and `world:to_title()` end their run
+  there). In a network game the window does none of them yet.
+- The IDE's PLAY begins on it as a window does, its runs begun there
+  recorded as a window records them (F5 and AGAIN back to the title);
+  `shot`, `inspect` and `check` begin in the level a run begins in, past
+  the title, as they pass the engine's; a scenario with `level =
+  "title"` plays the title. `voxcade shot GAME --screen title`
   shows the title level a few ticks in (the settings' screens over it);
   the engine's title screens (`continue`, `intro`, `attract`,
   `highscores`, `initials`, the network's) are refused for such a game.

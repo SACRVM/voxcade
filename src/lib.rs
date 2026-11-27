@@ -15,6 +15,7 @@ pub mod files;
 pub mod controls;
 pub mod desktop;
 pub mod font;
+pub mod front;
 pub mod game;
 pub mod gitignore;
 pub mod grid;

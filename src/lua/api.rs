@@ -436,17 +436,18 @@ pub const API: &[Item] = &[
     Item { of: "world", name: "open", what: Method { params: &[("page", "string")], returns: "" }, doc: "Opens a page of the engine's over \
             the game, the game held while it shows as by the pause: \"settings\" (SETTINGS: the volumes, the picture, the keys), \
             \"pause\" (the pause page as its own key opens it, SAVE and LOAD where the game has slots). Closing it goes back to the game. \
-            For your own title's menu or pause menu, and for a game that keeps Escape for itself. Only the window opens it: the game plays \
-            the same without one (a replay, shot, inspect, the IDE's PLAY), and in a network game nothing opens. On your game's own title \
-            \"pause\" is a mistake." },
+            For your own title's menu or pause menu, and for a game that keeps Escape for itself. A window opens it, and the IDE's PLAY over \
+            the game: the game plays the same without one (a replay, shot, inspect), and in a network game nothing opens. On your game's \
+            own title \"pause\" is a mistake." },
     Item { of: "world", name: "quit", what: Method { params: &[], returns: "" }, doc: "Ends the program, as QUIT on the engine's title: for \
             your own title's menu. In the IDE's PLAY it stops the game; shot and inspect end the run there. Only the window does it: the \
             game plays the same without one." },
     Item { of: "world", name: "to_title", what: Method { params: &[], returns: "" }, doc: "Back to the title after this tick, as QUIT TO \
             TITLE in the pause menu: the run ends (on_level_end and on_world_end hear \"quit\"), a score that beats a line of the high \
             score table asks for initials, then the title shows; a game with a title of its own (c.title_screen.level) goes back to that \
-            level. For your own menu's QUIT, a game over screen's button. On the title itself it is a mistake. In the IDE's PLAY it stops \
-            the game; shot and inspect end the run there. Only the window does it: the game plays the same without one." },
+            level. For your own menu's QUIT, a game over screen's button. On the title itself it is a mistake. In the IDE's PLAY a game \
+            with a title of its own goes back to it too, and one without stops (PLAY shows no engine's title); shot and inspect end the \
+            run there. Only the window does it: the game plays the same without one." },
     // level
     Item { of: "level", name: "state", what: Field { ty: "table", set: false }, doc: "Your game's data for this level while it is played: \
             the things in it too, moves, time. Fresh each time the level is entered, a restart too; after world:load as it was saved (its \

@@ -263,8 +263,9 @@ mod tests {
         ("app/commands.rs", include_str!("app/commands.rs")),
         ("app/draw.rs", include_str!("app/draw.rs")),
         ("app/events.rs", include_str!("app/events.rs")),
-        ("app/front.rs", include_str!("app/front.rs")),
         ("app/keys.rs", include_str!("app/keys.rs")),
+        ("front/mod.rs", include_str!("front/mod.rs")),
+        ("front/keys.rs", include_str!("front/keys.rs")),
         ("net/host.rs", include_str!("net/host.rs")),
         ("net/play.rs", include_str!("net/play.rs")),
     ];

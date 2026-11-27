@@ -87,7 +87,7 @@ impl Shell {
                         self.again();
                         ui.memory_mut(|m| m.request_focus(game_id()));
                     }
-                    let (word, tip) = if held { ("BACK TO THE GAME", "The game waits behind the file, as you left it: shows it again (Escape comes back to the file).") } else { ("PLAY", "Plays the game here, straight in (saved first).") };
+                    let (word, tip) = if held { ("BACK TO THE GAME", "The game waits behind the file, as you left it: shows it again (Escape comes back to the file).") } else { ("PLAY", "Plays the game here as it starts when run: on its own title where it has one, else straight into the run (saved first).") };
                     if !shown && ui.button(word).on_hover_text(tip).clicked() {
                         self.play();
                         ui.memory_mut(|m| m.request_focus(game_id()));
