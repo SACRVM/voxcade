@@ -407,6 +407,11 @@ pub struct Menu {
     pub net: Option<NetView>,
     /// The games found on the LAN (the window searches while JOIN shows).
     pub found: Vec<FoundLine>,
+    /// How far up the rows of a page longer than the screen are drawn,
+    /// and which page (`ui::menus`' `scroll`): kept from picture to
+    /// picture, so the rows stay put while the cursor moves among those
+    /// shown.
+    pub scrolled: std::cell::Cell<(Option<Page>, f32)>,
 }
 
 impl Menu {

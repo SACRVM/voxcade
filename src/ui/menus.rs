@@ -293,13 +293,16 @@ fn audio_video_page(out: &mut Vec<Instance>, pen: &Pen, page: Page) {
     }
 }
 
-/// The KEYBOARD and GAMEPAD heads of a page of bindings from `x0`, and
-/// where their columns are.
-fn binding_heads(out: &mut Vec<Instance>, pen: &Pen, x0: f32) -> (f32, f32) {
-    let (kx, px) = (x0 + 70.0, x0 + 160.0);
+/// The KEYBOARD and GAMEPAD heads of a page of bindings, where its rows
+/// begin and where the columns are: 220 wide about the middle, wider by as
+/// much as an action's name needs past its 70 (and 6 clear).
+fn binding_heads(out: &mut Vec<Instance>, pen: &Pen, items: &[Item]) -> (f32, f32, f32) {
+    let widest = items.iter().filter(|i| matches!(i, Item::Bind(_))).map(|i| text_width(&i.label_in(pen.lang), 1) + 6.0).fold(70.0, f32::max);
+    let x0 = (pen.layout.width / 2.0 - 110.0 - (widest - 70.0) / 2.0).round();
+    let (kx, px) = (x0 + widest, x0 + widest + 90.0);
     pen.text(out, pen.say("KEYBOARD"), kx, pen.top() - 56.0, MUTED_LIGHT);
     pen.text(out, pen.say("GAMEPAD"), px, pen.top() - 56.0, MUTED_LIGHT);
-    (kx, px)
+    (x0, kx, px)
 }
 
 /// Whether `action` is being bound: PRESS A KEY OR BUTTON blinking in its
@@ -315,20 +318,79 @@ fn rebinding(out: &mut Vec<Instance>, pen: &Pen, action: &str, kx: f32, y: f32) 
     true
 }
 
+/// The least room from one row of bindings to the next: a letter's 7 and
+/// 3 clear. Closer, a page of many actions scrolls (`bound_rows`).
+const LEAST_APART: f32 = 10.0;
+
+/// The rows of a page of bindings as drawn: each item's height (none:
+/// scrolled out of view), where the lines under them begin, and the rows
+/// that carry a mark of more above and below (`more`).
+struct BoundRows {
+    ys: Vec<Option<f32>>,
+    foot: f32,
+    above: Option<f32>,
+    below: Option<f32>,
+}
+
+/// `n` rows of `page` from `first` down to `low`, at most 12 apart and
+/// closer where there are many (as ever), but never closer than
+/// `LEAST_APART`: then as many as fit from `first`, a window scrolled
+/// with the cursor (`scroll`), the lines under them as far below its last
+/// row as the columns' heads (`heads`) are above its first.
+fn bound_rows(pen: &Pen, page: Page, n: usize, first: f32, low: f32, heads: f32) -> BoundRows {
+    let apart = ((first - low) / (n.max(2) - 1) as f32).floor().min(12.0);
+    if apart >= LEAST_APART {
+        let ys = (0..n).map(|i| Some(first - i as f32 * apart)).collect();
+        return BoundRows { ys, foot: first - n as f32 * apart - 4.0, above: None, below: None };
+    }
+    let last = first - ((first - low) / LEAST_APART).floor() * LEAST_APART;
+    let all: Vec<f32> = (0..n).map(|i| first - i as f32 * LEAST_APART).collect();
+    let shift = scroll(pen.view.menu, page, &all, last);
+    let ys: Vec<Option<f32>> = all.iter().map(|&y| Some(y + shift).filter(|y| (last..=first).contains(y))).collect();
+    let above = (shift > 0.0).then_some(first);
+    let below = (all[n - 1] + shift < last).then_some(last);
+    BoundRows { ys, foot: last - (heads - first), above, below }
+}
+
+/// How far up rows at `ys` (the first the highest) are moved so the
+/// cursor's lies between the first's height and `low`: as far as the
+/// page had them (`Menu::scrolled`) while it does, else only as far as it
+/// must (none at the first row).
+fn scroll(menu: &Menu, page: Page, ys: &[f32], low: f32) -> f32 {
+    let (Some(&top), Some(&last)) = (ys.first(), ys.last()) else { return 0.0 };
+    let (was_page, was) = menu.scrolled.get();
+    let mut shift = if was_page == Some(page) { was.clamp(0.0, (low - last).max(0.0)) } else { 0.0 };
+    if let Some(&y) = ys.get(menu.cursor()) {
+        shift = shift.max(low - y).min(top - y);
+    }
+    menu.scrolled.set((Some(page), shift));
+    shift
+}
+
+/// The quiet marks that rows lie hidden above and below those shown: the
+/// pixel font's arrows at the end of the row on that side, as far in from
+/// the right edge as the page's rows begin (`x0`) from the left.
+fn more(out: &mut Vec<Instance>, pen: &Pen, x0: f32, above: Option<f32>, below: Option<f32>) {
+    for (sign, y) in [("\u{25b2}", above), ("\u{25bc}", below)] {
+        if let Some(y) = y {
+            pen.text(out, sign, pen.layout.width - x0 - text_width(sign, 1), y, MUTED_LIGHT);
+        }
+    }
+}
+
 /// A game of one's keys and buttons.
 fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
     let (view, top) = (pen.view, pen.top());
     let menu = view.menu;
-    let x0 = (pen.layout.width / 2.0 - 110.0).round();
-    let (kx, px) = binding_heads(out, pen, x0);
     let items = menu.items(Page::Controls, view.settings);
+    let (x0, kx, px) = binding_heads(out, pen, &items);
     // The lines under the rows: how one walks, and the pointer's stick.
     let (walk, pointer) = sticks_said(view.pointer_stick, true);
     let under = if pointer.is_some() { 10.0 } else { 0.0 };
-    // Down to above the hint at the bottom, closer where there are many.
-    let apart = ((top - 70.0 - 30.0 - under) / (items.len().max(2) - 1) as f32).floor().min(12.0);
+    // Down to above the hint at the bottom.
+    let rows = bound_rows(pen, Page::Controls, items.len(), top - 70.0, 30.0 + under, top - 56.0);
     for (i, &item) in items.iter().enumerate() {
-        let y = top - 70.0 - i as f32 * apart;
+        let Some(y) = rows.ys[i] else { continue };
         pen.row(out, i, &item.label_in(pen.lang), x0, y, 1);
         setting(out, view, item, kx, y, menu.cursor() == i, pen.depth);
         let Item::Bind(action) = item else { continue };
@@ -340,10 +402,10 @@ fn controls_page(out: &mut Vec<Instance>, pen: &Pen) {
         pen.text(out, &keys, kx, y, TEXT);
         pen.text(out, &pads, px, y, TEXT);
     }
-    let y = top - 70.0 - items.len() as f32 * apart - 4.0;
-    pen.text(out, pen.say(walk), x0, y, MUTED_LIGHT);
+    more(out, pen, x0, rows.above, rows.below);
+    pen.text(out, pen.say(walk), x0, rows.foot, MUTED_LIGHT);
     if let Some(pointer) = pointer {
-        pen.text(out, pen.say(pointer), x0, y - 10.0, MUTED_LIGHT);
+        pen.text(out, pen.say(pointer), x0, rows.foot - 10.0, MUTED_LIGHT);
     }
 }
 
@@ -392,8 +454,18 @@ fn players_page(out: &mut Vec<Instance>, pen: &Pen) {
         y -= 10.0;
     }
     let lowest = 16.0;
-    let shift = (lowest - rows.get(menu.cursor()).copied().unwrap_or(lowest)).max(0.0);
+    let shift = scroll(menu, Page::Players, &rows, lowest);
     let shown = |y: f32| (lowest..=top - 50.0).contains(&y);
+    // The lines hidden above and below, the marks on the first and last
+    // shown.
+    let lines: Vec<f32> = heads.iter().map(|&(_, y)| y).chain(rows.iter().copied()).map(|y| y + shift).collect();
+    let in_view = || lines.iter().copied().filter(|&y| shown(y));
+    let above = lines.iter().any(|&y| y > top - 50.0).then(|| in_view().fold(f32::MIN, f32::max));
+    let below = lines.iter().any(|&y| y < lowest).then(|| in_view().fold(f32::MAX, f32::min));
+    more(out, pen, x0, above, below);
+    // A pad's name ends before a mark on its row.
+    let marked = |y: f32| above == Some(y) || below == Some(y);
+    let room = ((pen.layout.width - x0 - text_width("\u{25b2}", 1) - 6.0 - vx) / 6.0).floor().max(0.0) as usize;
     for (n, y) in heads {
         let y = y + shift;
         if !shown(y) {
@@ -417,7 +489,7 @@ fn players_page(out: &mut Vec<Instance>, pen: &Pen) {
         let value = match item {
             Item::SeatKeys(n) => pen.say(menu.seats.get(n - 1).map_or(crate::seating::Keys::Nothing, |s| s.keyboard).label()).to_string(),
             Item::SeatPad(n) => match menu.seats.get(n - 1).map(|s| s.pad.as_str()) {
-                Some(name) if !name.is_empty() => name.to_uppercase().chars().take(24).collect(),
+                Some(name) if !name.is_empty() => name.to_uppercase().chars().take(if marked(y) { room.min(24) } else { 24 }).collect(),
                 _ => pen.say("NONE").to_string(),
             },
             _ => continue,
@@ -434,20 +506,19 @@ fn player_controls_page(out: &mut Vec<Instance>, pen: &Pen, seat: usize) {
     let part = menu.seats.get(seat - 1).map_or(crate::seating::Keys::Nothing, |s| s.keyboard);
     let head = crate::lang::say_with(pen.lang, "PLAYER {}", &[&seat.to_string()]);
     pen.centred(out, &head, top - 46.0, 1, NUMBERS);
-    let x0 = (pen.layout.width / 2.0 - 110.0).round();
-    let (kx, px) = binding_heads(out, pen, x0);
     let items = menu.items(Page::PlayerControls(seat), view.settings);
+    let (x0, kx, px) = binding_heads(out, pen, &items);
     // How it walks where its directions are no rows of their own (the
     // whole keyboard, or a pad alone), and the pointer's stick.
     let half = matches!(part, crate::seating::Keys::Left | crate::seating::Keys::Right);
     let (walk, pointer) = sticks_said(view.pointer_stick, part == crate::seating::Keys::Whole);
     let under = if pointer.is_some() { 10.0 } else { 0.0 };
-    // Down to above the hint at the bottom, closer where there are many.
-    let apart = ((top - 66.0 - 24.0 - under) / (items.len().max(2) - 1) as f32).floor().min(12.0);
+    // Down to above the hint at the bottom.
+    let rows = bound_rows(pen, Page::PlayerControls(seat), items.len(), top - 66.0, 24.0 + under, top - 56.0);
     let keys = view.settings.keys_of(part);
     let pad = view.settings.pad_of(seat);
     for (i, &item) in items.iter().enumerate() {
-        let y = top - 66.0 - i as f32 * apart;
+        let Some(y) = rows.ys[i] else { continue };
         pen.row(out, i, &item.label_in(pen.lang), x0, y, 1);
         let Item::Bind(action) = item else { continue };
         if rebinding(out, pen, action, kx, y) {
@@ -458,7 +529,8 @@ fn player_controls_page(out: &mut Vec<Instance>, pen: &Pen, seat: usize) {
         pen.text(out, &key, kx, y, TEXT);
         pen.text(out, &button, px, y, TEXT);
     }
-    let mut y = top - 66.0 - items.len() as f32 * apart - 4.0;
+    more(out, pen, x0, rows.above, rows.below);
+    let mut y = rows.foot;
     if !half {
         pen.text(out, pen.say(walk), x0, y, MUTED_LIGHT);
         y -= 10.0;
@@ -766,3 +838,7 @@ pub(super) fn dim(out: &mut Vec<Instance>, layout: &Layout, opacity: f32) {
         y += SIZE;
     }
 }
+
+#[cfg(test)]
+#[path = "menu_tests.rs"]
+mod menu_tests;

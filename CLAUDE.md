@@ -1684,7 +1684,23 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   shake, flashes, the frame rate), CONTROLS (a game of one's keys and
   rumble; a game of several's players page) and LANGUAGE (the user's
   wish: the one page of every setting was too full; `Page::Audio`,
-  `Page::Video`). SHOW FPS (the user's
+  `Page::Video`). A page of bindings (CONTROLS, a player's own keys)
+  keeps its rows at least `LEAST_APART` (10) apart, closer only as far
+  as before (12 down to 10; 15 actions once drew them on each other):
+  more than fit is a window of rows scrolled with the cursor
+  (`ui::menus`' `bound_rows`, `scroll`, the shift kept per page in
+  `Menu::scrolled`, so the rows stay put while the cursor moves among
+  those shown and under a still pointer; the players page of three or
+  four seats scrolls the same way), the heads and the lines under it
+  staying put as far from its first and last row, the pixel font's ▲ and
+  ▼ quiet at the right of the first and last row shown where more lie,
+  the label column wider by what a long action name needs
+  (`binding_heads`); a page that fits draws the voxels it drew before
+  (tests `a_page_of_few_bindings_draws_as_before`,
+  `many_bindings_scroll_and_never_overlap`,
+  `the_cursor_walks_through_every_binding_in_view`,
+  `the_pointer_picks_the_binding_drawn_where_it_is`,
+  `the_players_page_of_four_scrolls_with_the_cursor`). SHOW FPS (the user's
   wish, off by default) puts the frame rate small in the bottom right
   corner over game and menus (`ui::fps`). SHADOWS sets the shadow map's
   size (`settings::Shadows`: high 4096, medium 2048, low 1024; the user's
