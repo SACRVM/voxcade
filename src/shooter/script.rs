@@ -70,6 +70,9 @@ impl Host for Shooter {
                 Some(z) => Vec3::new(x, y, z),
                 None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), height, self.sim.half()),
             };
+            if z.is_none() {
+                self.sim.lifted_out(&k.name, Vec3::new(x, y, 0.0), at);
+            }
             return Ok(self.things.spawn(kind, self.sim.body_facing(at, height, k.facing), k.hp, Brain::Script(Default::default())));
         }
         let (cx, cy) = (x.floor() as i32, y.floor() as i32);

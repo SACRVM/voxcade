@@ -197,8 +197,15 @@ impl<G: Game> Session<G> {
     /// What pictures went past since last asked (lights dropped and the
     /// like), each limit said once: `shot` prints it, `inspect` lists it
     /// under "warnings", the IDE's PLAY puts it in OUTPUT.
-    pub fn warnings(&self) -> Vec<String> {
-        std::mem::take(&mut self.limits.borrow_mut().new)
+    pub fn warnings(&mut self) -> Vec<String> {
+        let mut limits = self.limits.borrow_mut();
+        // What the game's data made the engine say, each text once.
+        for text in std::mem::take(&mut self.game.sim_mut().warnings) {
+            if limits.said.insert(text.clone()) {
+                limits.new.push(text);
+            }
+        }
+        std::mem::take(&mut limits.new)
     }
 
     /// The HUD's cubes as the UI pass draws them, from those `on_draw` gave
@@ -562,6 +569,7 @@ fn draw_particles(out: &mut Drawing, particles: &[crate::sim::Particle], alpha: 
 #[derive(Default)]
 pub(crate) struct Limits {
     told: std::collections::BTreeSet<&'static str>,
+    said: std::collections::BTreeSet<String>,
     new: Vec<String>,
 }
 

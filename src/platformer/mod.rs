@@ -274,11 +274,12 @@ impl Platformer {
         let k = &self.rules.kinds[kind];
         let world = &self.sim.world;
         let half = k.width * 0.5;
-        let mut at = at;
+        let (from, mut at) = (at, at);
         // (A platform may lie in a wall or a floor: it comes out of it.)
         while !matches!(k.rules, KindRules::Platform(_)) && body_hits(world, at, half, k.height) && at.z < world.size.z as f32 + 8.0 {
             at.z += 1.0;
         }
+        let lifted = at;
         let stands = match &k.rules {
             KindRules::Hero(_) | KindRules::Walker(_) | KindRules::Hopper(_) | KindRules::Script | KindRules::Crate(_) => true,
             KindRules::Prop(p) => p.stands,
@@ -290,6 +291,7 @@ impl Platformer {
             }
         }
         let (lo, hi) = world.stage_box();
+        self.sim.lifted_out(&k.name, from, lifted);
         let toward = if at.x > (lo.x + hi.x) * 0.5 { -1.0 } else { 1.0 };
         let brain = match &k.rules {
             KindRules::Script => Brain::Script(Walk::default()),

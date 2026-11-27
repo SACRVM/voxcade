@@ -242,3 +242,30 @@ fn a_slip_in_conf_names_the_setting_meant() {
     std::fs::write(dir.join("conf.lua"), CONF.replace("c.things.miner = {}", "c.things.miner = { model = 'nope.vvx' }")).unwrap();
     assert_eq!(start_error(&dir), "c.things.miner.model: no file \"nope.vvx\" in the game folder");
 }
+
+/// A thing set down where its body has no room at all, in a column of
+/// voxels up to the level's top, is lifted out of the level: said once,
+/// naming its kind and where it was set down (a mistake for it is 0.8's);
+/// a thing with room, or lifted onto a roof inside the level, is not.
+#[test]
+fn a_thing_lifted_out_of_the_level_is_warned_of_once() {
+    let main = r##"
+function on_level_start(how)
+  level:fill(10, 10, 0, 12, 12, 15, "#404040")
+  level:fill(30, 30, 0, 32, 32, 3, "#404040")
+  level.state.a = level:spawn("miner", 11, 11)
+  level.state.b = level:spawn("miner", 11, 11)
+  level.state.roof = level:spawn("miner", 31, 31)
+  level.state.free = level:spawn("gem", 50, 50)
+  level.state.high = level:spawn("gem", 5, 5, { z = 40 })
+end
+"##;
+    let mut g = game("lifted-out", main);
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+    let warned = g.warnings();
+    assert_eq!(warned.len(), 1, "{warned:?}");
+    assert!(warned[0].contains("'miner'") && warned[0].contains("11, 11, 0") && warned[0].contains("no room in the level"), "{warned:?}");
+    assert!(g.warnings().is_empty(), "said once");
+    assert_eq!(said(&mut g, "return level.state.roof.z"), "4.0", "onto a roof inside the level: ordinary");
+}

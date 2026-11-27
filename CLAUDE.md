@@ -2121,9 +2121,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_hut_sends_a_few_men_and_none_behind_the_player`.
 - Generated structures must stay connected voxel by voxel (a gap in a brace
   leaves pieces hanging in the air after a collapse), and markers need room
-  for a whole body or the engine lifts the actor onto the roof (a spawn off
-  the level's ground is lifted to the level's top + 8 today; a mistake for
-  it is planned for 0.7).
+  for a whole body or the engine lifts the actor onto the roof (a spawn with no room
+  is lifted up to the level's top + 8; one that ends above the level's top
+  is said once in `Session::warnings`, `Sim::lifted_out`, test
+  `a_thing_lifted_out_of_the_level_is_warned_of_once`: markers and
+  `level:spawn` without a `z` warn, `stand_at`'s places, the player's
+  figure and a level change's lifting do not; a mistake for it is planned
+  for 0.8, with an upgrade step).
 - The camera is fixed per game and always perspective (`conf.lua`: pitch,
   fov; an orthographic view looked flat and was rejected). How much it
   shows: `view_width` across, or `view_height` high (Pulsar), or

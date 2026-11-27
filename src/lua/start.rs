@@ -330,10 +330,12 @@ impl<K: Kit> LuaGame<K> {
         let half = host.sim.half();
         for m in markers {
             let height = host.kinds[m.kind].height;
-            let mut at = m.cell.as_vec3() + Vec3::new(0.5, 0.5, 0.0);
+            let from = m.cell.as_vec3() + Vec3::new(0.5, 0.5, 0.0);
+            let mut at = from;
             while body_hits(&host.sim.world, at, half, height) && at.z < host.sim.world.size.z as f32 + 8.0 {
                 at.z += 1.0;
             }
+            host.sim.lifted_out(&host.kinds[m.kind].name, from, at);
             host.spawn(m.kind, at.x, at.y, Some(at.z)).expect("a plain host places every kind");
         }
     }

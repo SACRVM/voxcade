@@ -358,6 +358,10 @@ pub struct Sim {
     pub cfg: Arc<GameConfig>,
     /// The only source of randomness a game may use.
     pub rng: Rng,
+    /// What the engine says of the game's data as it plays (a thing lifted
+    /// out of the level, `lifted_out`), for `Session::warnings` to take:
+    /// only reported, in no hash.
+    pub warnings: Vec<String>,
 }
 
 impl Sim {
@@ -380,6 +384,21 @@ impl Sim {
             lead_prev: Vec3::ZERO,
             cfg: Arc::new(cfg.clone()),
             rng: Rng::new(0x5EED),
+            warnings: Vec::new(),
+        }
+    }
+
+    /// A thing of kind `kind` set down at `from` stands at `to` after being
+    /// lifted out of what was in its place. Lifted onto a roof inside the
+    /// level is ordinary and says nothing; past the level's top it found no
+    /// room at all (a thing set down up there lifts nowhere), which is said (`Session::warnings`: once, by its text).
+    /// A mistake for it is 0.8's.
+    pub fn lifted_out(&mut self, kind: &str, from: Vec3, to: Vec3) {
+        if to.z > from.z && to.z >= self.world.size.z as f32 && self.warnings.len() < 64 {
+            self.warnings.push(format!(
+                "a thing of kind '{kind}' set down at {}, {}, {} found no room in the level and was lifted out of it, to z {}",
+                from.x, from.y, from.z, to.z
+            ));
         }
     }
 

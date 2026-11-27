@@ -1582,6 +1582,9 @@ impl Host for Plain {
             Some(z) => Vec3::new(x, y, z),
             None => stand_on_ground(&self.sim.world, Vec3::new(x, y, 0.0), k.height, self.sim.half()),
         };
+        if z.is_none() {
+            self.sim.lifted_out(&k.name, Vec3::new(x, y, 0.0), at);
+        }
         let id = self.things.spawn(kind, self.sim.body_facing(at, k.height, k.facing), k.hp, Walk::default());
         if !self.looking {
             self.focus.get_or_insert(id);

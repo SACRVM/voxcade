@@ -264,7 +264,7 @@ impl Shooter {
         // Things that only stand where they are: on the marker's cell, or in
         // its middle.
         let at_cell = body(cell.as_vec3(), 0.0);
-        match &k.rules {
+        let id = match &k.rules {
             KindRules::Script => {
                 let height = self.shapes.kind(k).height();
                 let pos = place(&self.sim.world, cell, height, half);
@@ -297,7 +297,11 @@ impl Shooter {
                 }
                 self.things.spawn(kind, body, k.hp, Brain::Gunship(super::Gunship::new(top, rockets)))
             }
+        };
+        if let Some(t) = self.things.get(id) {
+            self.sim.lifted_out(&k.name, cell.as_vec3() + Vec3::new(0.5, 0.5, 0.0), t.body.pos);
         }
+        id
     }
 
     /// One line of game state for the window title or the console: what
