@@ -416,7 +416,8 @@ fn see_through_colors_are_named_never_changed() {
 }
 
 /// Bindings of every kind that did nothing in 0.6: a pad's letters, a
-/// typo of a button and of a key, an action the game lacks; the rest work.
+/// typo of a button and of a key, an action the game lacks, a key that
+/// does not walk its direction; the rest work (up stating what walks it).
 const BINDINGS: &str = "  c.actions = { \"act\", \"back\", \"info\" }
   c.keys = { act = { \"Space\" }, back = { \"Retrun\", \"X\" } }
   c.keys.ghost = { \"G\" }
@@ -425,6 +426,8 @@ const BINDINGS: &str = "  c.actions = { \"act\", \"back\", \"info\" }
     back = { \"east\" },
     info = { \"rightshoulde\" },
   }
+  c.keys.up = { \"W\", \"Up\" }
+  c.keys.down = { \"S\", \"I\" }
 ";
 
 /// The step names each binding that did nothing by its line, the Xbox
@@ -445,8 +448,9 @@ fn dead_bindings_are_named_never_changed() {
     assert!(at("conf.lua:5: c.keys.ghost:", "the game has no action ghost"), "{planned:#?}");
     assert!(at("conf.lua:7: c.pad.act: \"a\"", "the Xbox pad's A is \"south\""), "{planned:#?}");
     assert!(at("conf.lua:9: c.pad.info: \"rightshoulde\"", "(did you mean \"rightshoulder\"?)"), "{planned:#?}");
-    assert_eq!(planned.len(), 5, "the four, and what to do once: {planned:#?}");
-    assert!(planned[4].contains("nothing here is changed"), "{planned:#?}");
+    assert!(at("conf.lua:12: c.keys.down: \"I\"", "does not walk down"), "{planned:#?}");
+    assert_eq!(planned.len(), 6, "the five, and what to do once: {planned:#?}");
+    assert!(planned[5].contains("nothing here is changed"), "{planned:#?}");
     put(dir, "conf.lua", "function conf(c)\n  c.voxcade = \"0.5.0\"\n  c.actions = { \"act\" }\n  c.keys.act = { \"Space\" }\n  c.pad.act = { \"south\", \"righttrigger\" }\nend\n");
     assert!((step.plan)(dir).unwrap().is_empty());
 }

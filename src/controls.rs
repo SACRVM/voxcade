@@ -309,6 +309,33 @@ pub fn pad_held(pad: &Gamepad, name: &str) -> bool {
     BUTTONS.iter().find(|(_, n)| *n == name).is_some_and(|(b, _)| pad.button(*b))
 }
 
+/// The keys that walk each way (`input::DIRECTIONS`' order) on the whole
+/// keyboard (`read_seat`) and on its halves as they begin
+/// (`seating::LEFT_HALF`, `RIGHT_HALF`: WASD and the arrows), and the
+/// d-pad's buttons.
+fn walks(table: &str, way: usize, name: &str) -> bool {
+    use crate::seating::{LEFT_HALF, RIGHT_HALF};
+    if table == "pad" {
+        return ["dpleft", "dpright", "dpup", "dpdown"][way] == name;
+    }
+    let key = Scancode::from_name(name);
+    key.is_some() && [LEFT_HALF.0[way], RIGHT_HALF.0[way]].iter().any(|k| Scancode::from_name(k) == key)
+}
+
+/// Why a direction of `conf.lua` bound to a key or button that does not
+/// walk that way would do nothing, and what to do instead.
+fn not_walking(table: &str, way: usize, name: &str) -> String {
+    use crate::seating::{LEFT_HALF, RIGHT_HALF};
+    let dir = crate::input::DIRECTIONS[way];
+    let walk = if table == "pad" {
+        format!("on a pad the d-pad (\"{}\") and a stick walk {dir}", ["dpleft", "dpright", "dpup", "dpdown"][way])
+    } else {
+        format!("on the keyboard \"{}\" and \"{}\" walk {dir}", RIGHT_HALF.0[way], LEFT_HALF.0[way])
+    };
+    let players = if table == "pad" { "" } else { ". In a game of several a player sharing the keyboard may change the keys of their half's directions (CONTROLS, KEYS)" };
+    format!("\"{name}\" does not walk {dir}: {walk}, and a game's conf.lua cannot give the four directions other keys or buttons (stating those is fine); to have \"{name}\" do something, bind it to an action of your own (c.actions){players}")
+}
+
 /// The letters on an Xbox pad's face buttons and where they lie (a
 /// Nintendo pad has them the other way round).
 const XBOX_LETTERS: [(&str, &str); 4] = [("a", "south"), ("b", "east"), ("x", "west"), ("y", "north")];
@@ -332,8 +359,9 @@ impl DeadBinding {
 
 /// The bindings of a game's own `conf.lua` that would do nothing, in the
 /// tables' order: an action the game lacks (`actions`: a kit's and
-/// `c.actions`; `pause` besides) or a direction (the arrows and WASD, the
-/// sticks and the d-pad walk), a key no key's name (SDL's, as on a US
+/// `c.actions`; `pause` besides), a direction bound to a key or button
+/// that does not walk it anyway (`walks`: the arrows and WASD, the d-pad;
+/// stating those is fine), a key no key's name (SDL's, as on a US
 /// keyboard; the mouse's, `input::MOUSE_KEYS`, with a `pointer` only), a
 /// button none of `pad_names`. A player's settings are never asked: a
 /// stale name there does nothing, as before.
@@ -348,16 +376,24 @@ pub fn dead_bindings(keys: &Bindings, pad: &Bindings, actions: &[&str], pointer:
     for (table, bindings) in [("keys", keys), ("pad", pad)] {
         for (action, names) in &bindings.0 {
             let dead = |name: Option<&String>, why: String| DeadBinding { table, action: action.clone(), name: name.cloned(), why };
-            if crate::input::DIRECTIONS.contains(&action.as_str()) {
-                out.push(dead(None, "the four directions are no binding: the arrows and WASD, a stick and the d-pad walk".into()));
-                continue;
-            }
-            if !known.contains(&action.as_str()) {
+            let way = crate::input::DIRECTIONS.iter().position(|d| d == action);
+            if way.is_none() && !known.contains(&action.as_str()) {
                 let meant = near(action, known.iter().copied()).map_or(String::new(), |n| format!(" (did you mean {n}?)"));
                 out.push(dead(None, format!("the game has no action {action}{meant}; its actions: {} (c.actions names its own)", known.join(", "))));
                 continue;
             }
             for name in names {
+                // A direction may state what walks it anyway, nothing else.
+                if let Some(way) = way {
+                    let small = name.to_lowercase();
+                    let named = if table == "pad" { pads.contains(&name.as_str()) } else { Scancode::from_name(name).is_some() || (pointer && mouse.contains(&small.as_str())) };
+                    if named {
+                        if !walks(table, way, name) {
+                            out.push(dead(Some(name), not_walking(table, way, name)));
+                        }
+                        continue;
+                    }
+                }
                 let why = if table == "pad" {
                     if pads.contains(&name.as_str()) {
                         continue;

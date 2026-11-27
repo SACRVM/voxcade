@@ -1601,8 +1601,11 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the keys say. A binding of the game's own `conf.lua` that would do
   nothing is a mistake as it loads (`controls::dead_bindings`, in
   `session::config_in`; a gamepad bound a pad's "a" once and nothing
-  said so): an action the game lacks (`c.actions`, a kit's, `pause`; a
-  direction, which the arrows, WASD, a stick and the d-pad walk), a key
+  said so): an action the game lacks (`c.actions`, a kit's, `pause`), a
+  direction bound to what does not walk it anyway (`controls::walks`:
+  its arrow and WASD letter, its d-pad button; stating those is fine, a
+  game of the owner's does; a player changes a direction's keys only on
+  a half of a game of several, CONTROLS, KEYS), a key
   SDL does not name (the one meant within two letters), the mouse's
   without `c.pointer`, a button none of `controls::pad_names` (the names
   `pad_held` reads and `voxcade api c.pad` says; "a", "b", "x", "y" told
@@ -1613,6 +1616,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_button_the_engine_does_not_know_is_a_mistake`,
   `a_key_the_engine_does_not_know_is_a_mistake`,
   `an_action_the_game_lacks_is_a_mistake`,
+  `a_direction_may_state_what_walks_it_and_nothing_else`,
   `a_stale_name_in_the_settings_starts_the_game`,
   `the_api_says_the_names_of_the_buttons_and_the_mouse`,
   `dead_bindings_are_named_never_changed`). A Lua game names them too (`controls.device`, the

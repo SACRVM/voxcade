@@ -245,7 +245,6 @@ fn a_key_the_engine_does_not_know_is_a_mistake() {
 }
 
 /// A binding of an action the game lacks (`c.actions`, a kit's, `pause`)
-/// or of a direction (walked with the arrows, WASD, a stick and the d-pad)
 /// did nothing: it is a mistake as the game loads, naming the action meant.
 #[test]
 fn an_action_the_game_lacks_is_a_mistake() {
@@ -253,9 +252,26 @@ fn an_action_the_game_lacks_is_a_mistake() {
     assert_eq!(e, "conf.lua: c.keys.prv: the game has no action prv (did you mean prev?); its actions: act, prev, pause (c.actions names its own)");
     let e = start_error(&binding("action-pad", "  c.pad.jump = { \"south\" }"));
     assert!(e.starts_with("conf.lua: c.pad.jump: the game has no action jump"), "{e}");
-    let e = start_error(&binding("action-way", "  c.keys.left = { \"J\" }"));
-    assert!(e.starts_with("conf.lua: c.keys.left: the four directions are no binding"), "{e}");
     assert_eq!(start_error(&binding("action-pause", "  c.keys.pause = { \"Q\" }\n  c.pad.pause = { \"back\" }")), "");
+}
+
+/// A direction in `c.keys` or `c.pad` stating the keys and buttons that
+/// walk it anyway (its arrow and WASD letter, its d-pad button) loads and
+/// says nothing; another key or button there would do nothing, a mistake
+/// saying which walk, that conf.lua cannot give the directions others and
+/// what to do instead.
+#[test]
+fn a_direction_may_state_what_walks_it_and_nothing_else() {
+    let stated = "  c.keys = { up = { \"W\", \"Up\" }, down = { \"S\", \"Down\" }, left = { \"A\", \"Left\" }, right = { \"D\", \"Right\" }, act = { \"Space\" } }\n  c.pad = { up = { \"dpup\" }, down = { \"dpdown\" }, left = { \"dpleft\" }, right = { \"dpright\" } }";
+    assert_eq!(start_error(&binding("way-stated", stated)), "");
+    let e = start_error(&binding("way-other", "  c.keys.up = { \"W\", \"I\" }"));
+    assert_eq!(e, "conf.lua: c.keys.up: \"I\" does not walk up: on the keyboard \"Up\" and \"W\" walk up, and a game's conf.lua cannot give the four directions other keys or buttons (stating those is fine); to have \"I\" do something, bind it to an action of your own (c.actions). In a game of several a player sharing the keyboard may change the keys of their half's directions (CONTROLS, KEYS)");
+    let e = start_error(&binding("way-crossed", "  c.keys.down = { \"Up\" }"));
+    assert!(e.starts_with("conf.lua: c.keys.down: \"Up\" does not walk down: on the keyboard \"Down\" and \"S\" walk down"), "{e}");
+    let e = start_error(&binding("way-pad", "  c.pad.left = { \"dpright\" }"));
+    assert!(e.starts_with("conf.lua: c.pad.left: \"dpright\" does not walk left: on a pad the d-pad (\"dpleft\") and a stick walk left") && !e.contains("CONTROLS"), "{e}");
+    let e = start_error(&binding("way-slip", "  c.pad.up = { \"dpupp\" }"));
+    assert!(e.contains("\"dpupp\" is no button's name (did you mean \"dpup\"?)"), "{e}");
 }
 
 /// A player's settings with names no longer there (an action the game
