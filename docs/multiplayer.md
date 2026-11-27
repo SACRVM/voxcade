@@ -392,7 +392,7 @@ it says so. What remains is the evening on the home network.
 - A peer or the network can never make a program panic: every state a
   datagram can reach ends the session with a message (the fuzz test sends
   20,000 broken datagrams).
-- For 0.7: a join secret on the LAN too (a short code folded into HELLO and
+- For 0.8: a join secret on the LAN too (a short code folded into HELLO and
   the key, an HMAC on datagrams), resync after a desync, rollback (stage 5).
 
 #### Hosting, joining, finding

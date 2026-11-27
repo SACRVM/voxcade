@@ -1114,7 +1114,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   machine's id and a new nonce replaces it only once it has been silent
   `QUIET` (a restart), so no forged packet kicks a player (test
   `a_hello_with_a_known_id_kicks_no_one_who_plays`; the LAN has no
-  authentication still: a spoofed BYE or address needs crypto, 0.7). `voxcade run <game> --host [PORT]` and
+  authentication still: a spoofed BYE or address needs crypto, 0.8). `voxcade run <game> --host [PORT]` and
   `--join ADDRESS`, NETWORK on the title of a game of several; `inspect
   --host/--join --record` without a window (two programs over 127.0.0.1
   record the same run); windows tried hands-free: `run <game> --input
@@ -1685,7 +1685,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   menus' files is in the table or named as no word (test
   `every_menu_word_has_its_german_and_french`, which reads the files).
   Still untranslated: the action names on CONTROLS (FIRE, JUMP in French;
-  for 0.7, the game giving its words). A
+  for 0.8, the game giving its words). A
   game speaks the languages it lists (`c.languages`; SETTINGS offers
   LANGUAGE, the system's at first in a window, the game's first in
   `shot`; `world.language`; carried with the controls in replays), and
@@ -2359,7 +2359,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   face cannot carry (a voxel past 512 by 512 by 512 from the pivot) or
   whose faces would take more memory than its cubes (thin: a post, a
   voxel alone), the editors' views (their banks are never baked,
-  `Shown`). Static models meshed together is 0.7's.
+  `Shown`). Static models meshed together is 0.8's.
 - Rendering goes scene (HDR colour + glow targets) -> quarter-size blur
   passes -> composite onto the surface (`src/post.wgsl`; a window takes
   a surface format that stores what it is given, `render::surface_format`,
