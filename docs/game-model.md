@@ -190,7 +190,9 @@ settings. Several players: `player` is seat 1, the others are in
     answer; a button bound to one of the game's actions carries the
     answers of its moment as a click does; the mouse moved takes it back.
     Both settings are the input's mapping, like `c.keys`: neither is in
-    the fingerprint. The game draws the crosshair. `x` and `y` where it is, whole UI
+    the fingerprint. The IDE's PLAY gives a game all of it as a window
+    does, the mouse over its picture, the text typed while the game has
+    the keys and a pad's stick (`src/mouse.rs`, shared). The game draws the crosshair. `x` and `y` where it is, whole UI
     voxels from the screen's top left, the HUD's measure (`frame.width` by
     `frame.height`, `c.ui.height`; rounded to the nearest, as
     `frame.pointer`'s, which says the same of the tick played); `moved`

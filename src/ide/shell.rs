@@ -320,9 +320,15 @@ enum Notice {
 pub struct Stage {
     /// The main area shows it (else a file, and it holds still).
     pub shown: bool,
-    /// Its picture as last drawn, and the room (pixels) it has.
+    /// Its picture as last drawn, and the room (pixels) it has, where it
+    /// lies (egui's points: the mouse over it is the game's pointer).
     pub picture: Option<egui::TextureId>,
     pub wanted: Option<[u32; 2]>,
+    pub area: Option<egui::Rect>,
+    /// The system's arrow hidden over the picture (`c.pointer = "own"`),
+    /// and the picture's own shape in its room (`c.camera.aspect`).
+    pub arrow_hidden: bool,
+    pub shape: Option<f32>,
     /// What stops it (a script's error).
     pub trouble: Option<String>,
     /// A file of the game that would not load when it changed (it plays on
@@ -331,6 +337,15 @@ pub struct Stage {
     /// The keys of the game as seat 1 plays it (`Play::keys`): what each
     /// does and the key as the keyboard names it, shown under the game.
     pub keys: Vec<(String, String)>,
+}
+
+impl Stage {
+    /// A place of the IDE's window (egui's points) in the game's picture's
+    /// pixels (`pixels` to a point) from its top left; None off its room.
+    pub fn picture_place(&self, at: egui::Pos2, pixels: f32) -> Option<[f32; 2]> {
+        let room = self.area?;
+        room.contains(at).then(|| ((at - room.min) * pixels).into())
+    }
 }
 
 /// What the window asks of the game, and of the speaker.

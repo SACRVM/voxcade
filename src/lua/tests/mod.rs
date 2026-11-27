@@ -234,7 +234,7 @@ end
 "#;
 
 /// A model 3 by 3 by 4 of one colour, as text.
-const BOX: &str = "format = \"voxcade voxel 1\"\nsize = [3, 3, 4]\n\n[palette]\na = { color = \"#808080\" }\n\n[[frame]]\nlayers = \"\"\"\naaa *3\n*4\n\"\"\"\n";
+pub(crate) const BOX: &str = "format = \"voxcade voxel 1\"\nsize = [3, 3, 4]\n\n[palette]\na = { color = \"#808080\" }\n\n[[frame]]\nlayers = \"\"\"\naaa *3\n*4\n\"\"\"\n";
 
 /// A room of pieces (`grid::PIECE`): a stove facing east, a lamp hung in
 /// the air with its light, the moon (a light alone), a place, an area.
@@ -270,7 +270,7 @@ size = [16, 16, 20]
 
 /// A game whose one level is `level` (a level of pieces: no `c.world`),
 /// its player a thing of a kind without a model, `conf` added.
-fn pieces_folder(name: &str, conf: &str, level: &str, main: &str) -> crate::scratch::Scratch {
+pub(crate) fn pieces_folder(name: &str, conf: &str, level: &str, main: &str) -> crate::scratch::Scratch {
     let dir = crate::scratch::Scratch::new(&format!("pieces-{name}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("levels")).unwrap();

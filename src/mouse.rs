@@ -1,7 +1,9 @@
-//! The mouse and the keyboard's typing in a window (`docs/game-model.md`,
+//! The mouse and the keyboard's typing where a game plays, a window of its
+//! own (`app`) or the IDE's PLAY (`ide::play`) alike (`docs/game-model.md`,
 //! "input"): where the pointer is and what it is over, its buttons and
 //! wheel as keys (`input::MOUSE_KEYS`), the text typed while a player types
-//! (`p.state.typing`). What a tick hears of them is gathered between two
+//! (`p.state.typing`), a pad's stick moving the pointer
+//! (`c.pointer_stick`). What a tick hears of them is gathered between two
 //! ticks and taken once (`Mouse::add_to`): a click carries the answers
 //! of the moment its button went down, a wheel's notch is one press,
 //! several one a tick with a tick between, none lost.
@@ -10,8 +12,58 @@ use std::collections::VecDeque;
 
 use sdl3::mouse::MouseButton;
 
-use crate::controls::Bindings;
+use crate::controls::{Bindings, Device};
 use crate::input::{Input, Pointer, Typed, TypedQueue};
+
+/// Where a place `at` of a picture `size` big (the same measure, from its
+/// top left: a window's points, the IDE's play area's pixels) is in the
+/// HUD's measure (`hud`, its width and height), the picture drawn there in
+/// its own shape where the game has one (`shape`, `c.camera.aspect`: bars
+/// round it); None off the picture, on a bar too.
+pub fn hud_at(at: [f32; 2], size: (u32, u32), shape: Option<f32>, hud: [f32; 2]) -> Option<[f32; 2]> {
+    let (w, h) = size;
+    let (x0, y0, across, high) = match shape {
+        Some(shape) => crate::render::letterbox(w, h, shape),
+        None => (0, 0, w, h),
+    };
+    let (u, v) = ((at[0] - x0 as f32) / across.max(1) as f32, (at[1] - y0 as f32) / high.max(1) as f32);
+    ((0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)).then_some([u * hud[0], v * hud[1]])
+}
+
+/// Where seat `seat`'s pointer is in the HUD's measure: the mouse seat's
+/// (`mouse_seat`) the mouse's (`mouse`, None off the picture) while the
+/// keyboard was used last (`with`), its stick's (`stick`) while the pad
+/// was; another seat's its stick's where it has a pad (`pads`).
+pub fn seat_place(seat: usize, mouse_seat: usize, with: Device, mouse: Option<[f32; 2]>, stick: Option<[f32; 2]>, pads: bool) -> Option<[f32; 2]> {
+    if seat != mouse_seat {
+        return stick.filter(|_| pads);
+    }
+    match with {
+        Device::Keyboard => mouse,
+        Device::Gamepad => stick,
+    }
+}
+
+/// Every frame in a game whose pad's stick moves the pointer
+/// (`c.pointer_stick`): each seat's glides by the lean read last over
+/// `seconds` (a tenth of a second at most) at `speed` while `playing`, on a
+/// HUD `hud` big. One begins in the picture's middle, the mouse seat's
+/// following the mouse (`mouse`, where the keyboard is used) so the pad
+/// takes it on where the mouse left it; always on the picture. Whether
+/// seat 1 leans its stick (its pad is then what it plays with).
+pub fn glide_sticks(sticks: &mut [StickPointer], mouse: Option<[f32; 2]>, mouse_seat: usize, hud: [f32; 2], speed: f32, seconds: f32, playing: bool) -> bool {
+    let [w, h] = hud;
+    let mut leaned = false;
+    for (i, s) in sticks.iter_mut().enumerate() {
+        let lean = if playing { s.lean } else { [0.0; 2] };
+        let at = mouse.filter(|_| i + 1 == mouse_seat).or(s.at).unwrap_or([w / 2.0, h / 2.0]);
+        s.at = Some(crate::input::glide(at, lean, seconds.min(0.1), speed, w, h));
+        if i == 0 && crate::input::stick(lean[0], lean[1], crate::controls::DEAD) != [0, 0] {
+            leaned = true;
+        }
+    }
+    leaned
+}
 
 /// The mouse's buttons by their key names, in `Mouse::held`'s order.
 const BUTTONS: [(MouseButton, &str); 3] = [(MouseButton::Left, "mouse_left"), (MouseButton::Right, "mouse_right"), (MouseButton::Middle, "mouse_middle")];
@@ -20,7 +72,7 @@ const BUTTONS: [(MouseButton, &str); 3] = [(MouseButton::Left, "mouse_left"), (M
 const MOST_NOTCHES: usize = 32;
 
 #[derive(Default)]
-pub(super) struct Mouse {
+pub struct Mouse {
     /// Where it is in the window (its points, from the top left); None
     /// before it came over it.
     pub at: Option<[f32; 2]>,
@@ -46,6 +98,14 @@ impl Mouse {
     /// Which of the mouse's key names a button is.
     pub fn index(button: MouseButton) -> Option<usize> {
         BUTTONS.iter().position(|(b, _)| *b == button)
+    }
+
+    /// The mouse came to `at`: whether it moved there, more than 2 of its
+    /// measure from where it was (a hand on it, not a tremble).
+    pub fn move_to(&mut self, at: [f32; 2]) -> bool {
+        let moved = self.at.is_some_and(|was| (was[0] - at[0]).abs() + (was[1] - at[1]).abs() > 2.0);
+        self.at = Some(at);
+        moved
     }
 
     /// A button went down where `answer` says the pointer is.
@@ -85,6 +145,12 @@ impl Mouse {
     /// Text typed (`TextInput`), Backspace, Enter or Escape.
     pub fn type_text(&mut self, typed: Typed) {
         self.typed.push(&typed);
+    }
+
+    /// Text the system typed (its `TextInput`): the signs the pixel font
+    /// writes.
+    pub fn type_in(&mut self, text: &str) {
+        self.type_text(Typed { text: text.chars().filter(|&c| crate::ui::writes(c)).collect(), ..Typed::default() });
     }
 
     /// Nothing held or waiting any more (the window lost the focus, a menu
@@ -129,7 +195,7 @@ impl Mouse {
 /// mouse's: where it is, the lean read last, and the answers of a pad
 /// button pressed since the last tick took them.
 #[derive(Default)]
-pub(super) struct StickPointer {
+pub struct StickPointer {
     /// Where it is in the HUD's measure; None before the game had one.
     pub at: Option<[f32; 2]>,
     /// The stick's lean as read last (`controls::sticks`).
@@ -193,6 +259,24 @@ mod tests {
         m.add_to(&mut i, &keys, &actions, Some(at(40)));
         assert!(!i.held(1));
         assert_eq!(i.pointer.map(|p| p.x), Some(40));
+    }
+
+    /// A place on the picture is the HUD's from corner to corner; a picture
+    /// of its own shape lies between bars that are no place; off it, none.
+    #[test]
+    fn a_place_on_the_picture_is_the_huds_and_a_bar_is_none() {
+        let hud = [320.0, 180.0];
+        assert_eq!(hud_at([0.0, 0.0], (1600, 900), None, hud), Some([0.0, 0.0]));
+        assert_eq!(hud_at([1600.0, 900.0], (1600, 900), None, hud), Some(hud));
+        assert_eq!(hud_at([400.0, 450.0], (1600, 900), None, hud), Some([80.0, 90.0]));
+        assert_eq!(hud_at([1601.0, 10.0], (1600, 900), None, hud), None);
+        assert_eq!(hud_at([-1.0, 10.0], (1600, 900), None, hud), None);
+        // 4:3 in 16:9: 1200 across, bars of 200 left and right.
+        let square = [240.0, 180.0];
+        assert_eq!(hud_at([100.0, 450.0], (1600, 900), Some(4.0 / 3.0), square), None, "a bar");
+        assert_eq!(hud_at([200.0, 0.0], (1600, 900), Some(4.0 / 3.0), square), Some([0.0, 0.0]));
+        assert_eq!(hud_at([800.0, 450.0], (1600, 900), Some(4.0 / 3.0), square), Some([120.0, 90.0]));
+        assert_eq!(hud_at([1400.0, 900.0], (1600, 900), Some(4.0 / 3.0), square), Some(square));
     }
 
     /// A pad's button pressed while its stick moves the pointer carries

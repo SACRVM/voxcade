@@ -18,7 +18,6 @@ mod draw;
 mod events;
 mod front;
 mod keys;
-mod mouse;
 mod network;
 
 use std::path::{Path, PathBuf};
@@ -30,6 +29,7 @@ use sdl3::keyboard::Scancode;
 
 use crate::controls::{Controls, Device};
 use crate::game::Game;
+use crate::mouse;
 use crate::menu::{Command, Menu, Page};
 use crate::mesh::FaceMask;
 use crate::render::{FrameData, Renderer};
@@ -580,21 +580,13 @@ impl<G: Game> App<G> {
     /// The seat the mouse is (`docs/game-model.md`: one mouse a machine,
     /// the seat's that has the keyboard): the first with a part of it.
     fn mouse_seat(&self) -> usize {
-        (1..=self.seating.seats()).find(|&s| self.seating.keys(s) != Keys::Nothing).unwrap_or(1)
+        self.seating.mouse_seat()
     }
 
     /// Where the pointer is in the HUD's measure (window points `at`), or
     /// None outside the picture.
     fn hud_at(&self, at: [f32; 2]) -> Option<[f32; 2]> {
-        let (w, h) = self.display.screen.window.size();
-        let aspect = self.game.picture_aspect(self.display.screen.aspect());
-        let layout = crate::ui::Layout::of(&self.game.cfg.ui, aspect);
-        let (x0, y0, across, high) = match self.game.cfg.camera.aspect {
-            Some(shape) => crate::render::letterbox(w, h, shape),
-            None => (0, 0, w, h),
-        };
-        let (u, v) = ((at[0] - x0 as f32) / across.max(1) as f32, (at[1] - y0 as f32) / high.max(1) as f32);
-        ((0.0..=1.0).contains(&u) && (0.0..=1.0).contains(&v)).then_some([u * layout.width, v * layout.height])
+        mouse::hud_at(at, self.display.screen.window.size(), self.game.cfg.camera.aspect, self.hud_size())
     }
 
     /// The HUD's measure, its width and height (`frame.width`, `height`).
@@ -612,14 +604,9 @@ impl<G: Game> App<G> {
         if !self.game.has_pointer() {
             return None;
         }
-        let stick = || self.sticks.get(seat - 1).and_then(|s| s.at);
-        if seat != self.mouse_seat() {
-            return stick().filter(|_| !pads_of(&self.pads, &self.seating, seat).is_empty());
-        }
-        match self.front.played_with {
-            Device::Keyboard => self.mouse.at.and_then(|at| self.hud_at(at)),
-            Device::Gamepad => stick(),
-        }
+        let stick = self.sticks.get(seat - 1).and_then(|s| s.at);
+        let mouse = self.mouse.at.and_then(|at| self.hud_at(at));
+        mouse::seat_place(seat, self.mouse_seat(), self.front.played_with, mouse, stick, !pads_of(&self.pads, &self.seating, seat).is_empty())
     }
 
     /// Seat `seat`'s pointer answered where it is now, for a tick or a
@@ -648,19 +635,13 @@ impl<G: Game> App<G> {
             return;
         }
         self.sticks.resize_with(self.seating.seats(), Default::default);
-        let [w, h] = self.hud_size();
-        let mouse_seat = self.mouse_seat();
         let mouse = self.mouse.at.and_then(|at| self.hud_at(at)).filter(|_| self.front.played_with == Device::Keyboard);
         let speed = self.game.cfg.pointer_speed.unwrap_or(self.game.cfg.ui.height);
-        let seconds = self.clock.last.elapsed().as_secs_f32().min(0.1);
+        let seconds = self.clock.last.elapsed().as_secs_f32();
         let playing = self.front.playing && !self.front.menu.is_open() && !self.prompt.open && self.watching.is_none();
-        for (i, s) in self.sticks.iter_mut().enumerate() {
-            let lean = if playing { s.lean } else { [0.0; 2] };
-            let at = mouse.filter(|_| i + 1 == mouse_seat).or(s.at).unwrap_or([w / 2.0, h / 2.0]);
-            s.at = Some(crate::input::glide(at, lean, seconds, speed, w, h));
-            if i == 0 && crate::input::stick(lean[0], lean[1], crate::controls::DEAD) != [0, 0] {
-                self.front.played_with = Device::Gamepad;
-            }
+        let (mouse_seat, hud) = (self.mouse_seat(), self.hud_size());
+        if mouse::glide_sticks(&mut self.sticks, mouse, mouse_seat, hud, speed, seconds, playing) {
+            self.front.played_with = Device::Gamepad;
         }
     }
 

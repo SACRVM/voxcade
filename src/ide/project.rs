@@ -166,6 +166,9 @@ impl<G: Game> Project<'_, G> {
                 continue;
             }
             happened = true;
+            if self.game_event(&event) {
+                continue;
+            }
             match &event {
                 // Closing the IDE's window ends the IDE, its editors too
                 // (the text being changed saved first, the run being
@@ -197,21 +200,89 @@ impl<G: Game> Project<'_, G> {
         (happened, None)
     }
 
+    /// The mouse and the typing where the game has them, as a window's: the
+    /// mouse over its picture is its pointer, its buttons once the game has
+    /// the keys (the click that gives them is the IDE's) and its wheel
+    /// there; while its player types, the text, Backspace, Enter and Escape
+    /// (Escape cancels the typing: back to the file it goes only once the
+    /// game types no more). A key the game hears is the keyboard used.
+    /// Whether the event was the game's alone (egui does not see it).
+    fn game_event(&mut self, event: &Event) -> bool {
+        use sdl3::keyboard::Scancode;
+        let keys = self.shell.keys_to_game(&self.window.ctx);
+        let (Some(p), Some(stage)) = (&mut self.play, &self.shell.stage) else { return false };
+        if !(stage.shown && (self.focused || self.remote)) {
+            return false;
+        }
+        // A place of the window (SDL's points) in the picture's pixels,
+        // None off its room.
+        let (input, pixels) = (&self.window.input, self.window.ctx.pixels_per_point());
+        let on_picture = |x: f32, y: f32| stage.picture_place(input.point(x, y), pixels);
+        match event {
+            Event::MouseMotion { x, y, .. } => p.mouse_at(on_picture(*x, *y)),
+            Event::Window { win_event: WindowEvent::MouseLeave, .. } => p.mouse_at(None),
+            Event::Window { win_event: WindowEvent::FocusLost, .. } => p.let_go(),
+            Event::MouseButtonDown { mouse_btn, x, y, .. } if keys => {
+                if let Some(at) = on_picture(*x, *y) {
+                    p.mouse_down(*mouse_btn, at);
+                }
+            }
+            Event::MouseButtonUp { mouse_btn, .. } => p.mouse_up(*mouse_btn),
+            Event::MouseWheel { y, direction, mouse_x, mouse_y, .. } if keys && p.has_pointer() && on_picture(*mouse_x, *mouse_y).is_some() => {
+                let flip = if matches!(direction, sdl3::mouse::MouseWheelDirection::Flipped) { -1.0 } else { 1.0 };
+                p.wheel(y * flip);
+                return true;
+            }
+            Event::TextInput { text, .. } if keys && p.typing() => {
+                p.type_in(text);
+                return true;
+            }
+            Event::KeyDown { scancode: Some(code), repeat, .. } if keys && p.typing() => {
+                let typed = match code {
+                    Scancode::Backspace => Some(crate::input::Typed { erase: 1, ..Default::default() }),
+                    Scancode::Return | Scancode::KpEnter if !repeat => Some(crate::input::Typed { done: true, ..Default::default() }),
+                    Scancode::Escape if !repeat => Some(crate::input::Typed { cancel: true, ..Default::default() }),
+                    _ => None,
+                };
+                p.keyboard_used();
+                if let Some(t) = typed {
+                    p.type_text(t);
+                    return true;
+                }
+            }
+            Event::KeyDown { .. } if keys => p.keyboard_used(),
+            _ => {}
+        }
+        false
+    }
+
     /// Pads plugged in and out; their buttons and sticks are read while
     /// the game runs (drawn every frame then), so they draw nothing
     /// themselves (a drifting stick would redraw the IDE all the time).
     /// The run over (PRESS START): from the start, as F5; else a pad's
-    /// START takes a seat (a game of several).
+    /// START takes a seat (a game of several), and any button or a stick
+    /// leant far is the pad used (`controls.device`), a button carrying
+    /// the pointer's answers where its stick moves it (`Play::pad_button`).
     fn pad_event(&mut self, event: &Event) {
         use sdl3::gamepad::Button;
+        let playing = self.shell.stage.as_ref().is_some_and(|s| s.shown) && self.focused;
         match event {
             Event::GamepadAdded { which, .. } => self.window.pads.added(*which),
             Event::GamepadRemoved { which, .. } => self.window.pads.removed(*which),
-            Event::GamepadButtonDown { button: button @ (Button::Start | Button::South), which, .. } if self.shell.stage.as_ref().is_some_and(|s| s.shown) && self.focused => match self.play.as_mut() {
-                Some(p) if p.over() => self.restart(),
-                Some(p) if *button == Button::Start => p.pad_start(which.raw(), &self.window.pads.ids()),
-                _ => {}
-            },
+            Event::GamepadButtonDown { button: Button::Start | Button::South, .. } if playing && self.play.as_ref().is_some_and(Play::over) => self.restart(),
+            Event::GamepadButtonDown { button, which, .. } if playing => {
+                if let Some(p) = self.play.as_mut() {
+                    if *button == Button::Start {
+                        p.pad_start(which.raw(), &self.window.pads.ids());
+                    }
+                    p.pad_button(which.raw(), *button);
+                }
+            }
+            Event::GamepadAxisMotion { value, .. } if playing && (*value as f32 / 32767.0).abs() > 0.5 => {
+                if let Some(p) = self.play.as_mut() {
+                    p.pad_used();
+                }
+            }
             _ => {}
         }
     }
@@ -528,6 +599,7 @@ impl<G: Game> Project<'_, G> {
         if stage.keys != p.keys() {
             stage.keys = p.keys().to_vec();
         }
+        (stage.arrow_hidden, stage.shape) = (p.arrow_hidden(), p.shape());
         // The game's `world:quit()`: STOP, never the IDE.
         if p.quits() {
             self.shell.stop();

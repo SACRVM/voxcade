@@ -417,7 +417,14 @@ Stage by stage (the plan of 2026-10-18):
    `the_line_the_game_stopped_at_is_marked`). It
    steps as `voxcade shot` does (test `play_steps_and_draws_into_its_panel`);
    `voxcade ide --shot --play TICKS` draws it (a game that would not
-   start: its red line). Gamepads drive it too, any
+   start: its red line; `--pointer X,Y` the mouse over its picture). In a
+   game with a pointer (`c.pointer`) the mouse over the picture is the
+   game's pointer, its buttons (once the game has the keys) and wheel the
+   game's, the arrow hidden there for `"own"`; the text a player types
+   goes to the game while it has the keys (Escape cancels the typing
+   first), a pad's stick moves the pointer where `c.pointer_stick` says:
+   all as a window does (`src/mouse.rs`, shared with `src/app/`; test
+   `the_mouse_and_typing_in_play_are_the_windows`). Gamepads drive it too, any
    plugged in, at the start or later (the keyboard only while the game
    has the keys). A run won or lost (PRESS START) starts over with Enter,
    or Start or A on a pad: the IDE has no title to go back to. Its runs

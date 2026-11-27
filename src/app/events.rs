@@ -31,7 +31,7 @@ impl<G: Game> App<G> {
             Event::Window { win_event: WindowEvent::FocusLost, .. } => {
                 self.front.look_away(self.net.is_some());
                 self.mouse.let_go();
-                self.sticks.iter_mut().for_each(super::mouse::StickPointer::let_go);
+                self.sticks.iter_mut().for_each(crate::mouse::StickPointer::let_go);
             }
             Event::Window { win_event: WindowEvent::FocusGained, .. } => {
                 self.front.look_back();
@@ -42,12 +42,12 @@ impl<G: Game> App<G> {
             Event::GamepadRemoved { which, .. } => self.pads.removed(which),
             Event::TextInput { text, .. } if self.prompt.open => self.prompt.type_text(&text),
             Event::TextInput { text, .. } if self.front.typing_address => text.chars().for_each(|c| self.front.menu.type_address(c)),
-            Event::TextInput { text, .. } if self.mouse.typing => self.mouse.type_text(crate::input::Typed { text: text.chars().filter(|&c| crate::ui::writes(c)).collect(), ..Default::default() }),
+            Event::TextInput { text, .. } if self.mouse.typing => self.mouse.type_in(&text),
             Event::Window { win_event: WindowEvent::MouseLeave, .. } => self.mouse.at = None,
             Event::MouseMotion { x, y, .. } if self.game.has_pointer() => self.mouse_moved([x, y]),
             Event::MouseButtonDown { mouse_btn, x, y, .. } if self.game.has_pointer() => self.mouse_down(mouse_btn, [x, y], commands),
             Event::MouseButtonUp { mouse_btn, .. } if self.game.has_pointer() => {
-                if let Some(i) = super::mouse::Mouse::index(mouse_btn) {
+                if let Some(i) = crate::mouse::Mouse::index(mouse_btn) {
                     self.mouse.up(i);
                 }
             }
@@ -234,9 +234,7 @@ impl<G: Game> App<G> {
     /// The mouse moved to `at` (window points): the keyboard's player uses
     /// it; over an engine's menu the row under it is chosen.
     fn mouse_moved(&mut self, at: [f32; 2]) {
-        let moved = self.mouse.at.is_some_and(|was| (was[0] - at[0]).abs() + (was[1] - at[1]).abs() > 2.0);
-        self.mouse.at = Some(at);
-        if moved {
+        if self.mouse.move_to(at) {
             self.front.played_with = Device::Keyboard;
             self.attract.input();
         }
@@ -259,7 +257,7 @@ impl<G: Game> App<G> {
         // one's, the keyboard's bindings).
         if self.front.menu.rebinding.is_some() {
             if self.front.menu.page() == Some(Page::Controls)
-                && let Some(i) = super::mouse::Mouse::index(button)
+                && let Some(i) = crate::mouse::Mouse::index(button)
             {
                 commands.extend(self.front.menu.bind(Device::Keyboard, crate::input::MOUSE_KEYS[i], false, &mut self.settings));
             }
@@ -279,7 +277,7 @@ impl<G: Game> App<G> {
             }
             return;
         }
-        if let Some(i) = super::mouse::Mouse::index(button).filter(|_| self.front.playing && self.watching.is_none()) {
+        if let Some(i) = crate::mouse::Mouse::index(button).filter(|_| self.front.playing && self.watching.is_none()) {
             let answer = self.pointer_now();
             self.mouse.down(i, answer);
         }

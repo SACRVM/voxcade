@@ -149,6 +149,7 @@ pub(super) const COMMANDS: &[Command] = &[
             look("--open", "PATH", "that file open (help: HELP's list of every name, help:N its topic N; text:FILE a model as text)"),
             look("--console", "CMD", "CMD run in the console and waited for"),
             look("--play", "TICKS", "the game played in the main area, TICKS in (with --open: held behind the file)"),
+            look("--pointer", "X,Y", "with --play: the mouse over the game's picture at X,Y, its pixels from the top left (a game with c.pointer)"),
             look("--find", "WORD", "the find row open over the text"),
             look("--replace", "TEXT", "with --find: the replace row too"),
             look("--search", "WORD", "the search through the game's files"),

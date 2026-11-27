@@ -71,8 +71,15 @@ impl Shell {
         let room = egui::vec2(ui.available_width() - 20.0, ui.available_height() - 14.0).max(egui::vec2(1.0, 1.0));
         let (rect, response) = ui.allocate_exact_size(room, egui::Sense::click());
         let pixels = ui.ctx().pixels_per_point();
-        stage.wanted = Some([(rect.width() * pixels).round() as u32, (rect.height() * pixels).round() as u32]);
+        let wanted = [(rect.width() * pixels).round() as u32, (rect.height() * pixels).round() as u32];
+        (stage.wanted, stage.area) = (Some(wanted), Some(rect));
         let response = ui.interact(rect, game_id(), egui::Sense::click()).union(response);
+        // The game draws its own pointer over its picture (not over the
+        // bars round one of its own shape): the system's arrow hides there.
+        let on_picture = |pos: egui::Pos2| stage.picture_place(pos, pixels).and_then(|at| crate::mouse::hud_at(at, (wanted[0], wanted[1]), stage.shape, [1.0, 1.0])).is_some();
+        if stage.arrow_hidden && response.hover_pos().is_some_and(on_picture) {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+        }
         if response.clicked() {
             response.request_focus();
         }

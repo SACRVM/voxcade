@@ -32,6 +32,7 @@ pub mod map;
 pub mod mcp;
 pub mod menu;
 pub mod mesh;
+pub mod mouse;
 pub mod names;
 pub mod network;
 pub mod net;

@@ -460,7 +460,8 @@ nearest; its replay `tests/two_ships`);
   game takes over with a line in OUTPUT, so what an agent builds in
   `on_level_start` shows without F5; a change to the rules alone keeps
   the run; Escape back to the file, F5 over, F9 keeps the run (the maker's
-  keys, always on in PLAY), STOP; runs recorded as in `voxcade run`; a script's error with
+  keys, always on in PLAY), STOP; the mouse over the picture, typing and a
+  pad's pointer as in a window (below, "The pointer"); runs recorded as in `voxcade run`; a script's error with
   TO THE LINE, the line marked in the file until mended; PLAY draws no
   error panel over the game, `Session::problem_shown`, one plain line
   under the script's mistake, `play::plain_words`, and OUTPUT gets the
@@ -1172,7 +1173,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `grid_place`), the tick checks (`Pointer::checked`: another level's
   picture, `input::picture_mark` of `Game::level_mark`, is nil whole).
   The window gathers the mouse and the text between ticks
-  (`src/app/mouse.rs`: a click carries the answers of its moment, a
+  (`src/mouse.rs`, the IDE's PLAY's too: a click carries the answers of its moment, a
   wheel notch a press with a tick between, the text a sort a tick,
   `TypedQueue`); the engine's menus take the mouse (`ui::menu_rows`,
   `Menu::choose`). Typing is a player's state key, `p.state.typing`
@@ -1222,7 +1223,7 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   window glides a place in the HUD's measure by its lean
   (`input::glide`: `v·|v|` past the dead zone, on the picture) and
   answers it through `Session::point` as the mouse's, so no wire, replay
-  or Lua word is new (`app::mouse::StickPointer`, one a seat,
+  or Lua word is new (`mouse::StickPointer`, one a seat,
   `App::glide_sticks`, `seat_place`: the mouse seat's the mouse while the
   keyboard was used last, back to it when it moves, its stick's from
   where the mouse was; another seat's its pad's stick's from the middle,
@@ -1236,8 +1237,27 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_pad_button_carries_the_pointers_answer_of_its_moment`,
   `a_pads_pointer_is_answered_as_the_mouses`,
   `a_pad_pointers_click_carries_its_answer_over_a_bad_network`.
-  Not yet: the IDE's PLAY takes no mouse, typing or pad's pointer, and a
-  player's POINTER SPEED setting.
+  The IDE's PLAY takes all of it as the window does (`src/mouse.rs`
+  shared: `Mouse`, `StickPointer`, `hud_at`, `seat_place`,
+  `glide_sticks`; `Play::read`, `tick_input` a tick at a time,
+  `play_tick`, recorded): the mouse over its picture's room
+  (`Stage::area`, `picture_place`, the bars round a picture of its own
+  shape no place) its pointer, `frame.pointer` set every frame, a button
+  the game's once the game has the keys (the click giving them the
+  IDE's), the wheel there the game's alone, off the picture no pointer;
+  with `c.pointer = "own"` egui's `CursorIcon::None` over the picture,
+  the IDE's window hiding the arrow for it (`ide::window`); while the
+  keyboard's player types and the game has the keys, the text,
+  Backspace, Enter and Escape the game's (Escape cancels the typing,
+  back to the file only once it types no more); a pad's stick and
+  buttons as the window's, `controls.device` following the device used
+  last (`Play::played_with`); `ide --shot --play TICKS --pointer X,Y`
+  the mouse at a pixel of the picture. Tests
+  `a_place_on_the_picture_is_the_huds_and_a_bar_is_none`,
+  `the_mouse_and_typing_in_play_are_the_windows`,
+  `a_pads_pointer_in_play_glides_and_its_button_carries_the_answer`,
+  `the_mouse_over_the_games_picture_is_the_games`. Not yet: a player's
+  POINTER SPEED setting.
 - Every game can be tried late without playing there (the user: without
   it testing a game is hardly possible): scenarios and the console are
   part of every game (`docs/game-model.md`, "Scenarios and the console").

@@ -10,7 +10,11 @@
 //! in OUTPUT within a second (`lua::hidden::Watch`). Its runs are
 //! recorded as `voxcade run` records them (`replay::Runs`: kept in the
 //! config folder from 10 s on, F9 puts one in the game's `replays/`; a
-//! run with a file saved during it is not kept).
+//! run with a file saved during it is not kept). In a game with a pointer
+//! the mouse over its picture is the pointer, as a window's mouse is, its
+//! buttons and wheel the keys the game binds, a pad's stick moving it where
+//! `c.pointer_stick` says (`crate::mouse`, the window's own); the text a
+//! player types goes to the game while it has the keys.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -78,6 +82,16 @@ pub struct Play<G: Game> {
     keys: Vec<(String, String)>,
     /// The game asked to end (`world:quit()`): PLAY stops it, never the IDE.
     quit: bool,
+    /// The mouse over the game's picture (its place in the picture's pixels
+    /// from the top left, None off it), its buttons and wheel, and the text
+    /// typed while the keyboard's player types; each seat's pointer its
+    /// pad's stick moves (`c.pointer_stick`), seat 1's first: as a window's.
+    mouse: crate::mouse::Mouse,
+    sticks: Vec<crate::mouse::StickPointer>,
+    /// What seat 1 played with last (`controls.device`), and which seats
+    /// have a pad, as read last.
+    played_with: Device,
+    seat_pads: Vec<bool>,
 }
 
 impl<G: Game> Play<G> {
@@ -99,7 +113,7 @@ impl<G: Game> Play<G> {
         runs.start(&game);
         let seating = crate::seating::Seating::new(game.cfg.players);
         let mark = game.start_mark();
-        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), clock: Default::default(), last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false };
+        let mut play = Self { dir: dir.to_path_buf(), game, renderer, mask, target: None, settings, watch: FolderWatch::new(dir), speaker, runs, failed: Vec::new(), unloaded: Default::default(), clock: Default::default(), last: None, scenario: scenario.map(str::to_string), seating, mark, notes: Vec::new(), guard: Default::default(), hidden: Vec::new(), keys: Vec::new(), quit: false, mouse: Default::default(), sticks: Vec::new(), played_with: Device::Keyboard, seat_pads: Vec::new() };
         play.guard.begin(play.game.game.hidden());
         play.name_keys();
         Ok(play)
@@ -135,26 +149,259 @@ impl<G: Game> Play<G> {
     }
 
     /// What seat 1 holds now, the other seats' set on the game for the
-    /// ticks to come (`keys`: the keyboard, while the game has it).
+    /// ticks to come (`keys`: the keyboard, while the game has it; the
+    /// keyboard's player types then if its state says so, and the keys that
+    /// type hold nothing), each seat's stick that moves the pointer read
+    /// for it, as a window reads them (`App::read_input`).
     pub fn read(&mut self, keys: Option<&dyn crate::controls::KeyState>, pads: &[sdl3::gamepad::Gamepad]) -> crate::input::Input {
         use crate::seating::Keys;
+        let mouse_seat = self.seating.mouse_seat();
+        let typing = keys.is_some() && self.game.typing(mouse_seat);
+        if typing != self.mouse.typing {
+            self.mouse.typing = typing;
+            if !typing {
+                self.mouse.typed.clear();
+            }
+        }
+        let typed = keys.map(|keys| crate::controls::WithMouse { keys, mouse: &[], typing });
+        let keys_of = |seat: usize| if seat == mouse_seat { typed.as_ref().map(|k| k as &dyn crate::controls::KeyState) } else { keys };
+        let stick = self.game.cfg.pointer_stick;
+        self.size_sticks();
+        let aspect = self.aspect();
         let seating = &self.seating;
-        if seating.alone() {
-            // (The IDE's PLAY gives no stick to a pointer yet.)
-            return crate::controls::read_input(keys, pads, &self.settings, self.game.actions(), None).0;
-        }
         let of_seat = |seat: usize| pads.iter().filter(|p| p.id().ok().and_then(|id| seating.pad_seat(id.raw())) == Some(seat)).collect::<Vec<_>>();
-        for seat in 2..=seating.seats() {
-            let (input, _) = crate::controls::read_seat(keys, seating.keys(seat), &of_seat(seat), self.settings.pad_of(seat), &self.settings, self.game.actions(), None);
-            let controls = match seating.keys(seat) {
-                Keys::Whole => crate::controls::Controls::of(self.game.actions(), Device::Keyboard, PadStyle::default(), &self.settings),
-                Keys::Nothing => crate::controls::Controls::of_pad(self.game.actions(), PadStyle::default(), self.settings.pad_of(seat), &self.settings),
-                half => crate::controls::Controls::of_half(self.game.actions(), half, &self.settings),
-            };
-            self.game.set_seat(seat, seating.taken(seat).then_some(input));
-            self.game.set_seat_controls(seat, controls);
+        let (input, lean) = if seating.alone() {
+            crate::controls::read_input(keys_of(1), pads, &self.settings, self.game.actions(), stick)
+        } else {
+            self.seat_pads = (1..=seating.seats()).map(|seat| !of_seat(seat).is_empty()).collect();
+            for seat in 2..=seating.seats() {
+                let (mut input, lean) = crate::controls::read_seat(keys_of(seat), seating.keys(seat), &of_seat(seat), self.settings.pad_of(seat), &self.settings, self.game.actions(), stick);
+                // The mouse's, where this seat has the keyboard; else the
+                // pointer its pad's stick moves, aimed at.
+                if let Some(s) = self.sticks.get_mut(seat - 1) {
+                    s.lean = lean;
+                }
+                if seat == mouse_seat {
+                    self.mouse.add_to(&mut input, &self.settings.keys, self.game.actions(), None);
+                } else if let Some(now) = self.seat_pointer(seat) {
+                    input.pointer = Some(Box::new(now));
+                }
+                if let Some(s) = self.sticks.get_mut(seat - 1) {
+                    s.add_to(&mut input);
+                }
+                if seat != mouse_seat {
+                    self.game.mouse_aim(&mut input, seat, aspect);
+                }
+                let controls = match seating.keys(seat) {
+                    Keys::Whole => crate::controls::Controls::of(self.game.actions(), Device::Keyboard, PadStyle::default(), &self.settings),
+                    Keys::Nothing => crate::controls::Controls::of_pad(self.game.actions(), PadStyle::default(), self.settings.pad_of(seat), &self.settings),
+                    half => crate::controls::Controls::of_half(self.game.actions(), half, &self.settings),
+                };
+                self.game.set_seat(seat, seating.taken(seat).then_some(input));
+                self.game.set_seat_controls(seat, controls);
+            }
+            crate::controls::read_seat(keys_of(1), seating.keys(1), &of_seat(1), &self.settings.pad, &self.settings, self.game.actions(), stick)
+        };
+        if let Some(s) = self.sticks.first_mut() {
+            s.lean = lean;
         }
-        crate::controls::read_seat(keys, seating.keys(1), &of_seat(1), &self.settings.pad, &self.settings, self.game.actions(), None).0
+        input
+    }
+
+    /// Whether the game has a pointer (`c.pointer`).
+    pub fn has_pointer(&self) -> bool {
+        self.game.has_pointer()
+    }
+
+    /// Whether the system's arrow hides over the game's picture
+    /// (`c.pointer = "own"`, as a window hides it), and the picture's own
+    /// shape in its room (`c.camera.aspect`: bars round it).
+    pub fn arrow_hidden(&self) -> bool {
+        self.game.cfg.pointer == Some(crate::config::PointerStyle::Own)
+    }
+
+    pub fn shape(&self) -> Option<f32> {
+        self.game.cfg.camera.aspect
+    }
+
+    /// The mouse at `at` of the game's picture (its pixels from the top
+    /// left; None: off it, the bars round a picture of its own shape too):
+    /// moved there, the keyboard's player uses it.
+    pub fn mouse_at(&mut self, at: Option<[f32; 2]>) {
+        if !self.game.has_pointer() {
+            return;
+        }
+        match at {
+            Some(at) if self.mouse.move_to(at) => self.played_with = Device::Keyboard,
+            Some(_) => {}
+            None => self.mouse.at = None,
+        }
+    }
+
+    /// A mouse button went down at `at` of the picture: the game's, with
+    /// what the pointer is over now (`Mouse::down`).
+    pub fn mouse_down(&mut self, button: sdl3::mouse::MouseButton, at: [f32; 2]) {
+        if !self.game.has_pointer() {
+            return;
+        }
+        self.mouse.at = Some(at);
+        self.played_with = Device::Keyboard;
+        if let Some(i) = crate::mouse::Mouse::index(button) {
+            let answer = self.seat_pointer(self.seating.mouse_seat());
+            self.mouse.down(i, answer);
+        }
+    }
+
+    pub fn mouse_up(&mut self, button: sdl3::mouse::MouseButton) {
+        if let Some(i) = crate::mouse::Mouse::index(button) {
+            self.mouse.up(i);
+        }
+    }
+
+    /// The wheel turned `notches` over the picture (above 0: up).
+    pub fn wheel(&mut self, notches: f32) {
+        if self.game.has_pointer() {
+            self.played_with = Device::Keyboard;
+            self.mouse.turned(notches);
+        }
+    }
+
+    /// Whether the keyboard's player types (`p.state.typing`) while the
+    /// game has the keys: the text typed, Backspace, Enter and Escape are
+    /// the game's (`type_in`, `type_text`).
+    pub fn typing(&self) -> bool {
+        self.mouse.typing
+    }
+
+    pub fn type_in(&mut self, text: &str) {
+        self.mouse.type_in(text);
+    }
+
+    pub fn type_text(&mut self, typed: crate::input::Typed) {
+        self.mouse.type_text(typed);
+    }
+
+    /// A key went down for the game: seat 1 plays on the keyboard.
+    pub fn keyboard_used(&mut self) {
+        self.played_with = Device::Keyboard;
+    }
+
+    /// A pad leaned or pressed: seat 1 plays on it (where it is seat 1's).
+    pub fn pad_used(&mut self) {
+        self.played_with = Device::Gamepad;
+    }
+
+    /// A pad's button went down (`pad`, its id): one bound to one of its
+    /// seat's actions carries the pointer's answers of this moment where
+    /// the seat's stick moves it, as a click does (`App::stick_press`).
+    pub fn pad_button(&mut self, pad: u32, button: sdl3::gamepad::Button) {
+        self.pad_used();
+        let Some(name) = crate::controls::button_name(button) else { return };
+        let Some(seat) = self.seating.pad_seat(pad) else { return };
+        let bound = self.settings.pad_of(seat).action_of(name).is_some_and(|a| self.game.actions().contains(&a));
+        if bound && seat <= self.sticks.len() {
+            let answer = self.seat_pointer(seat);
+            self.sticks[seat - 1].down(answer);
+        }
+    }
+
+    /// Nothing held or waiting any more (the window lost the focus, the
+    /// game held).
+    pub fn let_go(&mut self) {
+        self.mouse.let_go();
+        self.sticks.iter_mut().for_each(crate::mouse::StickPointer::let_go);
+    }
+
+    /// The pictures to come show the mouse at `at` of the picture (its
+    /// pixels; `--shot --pointer`), as a frame shows it.
+    pub fn show_pointer(&mut self, at: Option<[f32; 2]>) {
+        self.mouse_at(at);
+        self.pointer_shown();
+    }
+
+    /// The picture's shape as last drawn (1 before).
+    fn aspect(&self) -> f32 {
+        self.target.as_ref().map_or(1.0, |t| t.size[0] as f32 / t.size[1].max(1) as f32)
+    }
+
+    /// The HUD's measure, its width and height (`frame.width`, `height`).
+    fn hud_size(&self) -> [f32; 2] {
+        let layout = crate::ui::Layout::of(&self.game.cfg.ui, self.game.picture_aspect(self.aspect()));
+        [layout.width, layout.height]
+    }
+
+    /// Where seat `seat`'s pointer is in the HUD's measure, as a window's
+    /// (`mouse::seat_place`): the mouse's over the picture as last drawn,
+    /// or its stick's.
+    fn seat_place(&self, seat: usize) -> Option<[f32; 2]> {
+        if !self.game.has_pointer() {
+            return None;
+        }
+        let stick = self.sticks.get(seat - 1).and_then(|s| s.at);
+        crate::mouse::seat_place(seat, self.seating.mouse_seat(), self.played_with, self.mouse_place(), stick, self.seat_pads.get(seat - 1).copied().unwrap_or(false))
+    }
+
+    /// Where the mouse is in the HUD's measure, over the picture as last
+    /// drawn (`mouse::hud_at`); None off it.
+    fn mouse_place(&self) -> Option<[f32; 2]> {
+        let t = self.target.as_ref()?;
+        crate::mouse::hud_at(self.mouse.at?, (t.size[0], t.size[1]), self.game.cfg.camera.aspect, self.hud_size())
+    }
+
+    /// Seat `seat`'s pointer answered where it is now.
+    fn seat_pointer(&self, seat: usize) -> Option<crate::input::Pointer> {
+        let [x, y] = self.seat_place(seat)?;
+        Some(self.game.point(x, y, self.aspect()))
+    }
+
+    /// The pictures to come show the mouse seat's pointer where it is now
+    /// (`frame.pointer`), in a game with one.
+    fn pointer_shown(&mut self) {
+        if self.game.has_pointer() {
+            let (at, aspect) = (self.seat_place(self.seating.mouse_seat()), self.aspect());
+            self.game.set_pointer(at, aspect);
+        }
+    }
+
+    /// One a seat, where a pad's stick moves the pointer; none else.
+    fn size_sticks(&mut self) {
+        match self.game.cfg.pointer_stick {
+            Some(_) => self.sticks.resize_with(self.seating.seats(), Default::default),
+            None => self.sticks.clear(),
+        }
+    }
+
+    /// Each seat's stick's pointer glided over `seconds` (`mouse::glide_sticks`).
+    fn glide(&mut self, seconds: f32) {
+        self.size_sticks();
+        if self.sticks.is_empty() {
+            return;
+        }
+        let mouse = self.mouse_place().filter(|_| self.played_with == Device::Keyboard);
+        let speed = self.game.cfg.pointer_speed.unwrap_or(self.game.cfg.ui.height);
+        let (mouse_seat, hud) = (self.seating.mouse_seat(), self.hud_size());
+        if crate::mouse::glide_sticks(&mut self.sticks, mouse, mouse_seat, hud, speed, seconds, true) {
+            self.played_with = Device::Gamepad;
+        }
+    }
+
+    /// A tick's input from seat 1's keys `held`: the mouse's buttons and
+    /// wheel, its pointer answered now (a press's answers before them),
+    /// the text typed, a pad's press, the aim at the pointer, taken once a
+    /// tick as a window takes them (`App::ticks`).
+    fn tick_input(&mut self, held: &crate::input::Input) -> crate::input::Input {
+        let mut input = held.clone();
+        let now = self.seat_pointer(1);
+        if self.seating.mouse_seat() == 1 {
+            self.mouse.add_to(&mut input, &self.settings.keys, self.game.actions(), now);
+        } else {
+            input.pointer = now.map(Box::new);
+        }
+        if let Some(s) = self.sticks.first_mut() {
+            s.add_to(&mut input);
+        }
+        self.game.mouse_aim(&mut input, 1, self.aspect());
+        input
     }
 
     /// The keys of seat 1 as the window's controls menu would show them
@@ -200,6 +447,11 @@ impl<G: Game> Play<G> {
     /// Holds it still (the main area shows a file, the window is
     /// elsewhere): no ticks, no sound.
     pub fn hold(&mut self) {
+        self.let_go();
+        self.mouse.at = None;
+        if std::mem::take(&mut self.mouse.typing) {
+            self.mouse.typed.clear();
+        }
         if self.last.take().is_some()
             && let Some(s) = &self.speaker
         {
@@ -328,10 +580,10 @@ impl<G: Game> Play<G> {
         self.runs.keep(&self.game)
     }
 
-    /// What the player plays with, for the ticks to come: the keyboard
-    /// here.
+    /// What the player plays with, for the ticks to come: the device seat
+    /// 1 used last, the keyboard (and mouse) or a pad.
     fn controls(&mut self) {
-        let controls = self.game.player_controls(Device::Keyboard, PadStyle::default(), &self.settings);
+        let controls = self.game.player_controls(self.played_with, PadStyle::default(), &self.settings);
         self.game.set_controls(controls);
     }
 
@@ -346,7 +598,7 @@ impl<G: Game> Play<G> {
     }
 
     /// A frame: what changed on disk comes in, the ticks due are stepped
-    /// with `input`, and the game is drawn into its texture, `size`
+    /// with `input` (and the mouse's, the text typed, a pad's pointer), and the game is drawn into its texture, `size`
     /// pixels big (egui told of it). Its name to egui.
     pub fn frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer, size: [u32; 2], input: &crate::input::Input) -> egui::TextureId {
         let now = Instant::now();
@@ -382,20 +634,31 @@ impl<G: Game> Play<G> {
             }
         }
 
+        // The pointer where it is now, for the pictures and the ticks.
+        self.glide(elapsed);
+        self.pointer_shown();
         // The ticks due.
         self.controls();
         for _ in 0..self.clock.due(keep) {
-            self.game.fades = true;
-            self.game.step(input);
-            self.guard_tick();
-            self.runs.step(&self.game);
-            if !self.game.game.sim().sounds.is_empty()
-                && let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock())
-            {
-                self.game.play_sounds(&mut mixer, self.settings.sound_gain());
-            }
+            self.play_tick(input);
         }
         self.draw(device, queue, egui, size)
+    }
+
+    /// A tick played as a frame plays it: seat 1's keys `held` with the
+    /// mouse's, the text typed and a pad's pointer (`tick_input`), the
+    /// hidden-state guard, recorded, its sounds.
+    fn play_tick(&mut self, held: &crate::input::Input) {
+        self.game.fades = true;
+        let input = self.tick_input(held);
+        self.game.step(&input);
+        self.guard_tick();
+        self.runs.step(&self.game);
+        if !self.game.game.sim().sounds.is_empty()
+            && let Some(mut mixer) = self.speaker.as_mut().and_then(|s| s.lock())
+        {
+            self.game.play_sounds(&mut mixer, self.settings.sound_gain());
+        }
     }
 
     /// Draws the game as it stands into its texture, `size` pixels big;
@@ -791,6 +1054,139 @@ mod tests {
         assert_eq!(line(Keys::Whole), ["MOVE ARROWS", "JUMP Y", "FIRE X"]);
         assert_eq!(line(Keys::Nothing), ["MOVE D-PAD", "JUMP A"], "a pad's buttons");
         assert_eq!(line(Keys::Left)[0].split(' ').count(), 5, "a half's own four keys: {:?}", line(Keys::Left));
+    }
+
+    /// A game with a pointer (`c.pointer = "own"`, a pad's left stick
+    /// moving it too): a crate drawn by `frame:model`; what each tick's
+    /// pointer is over, `click` and `next` held and the text typed noted.
+    /// Its player types from tick 3 on.
+    fn pointing(name: &str) -> crate::scratch::Scratch {
+        let conf = "  c.pointer = \"own\"\n  c.pointer_stick = \"left\"\n  c.actions = { \"click\", \"next\" }\n  c.keys.click = { \"mouse_left\" }\n  c.keys.next = { \"wheel_down\" }\n  c.pad = { click = { \"south\" } }\n  c.things.crate = {}\n";
+        let level = "format = \"voxcade level 1\"\nsize = [64, 64, 40]\n\n[[place]]\nname = \"start\"\nat = [24, 24, 4]\n";
+        let main = r#"
+function on_world_start()
+  world.state.seen = {}
+end
+function on_level_start()
+  level:spawn("crate", 32, 30, { z = 4 })
+end
+function on_tick()
+  local p, t = input.pointer, input.typed
+  table.insert(world.state.seen, string.format("%s|%s%s|%s", p and (p.thing and p.thing.kind or "-") or "nil",
+    input:held("click") and "click" or "", input:held("next") and "next" or "", t and t.text or ""))
+  if world.tick == 3 then player.state.typing = true end
+end
+function on_draw(frame)
+  for _, t in ipairs(level:things()) do
+    if t.kind == "crate" then frame:model("box.vvx", t) end
+  end
+end
+"#;
+        crate::lua::tests::pieces_folder(name, conf, level, main)
+    }
+
+    /// What the game noted each tick (`pointing`).
+    fn seen(play: &mut Play<crate::Voxcade>) -> Vec<String> {
+        let said = play.eval("return table.concat(world.state.seen, '#')").unwrap();
+        said.trim_matches('"').split('#').map(str::to_string).collect()
+    }
+
+    /// The keyboard with no key down.
+    struct NoKeys;
+
+    impl crate::controls::KeyState for NoKeys {
+        fn pressed(&self, _: sdl3::keyboard::Scancode) -> bool {
+            false
+        }
+    }
+
+    /// `pointing` played and drawn 320 by 180; where the crate's top is in
+    /// the HUD's measure and in the picture's pixels.
+    fn crate_in_view(name: &str, device: &wgpu::Device, queue: &wgpu::Queue, egui: &mut egui_wgpu::Renderer) -> (crate::scratch::Scratch, Play<crate::Voxcade>, [f32; 2], [f32; 2]) {
+        let dir = pointing(name);
+        let mut play = Play::<crate::Voxcade>::start(&dir, device, queue, None, None).unwrap();
+        assert!(play.trouble().is_none(), "{:?}", play.trouble());
+        play.draw(device, queue, egui, [320, 180]);
+        let [w, h] = play.hud_size();
+        let [x, y] = play.game.to_hud(glam::Vec3::new(32.5, 30.5, 7.9), play.aspect()).expect("in view");
+        (dir, play, [x, y], [x / w * 320.0, y / h * 180.0])
+    }
+
+    /// The mouse over PLAY's picture is the game's pointer as a window's
+    /// is: a click over the crate answers it as the window's path answers
+    /// that place of the same picture (`Session::point`), with the answers
+    /// of its moment though the mouse went on before the tick; a wheel's
+    /// notch is a press and a release a tick apart; off the picture there
+    /// is no pointer. Typed text reaches the game only while its player
+    /// types and the game has the keys. The run so recorded replays as
+    /// recorded.
+    #[test]
+    fn the_mouse_and_typing_in_play_are_the_windows() {
+        let canvas = crate::headless::Canvas::new(320, 180, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let mut egui = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
+        let (dir, mut play, hud, px) = crate_in_view("play-mouse", device, queue, &mut egui);
+        let held = crate::input::Input::default();
+        play.mouse_at(Some(px));
+        play.mouse_down(sdl3::mouse::MouseButton::Left, px);
+        play.mouse_up(sdl3::mouse::MouseButton::Left);
+        play.mouse_at(Some([2.0, 2.0]));
+        play.play_tick(&held);
+        let met = |p: &Option<Box<crate::input::Pointer>>| p.as_ref().and_then(|p| p.level.as_ref()).and_then(|m| m.thing);
+        let windows = play.game.point(hud[0], hud[1], play.aspect());
+        assert!(windows.level.as_ref().is_some_and(|m| m.thing.is_some()), "the window's path meets the crate");
+        assert_eq!(met(&play.game.played().input.pointer), windows.level.and_then(|m| m.thing), "answered as the window answers");
+        play.wheel(-1.0);
+        play.play_tick(&held);
+        play.play_tick(&held);
+        play.mouse_at(None);
+        play.play_tick(&held);
+        assert!(!play.typing(), "not typing yet");
+        assert!(play.read(None, &[]) == held && !play.typing(), "the game without the keys: no typing");
+        play.read(Some(&NoKeys), &[]);
+        assert!(play.typing(), "its player types, the game has the keys");
+        play.type_in("Hi\u{1}");
+        play.play_tick(&held);
+        play.read(None, &[]);
+        assert!(!play.typing(), "the keys elsewhere: the text is the IDE's");
+        assert_eq!(seen(&mut play), ["crate|click|", "-|next|", "-||", "nil||", "nil||Hi"]);
+        let path = play.keep().unwrap();
+        let replay = crate::replay::Replay::load(&path).unwrap();
+        assert!(matches!(crate::replay::play_through::<crate::Voxcade>(&dir, &replay).unwrap(), crate::replay::Verdict::Same));
+        play.end(&mut egui);
+    }
+
+    /// The pad's stick given to the pointer (`c.pointer_stick`) glides it
+    /// in PLAY as in a window, from the picture's middle at the game's
+    /// speed, seat 1 then playing on the pad; a pad's button bound to an
+    /// action carries the answers of its moment; the mouse moved takes the
+    /// pointer back. (The stick holds no directions: PLAY reads the pads
+    /// with the game's `c.pointer_stick`, `controls::sticks`.)
+    #[test]
+    fn a_pads_pointer_in_play_glides_and_its_button_carries_the_answer() {
+        let canvas = crate::headless::Canvas::new(320, 180, false).unwrap();
+        let (device, queue, _) = canvas.gpu();
+        let mut egui = egui_wgpu::Renderer::new(device, FORMAT, egui_wgpu::RendererOptions::default());
+        let (dir, mut play, hud, px) = crate_in_view("play-pad", device, queue, &mut egui);
+        let [w, h] = play.hud_size();
+        play.size_sticks();
+        play.sticks[0].lean = [1.0, 0.0];
+        play.glide(0.1);
+        assert_eq!(play.played_with, Device::Gamepad, "leaning, seat 1 plays on its pad");
+        let speed = play.game.cfg.ui.height;
+        let at = play.seat_place(1).unwrap();
+        assert!((at[0] - (w / 2.0 + speed * 0.1)).abs() < 1e-3 && (at[1] - h / 2.0).abs() < 1e-3, "{at:?}");
+        play.sticks[0] = Default::default();
+        play.sticks[0].at = Some(hud);
+        play.pad_button(0, sdl3::gamepad::Button::South);
+        play.sticks[0].at = Some([1.0, 1.0]);
+        play.play_tick(&crate::input::Input::default());
+        play.mouse_at(Some(px));
+        play.mouse_at(Some([px[0] + 10.0, px[1]]));
+        assert_eq!(play.played_with, Device::Keyboard, "the mouse moved: its pointer again");
+        assert_eq!(seen(&mut play)[0], "crate||", "the button's press carried the crate");
+        let _ = dir;
+        play.end(&mut egui);
     }
 
     /// AGAIN (`restart`) begins the game from the start again, from its

@@ -169,7 +169,7 @@ mod tests {
         std::fs::write(dir.join("tools.lua"), "local x = = 1\nreturn {}\n").unwrap();
         let out = dir.join("shots/ide.png");
         std::fs::create_dir_all(out.parent().unwrap()).unwrap();
-        let opts = ShotOptions { open: None, console: None, play: Some(10), upgraded: false, journal: None, find: None, replace: None, search: None, hit: None, filter: None, line: None, roll: None, transpose: None, width: 960, height: 540, out: out.clone() };
+        let opts = ShotOptions { open: None, console: None, play: Some(10), pointer: None, upgraded: false, journal: None, find: None, replace: None, search: None, hit: None, filter: None, line: None, roll: None, transpose: None, width: 960, height: 540, out: out.clone() };
         shot::<crate::Voxcade>(Some(&dir), &opts).expect("drawn, not stopped");
         let (_, _, pixels) = crate::map::read_png_rgba(&out).unwrap();
         let red = crate::gui::ERROR;

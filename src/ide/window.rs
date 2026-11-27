@@ -130,6 +130,8 @@ impl Window {
     pub fn platform(&mut self, frame: &Frame) -> Option<String> {
         let (platform, video, screen) = (&frame.out.platform_output, &self.video, &self.screen);
         if platform.cursor_icon != self.cursor.0 {
+            // None: no arrow (over a game that draws its own pointer).
+            self.sdl.mouse().show_cursor(platform.cursor_icon != egui::CursorIcon::None);
             self.cursor.1 = sdl3::mouse::Cursor::from_system(sdl_egui::cursor(platform.cursor_icon)).ok();
             if let Some(c) = &self.cursor.1 {
                 c.set();

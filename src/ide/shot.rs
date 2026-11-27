@@ -22,8 +22,10 @@ pub struct ShotOptions {
     /// A command to run in the console (through the system's shell) and
     /// wait for, at most ten seconds; else the console stays empty.
     pub console: Option<String>,
-    /// The game played in the main area, this many ticks in.
+    /// The game played in the main area, this many ticks in, and the mouse
+    /// over its picture at this place (its pixels from the top left).
     pub play: Option<u32>,
+    pub pointer: Option<[f32; 2]>,
     /// A game made for another Voxcade: its upgrade's page as after
     /// UPGRADE, the upgrade run dry (nothing changed).
     pub upgraded: bool,
@@ -158,7 +160,7 @@ pub fn shot<G: Game>(dir: Option<&Path>, opts: &ShotOptions) -> Result<()> {
     if let Some(n) = opts.transpose {
         shell.ask_transpose(n);
     }
-    let mut page = GamePage::<G> { dir, opts, shell, play: None };
+    let mut page = GamePage::<G> { dir, opts, shell, play: None, drawn: 0 };
     headless(opts, &mut page)?;
     println!("{}: {} open", opts.out.display(), page.shell.showing());
     Ok(())
@@ -190,6 +192,9 @@ struct GamePage<'a, G: Game> {
     opts: &'a ShotOptions,
     shell: Shell,
     play: Option<Play<G>>,
+    /// The game's pictures drawn (a pointer is answered from the one
+    /// before: shown from the second on).
+    drawn: u32,
 }
 
 impl<G: Game> Page for GamePage<'_, G> {
@@ -231,7 +236,13 @@ impl<G: Game> Page for GamePage<'_, G> {
                 && let Some(size) = stage.wanted
             {
                 busy |= stage.picture.is_none();
+                if let Some(at) = self.opts.pointer {
+                    p.show_pointer(Some(at));
+                    busy |= self.drawn < 3;
+                }
                 stage.picture = Some(p.draw(device, queue, &mut painter.renderer, size));
+                self.drawn += 1;
+                (stage.arrow_hidden, stage.shape) = (p.arrow_hidden(), p.shape());
                 stage.keys = p.keys().to_vec();
                 stage.trouble = p.trouble();
                 stage.unloaded = p.unloaded();

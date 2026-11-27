@@ -214,6 +214,12 @@ impl Seating {
         Start::Join(seat)
     }
 
+    /// The seat the mouse is (`docs/game-model.md`: one mouse a machine,
+    /// the seat's that has the keyboard): the first with a part of it.
+    pub fn mouse_seat(&self) -> usize {
+        (1..=self.seats()).find(|&s| self.keys(s) != Keys::Nothing).unwrap_or(1)
+    }
+
     /// The seat after the first that has all of the keyboard: Escape
     /// pauses for it (its pause offers LEAVE).
     pub fn keyboard_seat(&self) -> Option<usize> {

@@ -1521,6 +1521,37 @@ fn the_games_keys_stand_under_it() {
     assert!(row("MOVE").y > 500.0 && (row("MOVE").y - row("FIRE").y).abs() < 1.0, "on a line low in the main area");
 }
 
+/// The game's picture's room is kept where it lies: a place of the window
+/// over it is the picture's pixel (the mouse the game's pointer there),
+/// off it none; a game drawing its own pointer (`c.pointer = "own"`) has
+/// the system's arrow hidden over its picture, not over the bars round a
+/// picture of its own shape, nor anywhere for a game that shows the
+/// system's.
+#[test]
+fn the_mouse_over_the_games_picture_is_the_games() {
+    let (_dir, _memory, mut shell) = managed_game("game-mouse");
+    let ctx = egui::Context::default();
+    let cursor = |shell: &mut Shell, at: egui::Pos2| {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 720.0))), events: vec![egui::Event::PointerMoved(at)], ..Default::default() };
+        ctx.run_ui(raw, |ui| shell.ui(ui)).platform_output.cursor_icon
+    };
+    shell.stage = Some(Stage { shown: true, arrow_hidden: true, ..Stage::default() });
+    cursor(&mut shell, egui::pos2(1.0, 1.0));
+    let room = shell.stage.as_ref().and_then(|s| s.area).expect("the picture's room");
+    let stage = shell.stage.as_ref().unwrap();
+    assert_eq!(stage.picture_place(room.min, 2.0), Some([0.0, 0.0]));
+    assert_eq!(stage.picture_place(room.center(), 2.0), Some([room.width(), room.height()]), "its pixels, two to a point");
+    assert_eq!(stage.picture_place(room.min - egui::vec2(1.0, 1.0), 2.0), None, "off it");
+    assert_eq!(cursor(&mut shell, room.center()), egui::CursorIcon::None, "the game draws its own");
+    assert_ne!(cursor(&mut shell, room.min - egui::vec2(1.0, 1.0)), egui::CursorIcon::None, "off the picture: the arrow");
+    // A picture of its own shape, narrower than its room: the bar beside it.
+    shell.stage.as_mut().unwrap().shape = Some(room.height() / room.width() * 0.5 + 0.1);
+    assert_ne!(cursor(&mut shell, room.min + egui::vec2(2.0, room.height() / 2.0)), egui::CursorIcon::None, "over a bar: the arrow");
+    assert_eq!(cursor(&mut shell, room.center()), egui::CursorIcon::None);
+    shell.stage.as_mut().unwrap().arrow_hidden = false;
+    assert_ne!(cursor(&mut shell, room.center()), egui::CursorIcon::None, "c.pointer = \"system\": the arrow");
+}
+
 /// AGAIN beside STOP begins the game anew and shows it; once the game is
 /// held behind a file the bar says BACK TO THE GAME instead of PLAY, with
 /// STOP and AGAIN still there; shown, neither is.

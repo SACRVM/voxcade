@@ -416,6 +416,7 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
         open: None,
         console: None,
         play: None,
+        pointer: None,
         upgraded: false,
         journal: None,
         find: None,
@@ -455,6 +456,11 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
             "--roll" => opts.roll = Some(value.clone()),
             "--transpose" => opts.transpose = Some(number("--transpose N", value)?),
             "--play" => opts.play = Some(number("--play TICKS", value)?),
+            "--pointer" => {
+                let n: Vec<f32> = numbers("--pointer X,Y (a pixel of the game's picture)", value)?;
+                let [x, y] = n[..] else { bail!("--pointer X,Y: two numbers") };
+                opts.pointer = Some([x, y]);
+            }
             "--shot" => {
                 opts.out = PathBuf::from(value);
                 shot = true;
@@ -466,6 +472,7 @@ pub(super) fn parse_ide(args: &[String]) -> Result<Call> {
             other => bail!("unknown option {other}"),
         }
     }
+    anyhow::ensure!(opts.pointer.is_none() || opts.play.is_some(), "--pointer X,Y goes with --play TICKS: the mouse over the game played");
     Ok(Call::Ide { dir, opts, shot, remote })
 }
 
