@@ -143,3 +143,88 @@ end
     assert_eq!(cells([255, 0, 0, 255]), [glam::IVec3::new(21, 26, 1)], "the first row's first voxel");
     assert_eq!(cells([0, 255, 0, 255]), [glam::IVec3::new(21, 25, 1)], "the first row's middle");
 }
+
+/// A level of a free game: a piece at 30 and one at 90, a wisp (a kind that
+/// turns freely) at 200 and a crate (a kind on the quarters) at 100.
+const FREE_ROOM: &str = r#"format = "voxcade level 1"
+size = [64, 48, 40]
+
+[[thing]]
+name = "slant"
+model = "box.vvx"
+at = [10, 20, 0]
+rotation = 30
+
+[[thing]]
+name = "east"
+model = "box.vvx"
+at = [20, 20, 0]
+rotation = 90
+
+[[thing]]
+name = "wisp"
+kind = "wisp"
+at = [30, 20, 0]
+rotation = 200
+
+[[thing]]
+name = "crate"
+kind = "crate"
+at = [40, 20, 0]
+rotation = 100
+
+[[place]]
+name = "start"
+at = [32, 10, 0]
+"#;
+
+/// `thing.rotation` is the bearing exactly, degrees clockwise from north
+/// below 360, whole on the quarters; `thing.facing` stays the nearest of
+/// the four ways. A thing a script turns reads it too, in a tick and in
+/// `on_draw`; a game on the grid reads its quarter; it is not to be set.
+#[test]
+fn a_things_rotation_is_its_exact_bearing() {
+    let main = r#"
+function on_level_start(how)
+  level.state.diagonal = level:spawn("wisp", 50, 20, { facing = { x = 1, y = 1 } })
+  level.state.west = level:spawn("wisp", 55, 20, { facing = { x = -1, y = 0 } })
+  level.state.crate = level:spawn("crate", 45, 30, { facing = { x = 0, y = 1 } })
+end
+
+function on_tick()
+  if math.abs(level:thing("slant").rotation - 30) > 0.001 then error("tick") end
+  local ok = pcall(function() level:thing("slant").rotation = 5 end)
+  if ok then error("set") end
+end
+
+function on_draw(frame)
+  if math.abs(level:thing("slant").rotation - 30) > 0.001 then error("draw") end
+end
+"#;
+    let conf = "  c.camera.rotates = \"free\"\n  c.things.wisp = { rotates = \"free\" }\n  c.things.crate = {}\n";
+    let mut g = game_in(&pieces_folder("rotation", conf, FREE_ROOM, main));
+    steps(&mut g, 2);
+    assert_eq!(halted(&g), "");
+    let rotation = |g: &mut Session<LuaGame>, t: &str| said(g, &format!("return {t}.rotation")).parse::<f32>().unwrap();
+    let near = |a: f32, b: f32| assert!((a - b).abs() < 1e-3, "{a} is not {b}");
+    near(rotation(&mut g, "level:thing('slant')"), 30.0);
+    assert_eq!(said(&mut g, "level:thing('slant').facing.y"), "1", "facing stays its quarter, north");
+    assert_eq!(rotation(&mut g, "level:thing('east')"), 90.0, "whole on a quarter");
+    near(rotation(&mut g, "level:thing('wisp')"), 200.0);
+    assert_eq!(said(&mut g, "level:thing('wisp').facing.y"), "-1");
+    assert_eq!(rotation(&mut g, "level:thing('crate')"), 90.0, "100 on a kind of the quarters: east");
+    near(rotation(&mut g, "level.state.diagonal"), 45.0);
+    assert_eq!(rotation(&mut g, "level.state.west"), 270.0, "never below 0 or 360");
+    assert_eq!(rotation(&mut g, "level.state.crate"), 0.0);
+    let _ = g.frame(1.0, 16.0 / 9.0);
+    assert_eq!(halted(&g), "", "read alike in a tick and in on_draw, not to set there");
+    for line in ["level:thing('slant').rotation = 5", "player.rotation = 5"] {
+        let e = said(&mut g, line);
+        assert!(e.contains("rotation cannot be set: a thing's fields are only to read"), "{line}: {e}");
+    }
+    // A game on the grid reads its quarter.
+    let grid = FREE_ROOM.replace("rotation = 30", "rotation = 90").replace("rotation = 200", "rotation = 180");
+    let mut g = game_in(&pieces_folder("rotation-grid", "  c.things.wisp = {}\n  c.things.crate = {}\n", &grid, ""));
+    assert_eq!(halted(&g), "");
+    assert_eq!([rotation(&mut g, "level:thing('slant')"), rotation(&mut g, "level:thing('wisp')"), rotation(&mut g, "level:thing('crate')")], [90.0, 180.0, 90.0]);
+}

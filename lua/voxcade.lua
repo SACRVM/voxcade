@@ -483,13 +483,19 @@ local Player = {}
 ---@field z number The height of its feet.
 ---@field on_ground boolean Whether it stands on something.
 ---@field wall Way|nil The way to a wall right beside it (within half a voxel), higher than a step (the way it faces first), or nil: a wall jump, a wall slide.
----The way it faces, one of the 8 ways. Its model is drawn turned that way (to the nearest quarter, or exactly with rotates = "free"): its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its left.
+---The way it faces, one of the four ways. Its model is drawn turned that way: its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its left.
 ---- north: as the layers are written, read as a map from above: the first row far, the first column left.
 ---- east: the first row right, the first column far.
 ---- south: the first row near, the first column right. A thing faces south unless something turns it: its own way (a level file's facing, level:spawn's), else its kind's (c.things.NAME.facing); with neither, in a level seen from behind, the camera.
 ---- west: the first row left, the first column near.
 ---Near, far, left and right as a camera not turned sees them, from above or from the side; a level seen from behind (camera yaw 180) swaps them.
+---A thing turned freely (a kind with rotates = "free", a piece at rotation = 30) reads the nearest of the four here; thing.rotation has its exact bearing.
 ---@field facing Way
+---The bearing it faces, exactly, in degrees.
+---Clockwise seen from above, north 0, from 0 up to 360 (not including it): the measure of a level file's rotation and frame:model's.
+---On the four ways exactly 0, 90, 180 or 270; a thing turned freely reads its own, 30 for a piece at rotation = 30.
+---thing.facing has the nearest of the four ways.
+---@field rotation number
 ---@field seat integer|nil A player's seat (1 for player, 2 and on for the others); nil for a level's thing, so if thing.seat then asks whether a thing is a player, in any handler (a ~= player leaves out seats 2 and on).
 ---@field input Input A player's keys this tick, as input is seat 1's: p.input.dir, p.input:pressed("fire"). Only in on_tick, as input.
 ---@field controls Controls What a player plays with, as controls is seat 1's: p.controls.device, p.controls:key("fire") (a key in braces in a text is the first of frame.players's).

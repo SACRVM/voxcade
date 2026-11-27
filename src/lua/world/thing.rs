@@ -66,6 +66,15 @@ impl UserData for ThingRef {
             w.raw_set("y", way.y)?;
             Ok(w)
         });
+        f.add_field_method_get("rotation", |lua, t| {
+            look(lua, |h| {
+                let b = &h.thing(t.0)?.body;
+                // The bearing exactly (`rig::way`: a quarter turn whole, else
+                // from the body's way), kept below 360.
+                let degrees = crate::sim::rig::way(b.look, b.facing, 0.0, 0.0)[0].rem_euclid(360.0);
+                Ok(if degrees >= 360.0 { 0.0 } else { degrees })
+            })
+        });
         f.add_field_method_get("state", |lua, t| thing_state(lua, t.0));
         f.add_field_method_get("name", |lua, t| look(lua, |h| Ok(h.here.names.get(&t.0).cloned())));
         f.add_field_method_get("families", |lua, t| {

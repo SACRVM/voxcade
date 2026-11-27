@@ -591,13 +591,13 @@ pub const API: &[Item] = &[
     Item { of: "thing", name: "on_ground", what: Field { ty: "boolean", set: false }, doc: "Whether it stands on something." },
     Item { of: "thing", name: "wall", what: Field { ty: "Way|nil", set: false }, doc: "The way to a wall right beside it (within half a \
             voxel), higher than a step (the way it faces first), or nil: a wall jump, a wall slide." },
-    Item { of: "thing", name: "facing", what: Field { ty: "Way", set: false }, doc: "The way it faces, one of the 8 ways. Its model is drawn turned that way (to the nearest quarter, or exactly with \
-            rotates = \"free\"): its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its \
+    Item { of: "thing", name: "facing", what: Field { ty: "Way", set: false }, doc: "The way it faces, one of the four ways. Its model is drawn turned that way: its front, the first row of each layer of its .vvx (+y), points that way, its first column (x 0) on its \
             left.\n- north: as the layers are written, read as a map from above: the first row far, the first column left.\n- east: the \
             first row right, the first column far.\n- south: the first row near, the first column right. A thing faces south unless \
             something turns it: its own way (a level file's facing, level:spawn's), else its kind's (c.things.NAME.facing); with neither, \
             in a level seen from behind, the camera.\n- west: the first row left, the first column near.\nNear, far, left and right as a camera not turned \
-            sees them, from above or from the side; a level seen from behind (camera yaw 180) swaps them." },
+            sees them, from above or from the side; a level seen from behind (camera yaw 180) swaps them.\nA thing turned freely (a kind with rotates = \"free\", a piece at rotation = 30) reads the nearest of the four here; thing.rotation has its exact bearing." },
+    Item { of: "thing", name: "rotation", what: Field { ty: "number", set: false }, doc: "The bearing it faces, exactly, in degrees.\nClockwise seen from above, north 0, from 0 up to 360 (not including it): the measure of a level file's rotation and frame:model's.\nOn the four ways exactly 0, 90, 180 or 270; a thing turned freely reads its own, 30 for a piece at rotation = 30.\nthing.facing has the nearest of the four ways." },
     Item { of: "thing", name: "seat", what: Field { ty: "integer|nil", set: false }, doc: "A player's seat (1 for player, 2 and on for the \
             others); nil for a level's thing, so if thing.seat then asks whether a thing is a player, in any handler (a ~= player leaves out \
             seats 2 and on)." },

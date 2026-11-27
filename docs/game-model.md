@@ -139,7 +139,7 @@ settings. Several players: `player` is seat 1, the others are in
 | `thing.kind`, `thing.families` | of what kind, in which families (read-only); `"piece"` for a model or light a level's file sets down |
 | `thing.state` | its state, as long as it lives |
 | `thing.props` | what the level editor set on this one thing (a door's `to` and `at`: `props = { ... }` on its `[[thing]]`, PROPS in the editor) or `level:spawn` gave it, over its kind's declared props; typed and defaulted by its kind; read-only |
-| `thing.x`, `.y`, `.z`, `.on_ground`, `.facing`, `.wall` | its body, read-only: the physics' (`wall`: the way to a wall right beside it, or nil) |
+| `thing.x`, `.y`, `.z`, `.on_ground`, `.facing`, `.rotation`, `.wall` | its body, read-only: the physics' (`facing` the nearest of the four ways, `rotation` the bearing exactly, degrees clockwise from north, 0 up to 360, whole on the four ways; `wall`: the way to a wall right beside it, or nil) |
 | `thing:walk(way, speed)`, `:face(way)`, `:jump(height)`, `:place(x, y, z?)` or `:place(place)` | moving things the script moves: kinds without behaviors, and things whose behaviors are all switched off; placed at a place, a thing faces its facing |
 | `thing:launch(way, speed, rise?)` | sets it moving, standing or not (a dash, a wall jump, a knockback): the script's things, those switched off, and the figures of ready-made rules, which steer on from there |
 | `thing:near(other, distance)`, `thing:ahead(distance)` | asking |
