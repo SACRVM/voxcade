@@ -115,8 +115,9 @@ shooter's things stay in `src/shooter/`.
   `./target-work/release/voxcade` (the same for `test` and `clippy`):
   never rebuild `target/release` while the owner's IDE runs from it (it
   crashed once); the binary is handed over to `target/release` by copy
-  and rename after a commit that is verified. An agent in its own
-  worktree uses that worktree's own `target/`.
+  and rename after a commit that is verified. No worktrees and no
+  branches (the owner, 2026-11-25): an agent builds here on `main` too,
+  in `target-work`, one after another.
 - Play: `cargo run --release -- run games/arena` (opens a window; the user
   plays it, you don't). F5 (play again on the files as they are) and F9
   (keep the run) are the maker's keys:
@@ -2281,8 +2282,9 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   the fog behind it laid over the scene before they are drawn
   (`fog_far.wgsl`), so they tint it (test
   `a_beam_behind_glass_is_seen_through_it`); without them none of it runs.
-  Not built: the sun's beams, moving things cutting beams, fog in the
-  editors and the IDE's picture.
+  A moving thing cuts a beam of a lamp whose shadows are "all"
+  (`fog_beams.wgsl`'s `reaches`, `movers_stop`). Not built: the sun's
+  beams, fog in the editors and the IDE's picture.
 - The renderer is `src/render/`: `mod.rs` the `Renderer` and `Instance`,
   `bank.rs` the model bank, `baked.rs` its runs baked into faces and the
   bank on the GPU, `cubes.rs` the CPU passes over a frame's

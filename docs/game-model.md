@@ -330,7 +330,7 @@ settings. Several players: `player` is seat 1, the others are in
   a song that comes). A play after it begins its song at beat 0, at
   once; a play asked while a stop is pending replaces it (one slot: the
   song that plays goes on, another comes at its own `from`). In the hash
-  only where a game stops (silence, a stop to come). The game's song wins over the player's choice; music
+  only where a game stops (silence, a stop to come). Music
   belongs to no kit. `music.intensity` (0..1, 1 unless set) is the
   game's tension: a song's layers (`#layer D C 0.35` in it; `compose.py`
   writes them with `adaptive = true`) come in above their threshold and
@@ -2136,7 +2136,7 @@ Shovel Knight, Super Meat Boy).
 | Lesson | Seen in | Here |
 |---|---|---|
 | Doors with level numbers and raw coordinates break when a level is edited; none of the six checks them | all six | names for levels and places, places with a facing, checked at load |
-| "Taken stays taken" is every game's chore, built by hand from ids | GameMaker, Godot, RPG Maker (self switches), GB Studio | `thing.name` from the editor, `level.kept` (kept kinds: 0.7) |
+| "Taken stays taken" is every game's chore, built by hand from ids | GameMaker, Godot, RPG Maker (self switches), GB Studio | `thing.name` from the editor, `level.kept`, `persistent = true` on a kind |
 | Levels that only ever reset are not enough; a whole persistent level is too much | Construct (Persist), AGS (rooms keep state), GameMaker (its own tutorial drops persistent rooms) | fresh `level.state` by default, `level.kept` by choice |
 | Live object references in global state dangle after a level change | Godot, GameMaker | states outlive things only by name |
 | Collision events every step cause double pickups | GameMaker, Phaser, HaxeFlixel | `on_touch` once, `on_touch_end` |

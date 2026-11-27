@@ -382,8 +382,8 @@ least 0.35, fading in and out over a bar. `compose.py` writes them with
 chords from 0.55, the melody from 0.8; pads and bass always); Pulsar's
 song is one (style `space`). Check a song's layers from a game's replay:
 `voxcade film GAME REPLAY --size 640x360 --out x.mp4`, its sound bar by
-bar. Still planned (`shots/reviews/music-plan.md`): a tempo from the
-game, stingers, sounds in the song's chord.
+bar. The game's tempo is `music.tempo`. Still planned
+(`shots/reviews/music-plan.md`): stingers, sounds in the song's chord.
 
 ## Checking a song
 

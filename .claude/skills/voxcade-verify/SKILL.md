@@ -43,8 +43,8 @@ clippy's warnings as `file:line` and plays every game's replays. Clippy
 stands at 0 warnings (the Tests workflow runs it with `-D warnings`): a
 warning is yours. In the main checkout build with `CARGO_TARGET_DIR=target-work`
 and use `./target-work/release/voxcade` for every command below, never a
-rebuild of `target/release` while the owner's IDE runs from it; an agent
-in its own worktree uses that worktree's `target/`. Never run `cargo fmt` (the code is
+rebuild of `target/release` while the owner's IDE runs from it; no worktrees and no
+branches: an agent builds here on `main` too, one after another. Never run `cargo fmt` (the code is
 formatted by hand; it would rewrite dozens of files).
 
 After a change that adds tests or touches the temp folder, run

@@ -1065,8 +1065,9 @@ tests.
 
 Later, not built: light flowing through the grid from glowing voxels
 (Minecraft's block light), sky light kept out of rooms, mirror glass (all
-tried in a trial branch, 2026-11-17); the sun's beams in fog, moving
-things cutting beams, fog in the editors' views and the IDE's picture.
+tried in a trial branch, 2026-11-17); the sun's beams in fog, fog
+in the editors' views and the IDE's picture (a moving thing cuts a beam
+of a lamp whose shadows are "all").
 
 **Fog and beams** (2026-11-18, the owner's names: `c.light.fog_density`,
 `fog_color`, `fog_anisotropy`, `fog_glow`, `frame:fog`, a light's `fog`; the
