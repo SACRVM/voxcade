@@ -1235,14 +1235,7 @@ fn guard<G: Game>(game: &mut Session<G>, playback: &Playback, span: u64, costs: 
 /// next one played, and the mistakes are the error at the end.
 pub fn check<G: Game>(dir: &Path, update: bool) -> Result<bool> {
     if update {
-        // One after another: each writes its file.
-        let one = |path: &Path, name: &str| {
-            let replay = Replay::load(path)?;
-            let fresh = rerecord::<G>(dir, &replay).context("not recorded anew")?;
-            fresh.save(path)?;
-            Ok((true, format!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score)))
-        };
-        return each_replay(dir, 1, one, &mut |line| println!("{line}"));
+        return record_anew_saying::<G>(dir, &mut |line| println!("{line}"));
     }
     // Each replay its own session, several at once (`check_threads`): the
     // lines come in the files' order all the same.
@@ -1265,6 +1258,26 @@ fn check_threads(replays: usize) -> usize {
 
 /// The most replays `check` plays at once unless told otherwise.
 const CHECKS_AT_ONCE: usize = 6;
+
+/// `check --update`, each line of what it does said to `say` (the IDE's
+/// upgrade page shows them): every replay's checks and fingerprint
+/// recorded anew from its input, one after another (each writes its
+/// file), never a run the hidden-state guard refuses.
+pub fn record_anew_saying<G: Game>(dir: &Path, say: &mut dyn FnMut(String)) -> Result<bool> {
+    let one = |path: &Path, name: &str| {
+        let replay = Replay::load(path)?;
+        let fresh = rerecord::<G>(dir, &replay).context("not recorded anew")?;
+        fresh.save(path)?;
+        Ok((true, format!("{name}: recorded anew ({} ticks, {}, score {})", fresh.ticks, fresh.outcome, fresh.score)))
+    };
+    each_replay(dir, 1, one, say)
+}
+
+/// What the IDE's upgrade page asks of the replays: `refit_saying`, or
+/// with `anew` `record_anew_saying`.
+pub fn fit_saying<G: Game>(dir: &Path, anew: bool, say: &mut dyn FnMut(String)) -> Result<bool> {
+    if anew { record_anew_saying::<G>(dir, say) } else { refit_saying::<G>(dir, say) }
+}
 
 /// Plays every replay of a game as `check` does, going back every `every`
 /// ticks and playing on from there (rollback over a network): each must
@@ -1367,6 +1380,9 @@ pub fn refit_saying<G: Game>(dir: &Path, say: &mut dyn FnMut(String)) -> Result<
     }
     let mut fitted = Vec::new();
     let mut all = true;
+    // A replay that ran apart whose recorded parts lack the music's: the
+    // game's code names music now and the replay was recorded without.
+    let mut music_new = false;
     for path in &replays {
         let name = path.strip_prefix(dir).unwrap_or(path).display().to_string();
         let played = Replay::load(path).and_then(|replay| {
@@ -1396,14 +1412,18 @@ pub fn refit_saying<G: Game>(dir: &Path, say: &mut dyn FnMut(String)) -> Result<
                 say(format!("{name}: no checks, nothing to tell it by"));
                 all = false;
             }
-            Ok((replay, verdict, ..)) => {
+            Ok((replay, verdict, _, parts)) => {
                 say(verdict.said(&name, &replay));
+                music_new |= !replay.fingerprint_parts.is_empty() && !replay.fingerprint_parts.contains_key("music") && parts.contains_key("music");
                 all = false;
             }
         }
     }
     if !all {
         say("nothing written: a replay that does not run the same keeps its fingerprint".into());
+        if music_new {
+            say(format!("the game's code names music now, which these replays were recorded without: if the game plays as before, `voxcade check {} --update` records them anew", dir.display()));
+        }
         return Ok(false);
     }
     for (path, fingerprint, parts) in fitted {
@@ -2100,6 +2120,36 @@ mod tests {
         let refitted = Replay::load(&tmp.join("replays/run.toml")).unwrap();
         assert!(refitted.fits(game.fingerprint().unwrap()));
         assert_eq!(refitted.differing(&game.fingerprint_files().unwrap()), Vec::<String>::new());
+        assert!(check::<crate::Voxcade>(&tmp, false).unwrap());
+    }
+
+    /// A game whose code names music since the replay was recorded runs
+    /// apart (the music's clock joins the state hash): `--refit` refuses
+    /// and says `--update` records them anew, which does; a replay that
+    /// runs apart for another reason gets no such line.
+    #[test]
+    fn refit_says_update_where_the_music_part_is_new() {
+        let tmp = arena_in("music-new");
+        arena_run(&tmp, 120).save(&tmp.join("replays/run.toml")).unwrap();
+        let said = |tmp: &Path| {
+            let mut lines = Vec::new();
+            let all = refit_saying::<crate::Voxcade>(tmp, &mut |l| lines.push(l)).unwrap();
+            (all, lines.join("\n"))
+        };
+        // Heavier gravity: the game plays otherwise, no word of --update.
+        let conf = std::fs::read_to_string(tmp.join("conf.lua")).unwrap();
+        std::fs::write(tmp.join("conf.lua"), conf.replace("\nend", "\n  c.physics.gravity = 300\nend")).unwrap();
+        let (all, text) = said(&tmp);
+        assert!(!all && text.contains("nothing written") && !text.contains("--update"), "{text}");
+        std::fs::write(tmp.join("conf.lua"), conf).unwrap();
+        // The code names music now.
+        let main = std::fs::read_to_string(tmp.join("main.lua")).unwrap();
+        std::fs::write(tmp.join("main.lua"), format!("{main}\nfunction on_beat() end\n")).unwrap();
+        let (all, text) = said(&tmp);
+        assert!(!all && text.contains("nothing written") && text.contains("--update` records them anew"), "{text}");
+        let mut lines = Vec::new();
+        assert!(fit_saying::<crate::Voxcade>(&tmp, true, &mut |l| lines.push(l)).unwrap());
+        assert!(lines[0].contains("recorded anew"), "{lines:?}");
         assert!(check::<crate::Voxcade>(&tmp, false).unwrap());
     }
 

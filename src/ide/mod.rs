@@ -95,7 +95,7 @@ pub fn run<G: Game>(first: Option<&Path>, remote: bool) -> Result<()> {
                 // A game that would not open: the start page says why.
                 Err(e) => Next::Start(Some(format!("{}: {e:#}", dir.display()))),
             },
-            Next::Upgrade(dir, play) => window::upgrade_page(&mut window, wizard::Wizard::new(&dir, play), crate::replay::refit_saying::<G>)?,
+            Next::Upgrade(dir, play) => window::upgrade_page(&mut window, wizard::Wizard::new(&dir, play), crate::replay::fit_saying::<G>)?,
             Next::Start(message) => window::start_page(&mut window, message, None, None)?,
             Next::Found(folder, games) => window::start_page(&mut window, None, None, Some((folder, games)))?,
             Next::Play(dir) => window::start_page(&mut window, None, Some(dir), None)?,

@@ -275,9 +275,22 @@ nearest; its replay `tests/two_ships`);
   not committed and A COPY IS KEPT FIRST or GIT KEEPS THE OLD FILES by
   UPGRADE (`wizard::keeping`, as `upgrade::committed`), UPGRADE on a
   thread, what was done (COPY; not the line naming `voxcade check
-  --refit`, which REFIT THE REPLAYS below does), "N replays recorded on
-  the old files" and REFIT THE REPLAYS (`replay::refit_saying`), then the game; a
-  game of a newer Voxcade is told to get the update. A `conf.lua` stating
+  --refit` or `--update`, which the button below does), "N replays
+  recorded on the old files" and REFIT THE REPLAYS (`replay::fit_saying`),
+  then the game; where a step makes something join the state hash without
+  changing how the game plays (`Step::joins`, asked before the step runs,
+  `upgrade::upgrade_told`: today "music from the code" adding its
+  `music:play` to code that named no `music` or `on_beat`, so the music's
+  clock is hashed, `music::joins`) no refit can fit the replays: the
+  closing line says `voxcade check GAME --update` and why, the page
+  offers RECORD THE REPLAYS ANEW in place of REFIT (`record_anew_saying`,
+  what `check --update` does, the guard included), and `--refit`'s refusal
+  adds the `--update` line when a replay that ran apart lacks the
+  `music` part the game now has (tests
+  `the_upgrades_advice_for_replays_is_update_where_music_joins_the_hash`,
+  `refit_says_update_where_the_music_part_is_new`,
+  `the_page_offers_to_record_the_replays_anew_where_refit_cannot_fit_them`);
+  a game of a newer Voxcade is told to get the update. A `conf.lua` stating
   no `c.voxcade` is taken as made before 0.6.0, but where no step finds
   anything to change it opens (`Standing::Current`), the missing line said
   plainly (`upgrade::unstated`; `voxcade upgrade` then writes only the

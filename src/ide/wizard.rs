@@ -6,7 +6,9 @@
 //! not yet committed (it never commits by itself). UPGRADE runs on a
 //! thread of its own, as BUILD does; then what was done, or what went
 //! wrong (with COPY); then it offers to refit the game's replays (as
-//! `voxcade check GAME --refit`) and opens the game. A game made with a
+//! `voxcade check GAME --refit`), or where the upgrade made something join
+//! what a replay checks, to record them anew (`--update`), and opens the
+//! game. A game made with a
 //! newer Voxcade gets a page that says so and points to the update.
 
 use std::path::{Path, PathBuf};
@@ -17,8 +19,9 @@ use egui::{RichText, TextStyle};
 use crate::gui::{ACCENT, ERROR, GROUND, PANEL, QUIET, TEXT};
 use crate::upgrade::{Standing, engine};
 
-/// The replays refitted: whether every one was, and what each said.
-pub type Refitter = fn(&Path, &mut dyn FnMut(String)) -> anyhow::Result<bool>;
+/// The replays refitted, or with the flag recorded anew: whether every one
+/// was, and what each said.
+pub type Refitter = fn(&Path, bool, &mut dyn FnMut(String)) -> anyhow::Result<bool>;
 
 /// What the page was asked to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,8 +37,10 @@ pub enum Wish {
 /// What the upgrade has come to.
 enum Stage {
     Asking,
-    Upgrading(Receiver<Result<Vec<String>, String>>),
-    Upgraded { lines: Vec<String>, dry: bool, refit: Refit },
+    Upgrading(Receiver<Result<(Vec<String>, bool), String>>),
+    /// `anew`: the replays can only be recorded anew, no refit fits them
+    /// (`upgrade::upgrade_told`).
+    Upgraded { lines: Vec<String>, dry: bool, anew: bool, refit: Refit },
     Failed(String),
 }
 
@@ -82,7 +87,7 @@ impl Wizard {
         let (tell, heard) = channel();
         let dir = self.dir.clone();
         std::thread::spawn(move || {
-            let _ = tell.send(crate::upgrade::upgrade(&dir, false).map_err(|e| format!("{e:#}")));
+            let _ = tell.send(crate::upgrade::upgrade_told(&dir, false).map_err(|e| format!("{e:#}")));
         });
         self.stage = Stage::Upgrading(heard);
     }
@@ -90,8 +95,8 @@ impl Wizard {
     /// The page as after UPGRADE, the upgrade only run dry: nothing is
     /// changed (`voxcade ide GAME --shot FILE --upgraded`).
     pub fn upgraded_dry(&mut self) {
-        self.stage = match crate::upgrade::upgrade(&self.dir, true) {
-            Ok(lines) => Stage::Upgraded { lines, dry: true, refit: self.refit_offer() },
+        self.stage = match crate::upgrade::upgrade_told(&self.dir, true) {
+            Ok((lines, anew)) => Stage::Upgraded { lines, dry: true, anew, refit: self.refit_offer() },
             Err(e) => Stage::Failed(format!("{e:#}")),
         };
     }
@@ -103,15 +108,17 @@ impl Wizard {
         }
     }
 
-    /// REFIT THE REPLAYS: `refit` (the game's `replay::refit_saying`) on a
-    /// thread of its own.
+    /// REFIT THE REPLAYS, or RECORD THE REPLAYS ANEW where the upgrade made
+    /// something join what they check: `refit` (the game's
+    /// `replay::fit_saying`) on a thread of its own.
     pub fn refit(&mut self, refit: Refitter) {
-        let Stage::Upgraded { refit: state, .. } = &mut self.stage else { return };
+        let Stage::Upgraded { refit: state, anew, .. } = &mut self.stage else { return };
+        let anew = *anew;
         let (tell, heard) = channel();
         let dir = self.dir.clone();
         std::thread::spawn(move || {
             let mut said = Vec::new();
-            let done = refit(&dir, &mut |line| said.push(line));
+            let done = refit(&dir, anew, &mut |line| said.push(line));
             let _ = tell.send(done.map(|all| (all, said)).map_err(|e| format!("{e:#}")));
         });
         *state = Refit::Running(heard);
@@ -128,7 +135,7 @@ impl Wizard {
             && let Ok(done) = heard.try_recv()
         {
             self.stage = match done {
-                Ok(lines) => Stage::Upgraded { lines, dry: false, refit: self.refit_offer() },
+                Ok((lines, anew)) => Stage::Upgraded { lines, dry: false, anew, refit: self.refit_offer() },
                 Err(e) => Stage::Failed(e),
             };
             self.changes = crate::upgrade::uncommitted(&self.dir);
@@ -224,7 +231,7 @@ impl Wizard {
                 ui.add_space(6.0);
                 error(ui, e);
             }
-            Stage::Upgraded { lines, dry, refit } => {
+            Stage::Upgraded { lines, dry, anew, refit } => {
                 ui.label(if *dry { "DRY RUN · NOTHING CHANGED".to_string() } else { format!("BROUGHT UP TO DATE FOR VOXCADE {}", engine()) });
                 ui.add_space(8.0);
                 let lines = shown_lines(lines);
@@ -238,13 +245,18 @@ impl Wizard {
                     Refit::Nothing => {}
                     Refit::Offered(n) => {
                         let line = format!("{n} replay{} recorded on the old files", if *n == 1 { "" } else { "s" });
-                        egui::Frame::new().inner_margin(egui::Margin { left: 16, ..egui::Margin::ZERO }).show(ui, |ui| ui.label(RichText::new(line).color(QUIET)).on_hover_text("REFIT THE REPLAYS plays each on the new files; if every one still plays exactly as recorded, they take the new files (nothing else in them changes)."));
+                        egui::Frame::new().inner_margin(egui::Margin { left: 16, ..egui::Margin::ZERO }).show(ui, |ui| ui.label(RichText::new(line).color(QUIET)).on_hover_text(if *anew { "RECORD THE REPLAYS ANEW records each one's checks again from its input on the new files." } else { "REFIT THE REPLAYS plays each on the new files; if every one still plays exactly as recorded, they take the new files (nothing else in them changes)." }));
                     }
                     Refit::Running(_) => {
                         ui.label(RichText::new("PLAYING THE REPLAYS…").color(ACCENT));
                     }
                     Refit::Done(fine, lines) => {
-                        ui.label(if *fine { "EVERY REPLAY PLAYS AS RECORDED" } else { "NOT EVERY REPLAY PLAYS AS RECORDED · NOTHING WRITTEN" });
+                        ui.label(match (*anew, *fine) {
+                            (true, true) => "EVERY REPLAY RECORDED ANEW",
+                            (true, false) => "NOT EVERY REPLAY RECORDED ANEW",
+                            (false, true) => "EVERY REPLAY PLAYS AS RECORDED",
+                            (false, false) => "NOT EVERY REPLAY PLAYS AS RECORDED · NOTHING WRITTEN",
+                        });
                         for line in lines {
                             said(ui, line);
                         }
@@ -283,8 +295,13 @@ impl Wizard {
                         wish = Some(open.1);
                     }
                 }
-                (_, Stage::Upgraded { refit: state, dry, .. }) => {
-                    if matches!(state, Refit::Offered(_)) && ui.button("REFIT THE REPLAYS").on_hover_text("Plays every replay on the new files (as voxcade check --refit).").clicked() && !*dry {
+                (_, Stage::Upgraded { refit: state, dry, anew, .. }) => {
+                    let (word, tip) = if *anew {
+                        ("RECORD THE REPLAYS ANEW", "Records every replay's checks again from its input on the new files (as voxcade check --update). The game's code names music now, so the music's clock is part of what a replay checks and no refit fits them. A run the hidden-state guard refuses is not recorded.")
+                    } else {
+                        ("REFIT THE REPLAYS", "Plays every replay on the new files (as voxcade check --refit).")
+                    };
+                    if matches!(state, Refit::Offered(_)) && ui.button(word).on_hover_text(tip).clicked() && !*dry {
                         self.refit(refit);
                     } else if !matches!(state, Refit::Running(_)) && ui.button(open.0).clicked() {
                         wish = Some(open.1);
@@ -301,14 +318,14 @@ impl Wizard {
 }
 
 /// What the upgrade said, as the page shows it: without the line telling
-/// the command that refits the replays (REFIT THE REPLAYS below does it;
+/// the command that refits the replays or records them anew (the button below does it;
 /// the command stays in the docs and in `voxcade upgrade`'s words), and
 /// the steps with nothing to change counted in one line where the first
 /// of them stood.
 fn shown_lines(lines: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     let (mut idle, mut at) = (0, None);
-    let mut lines = lines.iter().filter(|l| !(l.contains("voxcade check") && l.contains("--refit"))).peekable();
+    let mut lines = lines.iter().filter(|l| !(l.contains("voxcade check") && (l.contains("--refit") || l.contains("--update")))).peekable();
     while let Some(line) = lines.next() {
         if line.ends_with("):") && lines.peek().is_some_and(|next| next.trim() == "nothing to change") {
             lines.next();
@@ -389,7 +406,7 @@ mod tests {
         assert!(matches!(&w.standing, Ok(Standing::Older { made: Some(v), steps }) if v == "0.5.0" && !steps.is_empty()));
         w.upgrade();
         w.wait();
-        let Stage::Upgraded { lines, dry: false, refit } = &w.stage else { panic!("not upgraded") };
+        let Stage::Upgraded { lines, dry: false, refit, .. } = &w.stage else { panic!("not upgraded") };
         assert!(lines.iter().any(|l| l.contains("robot.vvx")), "{lines:?}");
         assert!(matches!(refit, Refit::Nothing), "no replays to refit");
         assert!(!needed(&dir) && dir.join("robot.vvx").is_file() && !dir.join("robot.vox").exists());
@@ -398,7 +415,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut wish = None;
         for _ in 0..2 {
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| wish = w.ui(ui, crate::replay::refit_saying::<crate::Voxcade>));
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| wish = w.ui(ui, crate::replay::fit_saying::<crate::Voxcade>));
         }
         assert_eq!(wish, None);
         let _ = std::fs::remove_dir_all(&dir);
@@ -417,8 +434,8 @@ mod tests {
         crate::upgrade::upgrade(&dir, false).unwrap();
         std::fs::create_dir_all(dir.join("replays")).unwrap();
         let mut w = Wizard::new(&dir, false);
-        w.stage = Stage::Upgraded { lines: Vec::new(), dry: false, refit: Refit::Offered(1) };
-        w.refit(|_, say| {
+        w.stage = Stage::Upgraded { lines: Vec::new(), dry: false, anew: false, refit: Refit::Offered(1) };
+        w.refit(|_, _, say| {
             say("demo.toml: same".into());
             Ok(true)
         });
@@ -444,11 +461,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Where the upgrade made the music's clock join what a replay checks,
+    /// the page offers RECORD THE REPLAYS ANEW in place of REFIT, which
+    /// records them (`replay::fit_saying`'s flag) and says so; the line
+    /// naming the command is not shown.
+    #[test]
+    fn the_page_offers_to_record_the_replays_anew_where_refit_cannot_fit_them() {
+        let dir = crate::scratch::Scratch::new("wizard-anew");
+        let put = |file: &str, text: &str| {
+            std::fs::create_dir_all(dir.join(file).parent().unwrap()).unwrap();
+            std::fs::write(dir.join(file), text).unwrap();
+        };
+        put("conf.lua", "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.audio.music = { \"music/storm.mml\" }\nend\n");
+        put("music/storm.mml", "#tempo 120\n@a triangle\nA: c1 c1 c1 c1\n");
+        put("main.lua", "function on_tick() end\n");
+        put("replays/run.toml", "");
+        let mut w = Wizard::new(&dir, false);
+        w.upgrade();
+        w.wait();
+        let Stage::Upgraded { lines, anew: true, refit: Refit::Offered(1), .. } = &w.stage else { panic!("not upgraded for recording anew") };
+        assert!(shown_lines(lines).iter().all(|l| !l.contains("voxcade check")), "{lines:?}");
+        let ctx = egui::Context::default();
+        let texts = (0..2).map(|_| drawn(&ctx, &mut w)).last().unwrap();
+        let says = |word: &str| texts.iter().any(|t| t.contains(word));
+        assert!(!says("REFIT THE REPLAYS"), "{texts:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+        // The button's work: the flag reaches the function, its result stands.
+        static ANEW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        w.stage = Stage::Upgraded { lines: Vec::new(), dry: false, anew: true, refit: Refit::Offered(1) };
+        w.refit(|_, anew, say| {
+            ANEW.store(anew, std::sync::atomic::Ordering::SeqCst);
+            say("run.toml: recorded anew".into());
+            Ok(true)
+        });
+        w.wait();
+        assert!(ANEW.load(std::sync::atomic::Ordering::SeqCst));
+        let texts = (0..2).map(|_| drawn(&ctx, &mut w)).last().unwrap();
+        assert!(texts.iter().any(|t| t == "EVERY REPLAY RECORDED ANEW"), "{texts:?}");
+    }
+
     /// The texts a frame of the page draws, at 1600 by 900.
     fn drawn(ctx: &egui::Context, w: &mut Wizard) -> Vec<String> {
         let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))), ..Default::default() };
         let out = ctx.run_ui(raw, |ui| {
-            let _ = w.ui(ui, crate::replay::refit_saying::<crate::Voxcade>);
+            let _ = w.ui(ui, crate::replay::fit_saying::<crate::Voxcade>);
         });
         out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect()
     }

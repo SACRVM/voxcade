@@ -262,7 +262,7 @@ fn shot_upgrade<G: Game>(dir: &Path, opts: &ShotOptions) -> Result<()> {
     headless(
         opts,
         &mut Plain(|ui: &mut egui::Ui| {
-            page.ui(ui, crate::replay::refit_saying::<G>);
+            page.ui(ui, crate::replay::fit_saying::<G>);
         }),
     )?;
     println!("{}: the upgrade's page of {}", opts.out.display(), dir.display());

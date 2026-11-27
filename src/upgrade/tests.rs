@@ -465,3 +465,38 @@ fn the_refit_line_comes_only_where_replays_can_have_moved() {
     let said = upgrade(&dir, false).unwrap();
     assert!(!refit(&said), "{said:?}");
 }
+
+/// After the upgrade the replays are told to be recorded anew where the
+/// step "music from the code" made the music's clock join what a replay
+/// checks (the game's code named no music before), else refitted as ever;
+/// `upgrade_told` says which, and a dry run does too.
+#[test]
+fn the_upgrades_advice_for_replays_is_update_where_music_joins_the_hash() {
+    let made = |name: &str, main: &str| {
+        let dir = crate::scratch::Scratch::new(name);
+        let put = |dir: &Path, file: &str, text: &str| {
+            std::fs::create_dir_all(dir.join(file).parent().unwrap()).unwrap();
+            std::fs::write(dir.join(file), text).unwrap();
+        };
+        put(&dir, "conf.lua", "function conf(c)\n  c.voxcade = \"0.6.0\"\n  c.audio.music = { \"music/storm.mml\" }\nend\n");
+        put(&dir, "music/storm.mml", "#tempo 120\n@a triangle\nA: c1 c1 c1 c1\n");
+        put(&dir, "main.lua", main);
+        put(&dir, "replays/run.toml", "");
+        dir
+    };
+    let keep = crate::scratch::Scratch::new("upgrade-advice-to");
+    // No music in the code: the call is added, the clock joins the hash.
+    let silent = made("upgrade-advice-silent", "function on_tick() end\n");
+    let (lines, anew) = upgrade_told(&silent, true).unwrap();
+    assert!(anew && lines.last().unwrap().contains("--update") && lines.last().unwrap().contains("music's clock"), "{lines:?}");
+    assert!(!lines.iter().any(|l| l.contains("--refit")), "{lines:?}");
+    let done = upgrade_keeping(&silent, false, &keep).unwrap();
+    assert!(done.last().unwrap().contains(&format!("`voxcade check {} --update` records them anew", silent.display())), "{done:?}");
+    // The code names music already (a clock read): refit, as before.
+    let named = made("upgrade-advice-named", "function on_tick() local b = music.beat end\n");
+    let (lines, anew) = upgrade_told(&named, false).unwrap();
+    assert!(!anew && lines.last().unwrap().contains("--refit") && !lines.iter().any(|l| l.contains("--update")), "{lines:?}");
+    // An `on_beat` names it too.
+    let beat = made("upgrade-advice-beat", "function on_beat() end\n");
+    assert!(!upgrade_told(&beat, true).unwrap().1);
+}

@@ -174,3 +174,12 @@ pub fn apply(dir: &Path) -> Result<Vec<String>> {
 pub fn left(dir: &Path) -> bool {
     look(dir).is_some_and(|f| adds(&f))
 }
+
+/// Whether the step makes the music's clock join what a replay checks:
+/// it adds the call to a game whose code named no `music` or `on_beat`
+/// before (`Game::uses_music`), so the game plays as before but its state
+/// hash is another, and its replays can only be recorded anew.
+pub fn joins(dir: &Path) -> bool {
+    look(dir).is_some_and(|f| adds(&f))
+        && !files_ending(dir, "lua").iter().filter(|f| f.as_os_str() != "conf.lua").any(|f| crate::lua::lex::names(&std::fs::read_to_string(dir.join(f)).unwrap_or_default(), &["music", "on_beat"]))
+}

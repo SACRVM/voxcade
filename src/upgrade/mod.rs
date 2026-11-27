@@ -26,35 +26,39 @@ use anyhow::{Context, Result, bail};
 /// `left` says whether a game already stating the step's version still has
 /// files it changes: a step that came while that version was being made
 /// (0.6.0 is not out yet) also comes to the games made with it before.
+/// `joins` says, asked before the step is done, whether it makes something
+/// join what a replay checks (the state hash) without changing how the game
+/// plays: the replays then cannot be refitted, only recorded anew.
 struct Step {
     since: &'static str,
     name: &'static str,
     plan: fn(&Path) -> Result<Vec<String>>,
     apply: fn(&Path) -> Result<Vec<String>>,
     left: Option<fn(&Path) -> bool>,
+    joins: Option<fn(&Path) -> bool>,
 }
 
 /// Every step, oldest first. "rotation and behavior" goes first of those
 /// of 0.6.0, though it came last: the other steps read the game's text
 /// files and `conf.lua` with the words of now.
 const STEPS: &[Step] = &[
-    Step { since: "0.6.0", name: "rotation and behavior", plan: words::plan, apply: words::apply, left: Some(words::left) },
-    Step { since: "0.6.0", name: "models as text", plan: models::plan, apply: models::apply, left: None },
-    Step { since: "0.6.0", name: "no recorded sounds", plan: recordings::plan, apply: recordings::plan, left: None },
-    Step { since: "0.6.0", name: "levels as text", plan: levels::plan, apply: levels::apply, left: Some(levels::left) },
-    Step { since: "0.6.0", name: "maps as text", plan: maps::plan, apply: maps::apply, left: Some(maps::left) },
-    Step { since: "0.6.0", name: "worlds and prefabs as text", plan: worlds::plan, apply: worlds::apply, left: Some(worlds::left) },
-    Step { since: "0.6.0", name: "no list of models", plan: listed::plan, apply: listed::apply, left: Some(listed::left) },
-    Step { since: "0.7.0", name: "lamps stopped by walls", plan: lamps::plan, apply: lamps::plan, left: None },
-    Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left) },
-    Step { since: "0.7.0", name: "names of 0.7", plan: names::plan, apply: names::apply, left: Some(names::left) },
-    Step { since: "0.7.0", name: "music from the code", plan: music::plan, apply: music::apply, left: Some(music::left) },
-    Step { since: "0.7.0", name: "kinds facing their way", plan: facing::plan, apply: facing::plan, left: None },
+    Step { since: "0.6.0", name: "rotation and behavior", plan: words::plan, apply: words::apply, left: Some(words::left), joins: None },
+    Step { since: "0.6.0", name: "models as text", plan: models::plan, apply: models::apply, left: None, joins: None },
+    Step { since: "0.6.0", name: "no recorded sounds", plan: recordings::plan, apply: recordings::plan, left: None, joins: None },
+    Step { since: "0.6.0", name: "levels as text", plan: levels::plan, apply: levels::apply, left: Some(levels::left), joins: None },
+    Step { since: "0.6.0", name: "maps as text", plan: maps::plan, apply: maps::apply, left: Some(maps::left), joins: None },
+    Step { since: "0.6.0", name: "worlds and prefabs as text", plan: worlds::plan, apply: worlds::apply, left: Some(worlds::left), joins: None },
+    Step { since: "0.6.0", name: "no list of models", plan: listed::plan, apply: listed::apply, left: Some(listed::left), joins: None },
+    Step { since: "0.7.0", name: "lamps stopped by walls", plan: lamps::plan, apply: lamps::plan, left: None, joins: None },
+    Step { since: "0.7.0", name: "colors from 0 to 255", plan: colors::plan, apply: colors::apply, left: Some(colors::left), joins: None },
+    Step { since: "0.7.0", name: "names of 0.7", plan: names::plan, apply: names::apply, left: Some(names::left), joins: None },
+    Step { since: "0.7.0", name: "music from the code", plan: music::plan, apply: music::apply, left: Some(music::left), joins: Some(music::joins) },
+    Step { since: "0.7.0", name: "kinds facing their way", plan: facing::plan, apply: facing::plan, left: None, joins: None },
     // No `left`: a game stating 0.7.0 may be silent on its title on
     // purpose (the repo's games and templates were brought over by it as
     // it came).
-    Step { since: "0.7.0", name: "the title's song named", plan: title_song::plan, apply: title_song::apply, left: None },
-    Step { since: "0.7.0", name: "see-through colors on the HUD", plan: see_through::plan, apply: see_through::plan, left: None },
+    Step { since: "0.7.0", name: "the title's song named", plan: title_song::plan, apply: title_song::apply, left: None, joins: None },
+    Step { since: "0.7.0", name: "see-through colors on the HUD", plan: see_through::plan, apply: see_through::plan, left: None, joins: None },
 ];
 
 /// The steps that only say what the author should change and write nothing.
@@ -228,6 +232,14 @@ pub const KEPT: &str = "before-upgrade";
 /// folder's `before-upgrade/` (`keep_files`): the steps change files in
 /// place, and git cannot give them back.
 pub fn upgrade(dir: &Path, dry: bool) -> Result<Vec<String>> {
+    upgrade_told(dir, dry).map(|(lines, _)| lines)
+}
+
+/// `upgrade`, and whether the replays can only be recorded anew
+/// (`voxcade check --update`), no refit fitting them: a step made
+/// something join what a replay checks (`Step::joins`), as the music's
+/// clock does for a game whose code named no music before.
+pub fn upgrade_told(dir: &Path, dry: bool) -> Result<(Vec<String>, bool)> {
     // The tests keep theirs in a scratch folder, never the user's config.
     #[cfg(test)]
     let scratch = crate::scratch::Scratch::new("upgrade-kept");
@@ -235,12 +247,16 @@ pub fn upgrade(dir: &Path, dry: bool) -> Result<Vec<String>> {
     let keep = scratch.to_path_buf();
     #[cfg(not(test))]
     let keep = crate::settings::config_dir().join(KEPT);
-    upgrade_keeping(dir, dry, &keep)
+    upgrade_told_keeping(dir, dry, &keep)
 }
 
 /// `upgrade`, keeping the files of a game outside git in a folder under
 /// `keep`.
 pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>> {
+    upgrade_told_keeping(dir, dry, keep).map(|(lines, _)| lines)
+}
+
+fn upgrade_told_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<(Vec<String>, bool)> {
     if !is_lua_game(dir) {
         bail!("{}: no game made in Lua here (no conf.lua or main.lua)", dir.display());
     }
@@ -254,11 +270,11 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
         Standing::Current if stated(dir)?.is_none() => {
             out.push(format!("{}: its files are for Voxcade {} already", dir.display(), engine()));
             out.extend(set_version_in_file(dir, engine(), dry)?);
-            return Ok(out);
+            return Ok((out, false));
         }
         Standing::Current => {
             out.push(format!("{}: nothing to do, its files are for Voxcade {}", dir.display(), stated(dir)?.unwrap_or_else(|| engine().to_string())));
-            return Ok(out);
+            return Ok((out, false));
         }
         Standing::Older { steps, made } => (steps, made),
     };
@@ -272,9 +288,10 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
         Some(k) => format!("the game's files as they were are in {}", k.display()),
         None => "git has the game's files as they were".to_string(),
     };
-    let mut changed = false;
+    let (mut changed, mut anew) = (false, false);
     for plan in &steps {
         let Some(step) = STEPS.iter().find(|s| s.name == plan.name) else { bail!("no step '{}' in this Voxcade", plan.name) };
+        anew |= step.joins.is_some_and(|joins| joins(dir));
         out.push(format!("{} (Voxcade {}):", step.name, step.since));
         let said = if dry { plan.would.clone() } else { (step.apply)(dir).with_context(|| format!("{}: the step '{}' stopped halfway; {}", dir.display(), step.name, back()))? };
         if said.is_empty() {
@@ -286,11 +303,16 @@ pub fn upgrade_keeping(dir: &Path, dry: bool, keep: &Path) -> Result<Vec<String>
     out.extend(set_version_in_file(dir, engine(), dry)?);
     // Replays name the files they were recorded on: refitted, they take
     // the new ones if they still play exactly as recorded. Said only where
-    // a step changed what a replay is fitted to.
+    // a step changed what a replay is fitted to. Where a step made
+    // something join the state hash, no refit can fit them: recorded anew.
     if changed && !files_ending(&dir.join("replays"), "toml").is_empty() {
-        out.push(format!("the replays were recorded on the old files: `voxcade check {} --refit` fits them to the new ones if every one still plays as recorded", dir.display()));
+        out.push(if anew {
+            format!("the replays were recorded on the old files and the music's clock is part of what a replay checks now: `voxcade check {} --update` records them anew", dir.display())
+        } else {
+            format!("the replays were recorded on the old files: `voxcade check {} --refit` fits them to the new ones if every one still plays as recorded", dir.display())
+        });
     }
-    Ok(out)
+    Ok((out, anew))
 }
 
 /// Whether the folder lies in a git repository and git has every one of
