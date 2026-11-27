@@ -77,17 +77,22 @@ impl Thin {
     /// The blocks of the volume's regions `changed` (copy 0's texels, as
     /// `Volume::update` gives them) found anew, and those `APRON` round
     /// them, whose runs reach into them (in whole blocks).
+    /// Read on every core in slabs as `of` reads (a figure posed anew
+    /// every picture changes a few regions every picture).
     pub fn update(&mut self, v: &Volume, changed: &[Region]) {
+        let (block, corner) = (IVec3::splat(BLOCK), v.reach.origin);
+        let mut slabs = Vec::new();
         for &(lo, size) in changed {
-            let (block, a, b) = (IVec3::splat(BLOCK), lo * 2 - APRON, (lo + size) * 2 + APRON);
+            let (a, b) = (lo * 2 - APRON, (lo + size) * 2 + APRON);
             let (lo, hi) = ((a.div_euclid(block) * block).max(IVec3::ZERO), ((b + block - 1).div_euclid(block) * block).min(v.reach.texels * 2));
-            let corner = v.reach.origin;
             self.blocks.retain(|&(y, x, z), _| {
                 let b = IVec3::new(x, y, z) - corner;
                 !(b.cmpge(lo).all() && b.cmplt(hi).all())
             });
-            self.blocks.extend(scan(v, lo, hi));
+            slabs.extend((lo.y..hi.y).step_by(SLAB as usize).map(|y| (IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, (y + SLAB).min(hi.y), hi.z))));
         }
+        let found = crate::par::in_order(&slabs, 1, |part| part.iter().flat_map(|&(lo, hi)| scan(v, lo, hi)).collect());
+        self.blocks.extend(found);
     }
 
     /// The blocks holding a voxel thin by a beam whose points lie `step`

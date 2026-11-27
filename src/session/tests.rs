@@ -1660,6 +1660,63 @@ fn a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it() {
     assert!(closed == walled, "the wall set again: the first picture, dark behind it");
 }
 
+/// On the GPU: a level's piece that moves every picture (a figure posed
+/// anew, the title of a game of the owner's: a smoker lifting his hand
+/// under two spots fell to 12 pictures a second, the lamps' walls and their
+/// thin things made anew whole every picture) is taken into the walls where
+/// it moved, the walls never made anew; each picture is the one a renderer
+/// drawing it the first time draws, the floor far from the piece (answers
+/// the renderer kept, `lamps.wgsl`'s `clear_of_moved`) and its shadow near
+/// it alike, in fog too.
+#[test]
+fn a_piece_moving_every_picture_is_taken_into_the_walls_in_place() {
+    use crate::render::{LampShadows, Light, LightShape, ModelBank, ModelDraw};
+    let mut world = crate::sim::tests::flat_world(IVec3::new(256, 96, 32));
+    world.set_raw(IVec3::new(60, 48, 1), 1);
+    let mut cfg = GameConfig::default();
+    (cfg.light.ambient, cfg.light.sun_color) = (0.05, [0.05; 3]);
+    (cfg.camera.view_width, cfg.camera.pitch) = (240.0, 70.0);
+    let scene = |cfg: GameConfig, world: crate::world::World| {
+        let mut game = game_on(world, cfg);
+        (game.game.sim_mut().cam_target, game.game.sim_mut().cam_prev) = (Vec3::new(120.0, 48.0, 1.0), Vec3::new(120.0, 48.0, 1.0));
+        let mut canvas = crate::headless::Canvas::new(480, 270, false).unwrap();
+        canvas.mesh_world(game.world_mut(), &[true; 6]);
+        (game, canvas)
+    };
+    let text = "format = \"voxcade voxel 1\"\nsize = [2, 30, 14]\n\n[palette]\na = \"#b04030\"\n\n[[frame]]\nlayers = \"\"\"\naa *30\n*14\n\"\"\"\n";
+    let mut slab = crate::vvx::read(text).unwrap();
+    let mut bank = ModelBank::default();
+    bank.add(&mut slab);
+    let bank = std::sync::Arc::new(bank);
+    let lamp = Light::lamp(Vec3::new(40.5, 48.5, 20.0), 160.0, [2.0; 3], &LightShape::default(), |w| w).stated(LampShadows::Static);
+    let piece = |x: f32, turn: f32| ModelDraw { voxels: slab.bank[0].clone(), origin: Vec3::new(x, 48.0, 1.0), turn: 0, rot: glam::Quat::from_rotation_z(turn), shift: Vec3::ZERO, tint: None, nearer: 0.0, glow: None, shadow_only: false, outline: None, opacity: 1.0 };
+    let picture = |game: &mut Session<Shooter>, canvas: &mut crate::headless::Canvas, at: &ModelDraw, fog: bool| {
+        let mut f = game.frame(1.0, 480.0 / 270.0);
+        f.lights = vec![lamp];
+        f.lamp_world = Some(game.game.sim().world.clone());
+        (f.bank, f.lamp_pieces) = (bank.clone(), vec![at.clone()]);
+        if fog {
+            f.fog = Some(crate::render::Fog { density: 0.01, color: [0.1; 3], anisotropy: 0.0, glow: 1.0, lo: Vec3::ZERO, hi: Vec3::new(256.0, 96.0, 32.0), scale: 2, thin: true });
+        }
+        canvas.draw(&f).unwrap()
+    };
+    for fog in [false, true] {
+        let (mut game, mut canvas) = scene(cfg.clone(), world.clone());
+        let mut first = None;
+        for (k, at) in [piece(150.0, 0.0), piece(151.0, 0.1), piece(152.0, 0.25), piece(150.0, 0.0)].iter().enumerate() {
+            let drawn = picture(&mut game, &mut canvas, at, fog);
+            let (mut fresh_game, mut fresh) = scene(cfg.clone(), world.clone());
+            assert!(drawn == picture(&mut fresh_game, &mut fresh, at, fog), "fog {fog}, picture {k}: the one a renderer drawing it the first time draws");
+            assert_eq!(canvas.stats().volumes_made, 1, "fog {fog}, picture {k}: the walls made once, the piece taken in where it moved");
+            if k == 0 {
+                first = Some(drawn);
+            } else if k == 3 {
+                assert!(Some(drawn) == first, "fog {fog}: moved back, the first picture");
+            }
+        }
+    }
+}
+
 /// On the GPU: a lamp flush with a wall's face (a wall 4 thick) lights its
 /// own side and none of the room behind; a lamp in its housing (a solid box
 /// of 3 round it) still shines out of it on every side. Each way leaving

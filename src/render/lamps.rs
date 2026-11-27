@@ -132,7 +132,20 @@ pub(super) struct LampGlobals {
     pub(super) info: [u32; 4],
     /// The moving things (`movers`): x how many boxes (0: none).
     pub(super) movers: [i32; 4],
+    /// What changed in the volume since the state before (`info.z`, 0:
+    /// none kept), grown by `MOVED_MARGIN`: low and high corner in the
+    /// level's voxels (`Lamps::walls_moved`).
+    pub(super) moved_lo: [f32; 4],
+    pub(super) moved_hi: [f32; 4],
 }
+
+/// How far round what changed in the volume an answer of the state before
+/// is walked again (`lamps.wgsl`'s `clear_of_moved`), voxels each way: a
+/// walk reads the cells of the copies holding its way's points and the
+/// next cell ahead of one, each at most as big as the top copy's (2^5
+/// voxels), and its face's RIM. Past this the cells it reads are as they
+/// were, and so is its answer.
+const MOVED_MARGIN: i32 = 2 * (1 << (LEVELS - 1)) + 2;
 
 /// A light's row in the lamps' lights (`lamps.wgsl`'s `lights`): the light
 /// as the shaders take it and, walls stopping it, where its walks begin
@@ -233,8 +246,11 @@ pub(super) struct Lamps {
     /// The level's solid voxels, here and on the GPU.
     volume: Option<Held>,
     /// The volume's state: another number at every change of it (the
-    /// faces' answers from before are walked again).
+    /// faces' answers from before are walked again), and where it changed
+    /// only in part (`walls_moved`) the state before and the box round
+    /// what changed (`LampGlobals::moved_lo`, `moved_hi`).
     state: u32,
+    moved: Option<(u32, [f32; 4], [f32; 4])>,
     globals: wgpu::Buffer,
     /// The tiles of the screen with their lights, and the lights (a row
     /// each, room for `rows`).
@@ -254,8 +270,10 @@ pub(super) struct Lamps {
     bind: Option<wgpu::BindGroup>,
     /// Whether `bind` is the one with walls.
     bound_walls: bool,
-    /// How long the volume took to make last, ms (`shot` says it).
+    /// How long the volume took to make last, ms (`shot` says it), and
+    /// how many times it was made.
     pub(super) made_ms: f64,
+    pub(super) volumes_made: u32,
     /// The moving things on the GPU, for lamps whose shadows are "all"
     /// (`movers`): how many boxes this picture (0: none); their solids and
     /// the solids' bits (`Movers::solids`, `bits`), each with the room it
@@ -383,6 +401,7 @@ impl Lamps {
             targets: None,
             volume: None,
             state: 1,
+            moved: None,
             globals,
             instances: instance_buffer(device, 64),
             capacity: 64,
@@ -393,6 +412,7 @@ impl Lamps {
             bind: None,
             bound_walls: false,
             made_ms: 0.0,
+            volumes_made: 0,
             movers_shown: 0,
             movers_solids: solids_buffer(device, 64),
             movers_bits: bits_buffer(device, 1024),
@@ -445,7 +465,20 @@ impl Lamps {
     /// asked for first (`ASK`).
     fn walls_changed(&mut self) {
         self.state = next_state(self.state);
+        self.moved = None;
         self.known.clear();
+    }
+
+    /// The volume's voxels changed within the box `lo` to `hi` only (the
+    /// level's voxels, `Volume::moved`): the state moves on, and an answer
+    /// of the state before whose way passes no nearer it than
+    /// `MOVED_MARGIN` is kept (a figure posed anew every picture walks
+    /// only the ways near it again).
+    fn walls_moved(&mut self, (lo, hi): (IVec3, IVec3)) {
+        let before = self.state;
+        self.walls_changed();
+        let corner = |c: IVec3| c.as_vec3().extend(0.0).to_array();
+        self.moved = Some((before, corner(lo - MOVED_MARGIN), corner(hi + MOVED_MARGIN)));
     }
 
     /// What the level being played holds of the pass, taken away as it is
@@ -457,6 +490,7 @@ impl Lamps {
         // (Another state, so no answer of the level put aside is taken for
         // the next one's.)
         self.state = next_state(self.state);
+        self.moved = None;
         self.bind = None;
         kept
     }
@@ -469,12 +503,13 @@ impl Lamps {
             (self.volume, self.seen) = (None, None);
             self.known.clear();
             self.state = next_state(self.state);
+            self.moved = None;
             self.bind = None;
             return;
         };
         // (A count of answers without room read from the memory before
         // tells this one's too: the same picture asks as much.)
-        (self.volume, self.seen, self.state, self.known) = (k.volume, k.seen, k.state, k.known);
+        (self.volume, self.seen, self.state, self.known, self.moved) = (k.volume, k.seen, k.state, k.known, None);
         self.bind = None;
     }
 
@@ -744,16 +779,17 @@ impl Renderer {
     }
 
     /// The level's volume for the picture's world and pieces, round what
-    /// its lamps reach: made the first time (and for another level, when
-    /// the pieces changed or a lamp reaches past it), else the chunks
-    /// changed since brought up to date, on the GPU too. False (said once)
-    /// when the lamps reach too far apart for it.
+    /// its lamps reach: made the first time (and for another level, another
+    /// bank or other pieces, or a lamp reaching past it), else the chunks
+    /// changed since brought up to date (the world's, and those a piece
+    /// moved from or to: a figure posed anew every picture), on the GPU
+    /// too. False (said once) when the lamps reach too far apart for it.
     fn volume_for(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &FrameData) -> bool {
         let Some(world) = frame.lamp_world.as_ref() else { return false };
         let lit: Vec<(glam::Vec3, f32)> = frame.lights.iter().filter(|l| l.stopped()).map(|l| (l.pos, l.radius)).collect();
         let key = volume::pieces_key(&frame.bank, &frame.lamp_pieces);
-        let same = self.lamps.volume.as_ref().is_some_and(|h| h.volume.reach.holds(&lit, world.size) && h.volume.pieces_key == key && h.volume.same_level(world));
-        let reach = if same { self.lamps.volume.as_ref().expect("held").volume.reach } else { Reach::of(&lit, world.size) };
+        let held = self.lamps.volume.as_ref().is_some_and(|h| h.volume.reach.holds(&lit, world.size) && h.volume.same_level(world));
+        let reach = if held { self.lamps.volume.as_ref().expect("held").volume.reach } else { Reach::of(&lit, world.size) };
         if let Err(why) = reach.fits(device.limits().max_texture_dimension_3d) {
             if !self.lamps.told_big {
                 self.lamps.told_big = true;
@@ -768,19 +804,24 @@ impl Renderer {
             return false;
         }
         let lamps = &mut self.lamps;
-        if same {
-            let held = lamps.volume.as_mut().expect("held");
-            let changed = held.volume.update(world);
+        let kept = lamps.volume.as_mut().filter(|_| held).and_then(|h| {
+            let changed = if h.volume.pieces_key == key { Some(h.volume.update(world)) } else { h.volume.repose(world, &frame.bank, &frame.lamp_pieces, key) };
+            changed.map(|c| (h, c))
+        });
+        if let Some((held, changed)) = kept {
             if !changed.is_empty() {
                 if let Some(thin) = &mut held.thin {
                     thin.update(&held.volume, &changed);
                 }
-                for (lo, size) in changed {
+                for &(lo, size) in &changed {
                     for m in 0..LEVELS {
                         write(queue, &held.texture, m, lo >> m as i32, size >> m as i32, &held.volume.bytes_of(m, lo, size));
                     }
                 }
-                lamps.walls_changed();
+                match held.volume.moved {
+                    Some(within) => lamps.walls_moved(within),
+                    None => lamps.walls_changed(),
+                }
             }
             return true;
         }
@@ -815,6 +856,7 @@ impl Renderer {
         lamps.walls_changed();
         lamps.bind = None;
         lamps.made_ms = started.elapsed().as_secs_f64() * 1000.0;
+        lamps.volumes_made += 1;
         true
     }
 
@@ -918,7 +960,7 @@ impl Renderer {
                 lamps.ask_target = Some((size, texture(device, "lamps' asking", size.0, size.1, ASK_FORMAT, false)));
             }
         }
-        let globals = LampGlobals { inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(), dims, origin, info: [lamps.state, self.pictures, 0, 0], movers: [lamps.movers_shown, 0, 0, 0] };
+        let globals = LampGlobals { inv_view_proj: frame.view_proj.inverse().to_cols_array_2d(), dims, origin, info: [lamps.state, self.pictures, lamps.moved.map_or(0, |m| m.0), 0], movers: [lamps.movers_shown, 0, 0, 0], moved_lo: lamps.moved.map_or([0.0; 4], |m| m.1), moved_hi: lamps.moved.map_or([0.0; 4], |m| m.2) };
         queue.write_buffer(&lamps.globals, 0, bytemuck::bytes_of(&globals));
         if lamps.bind.is_none() || lf.walls != lamps.bound_walls {
             let bind = lamps.make_bind(device, lf.walls);

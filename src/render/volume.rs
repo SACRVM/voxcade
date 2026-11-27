@@ -10,7 +10,8 @@
 //! Only the part of the level its lamps reach (`Reach`: the boxes round
 //! them, a block more each way), so a big level with a few lamps takes
 //! little. Made when a picture first has a lamp walls stop, from the world
-//! as the picture has it, and kept: a chunk the game changed (a blast) is
+//! as the picture has it, and kept: a chunk the game changed (a blast), or
+//! one a piece left or came to (a figure posed anew, `Volume::repose`), is
 //! made anew with the blocks of `BLOCK` texels round it, every copy, and
 //! only those go to the GPU; a lamp reaching past the box makes it anew
 //! round the lamps as they are. Only the picture: nothing here is the
@@ -121,10 +122,49 @@ pub struct Volume {
     pub copies: Vec<Vec<u8>>,
     /// The world as it was made from (its chunks shared, `World::chunks_unlike`).
     world: World,
-    /// The pieces' cells, by the chunk they lie in.
-    pieces: CellMap<Vec<IVec3>>,
+    /// The pieces' cells, by the chunk they lie in, each with its draw's
+    /// place in `draws`.
+    pieces: CellMap<Vec<(u32, IVec3)>>,
+    /// The pieces' draws as they were and the bank they are drawn from
+    /// (`ModelBank::made`).
+    draws: Vec<ModelDraw>,
+    made: u64,
     /// What the pieces were (`pieces_key`).
     pub pieces_key: u64,
+    /// The box the voxels the last `update` or `repose` changed lie in
+    /// (the level's voxels, low corner and high, the high one past it):
+    /// the chunks the world changed, the cells the pieces that moved left
+    /// and came to. None: nothing changed.
+    pub moved: Option<(IVec3, IVec3)>,
+}
+
+/// A box (low corner, high corner past it) grown to hold the box `lo` to
+/// `hi`.
+fn grown((a, b): (IVec3, IVec3), lo: IVec3, hi: IVec3) -> (IVec3, IVec3) {
+    (a.min(lo), b.max(hi))
+}
+
+/// No box yet, for `grown`.
+const NO_BOX: (IVec3, IVec3) = (IVec3::MAX, IVec3::MIN);
+
+/// The box of the world's chunks `chunks`.
+fn chunks_box(chunks: &[IVec3]) -> (IVec3, IVec3) {
+    chunks.iter().fold(NO_BOX, |b, cc| grown(b, *cc * CHUNK, (*cc + 1) * CHUNK))
+}
+
+/// `cc` pushed onto `chunks` unless it is the last there already (a
+/// draw's cells come chunk after chunk, mostly).
+fn once(chunks: &mut Vec<IVec3>, cc: IVec3) {
+    if chunks.last() != Some(&cc) {
+        chunks.push(cc);
+    }
+}
+
+/// Whether two draws fill the same cells (`draw_cells`): what
+/// `pieces_key` takes of a draw.
+fn same_cells(a: &ModelDraw, b: &ModelDraw) -> bool {
+    let bits = |d: &ModelDraw| (d.origin.to_array().map(f32::to_bits), d.shift.to_array().map(f32::to_bits), d.rot.to_array().map(f32::to_bits));
+    a.voxels == b.voxels && a.turn == b.turn && bits(a) == bits(b)
 }
 
 /// A key of the pieces' draws and the bank they are drawn from (which, not
@@ -175,15 +215,10 @@ impl Volume {
     /// every copy.
     pub fn new(world: &World, reach: Reach, bank: &ModelBank, pieces: &[ModelDraw], pieces_key: u64) -> Self {
         let t = reach.texels;
-        let mut by_chunk: CellMap<Vec<IVec3>> = CellMap::default();
-        for d in pieces {
-            draw_cells(bank, d, |c| {
-                if reach.inside(reach.texel(c)) {
-                    by_chunk.entry(World::chunk_of(c)).or_default().push(c);
-                }
-            });
+        let mut v = Self { reach, copies: vec![vec![0; (t.x * t.y * t.z) as usize]], world: world.clone(), pieces: CellMap::default(), draws: pieces.to_vec(), made: bank.made, pieces_key, moved: None };
+        for (i, d) in pieces.iter().enumerate() {
+            v.put_piece(bank, i as u32, d, |_| {});
         }
-        let mut v = Self { reach, copies: vec![vec![0; (t.x * t.y * t.z) as usize]], world: world.clone(), pieces: by_chunk, pieces_key };
         let mut chunks: Vec<IVec3> = world.chunk_keys().into_iter().filter(|cc| v.holds_chunk(*cc)).collect();
         chunks.extend(v.pieces.keys().copied().filter(|cc| world.chunk(*cc).is_none()));
         chunks.sort_unstable_by_key(|c| (c.z, c.y, c.x));
@@ -201,13 +236,79 @@ impl Volume {
         (lo + CHUNK / 2).cmpgt(IVec3::ZERO).all() && lo.cmplt(self.reach.texels).all()
     }
 
+    /// The cells within the volume of the draw `d` (the `i`th piece) put
+    /// among the pieces', each told to `put`.
+    fn put_piece(&mut self, bank: &ModelBank, i: u32, d: &ModelDraw, mut put: impl FnMut(IVec3)) {
+        let (reach, pieces) = (self.reach, &mut self.pieces);
+        draw_cells(bank, d, |c| {
+            if reach.inside(reach.texel(c)) {
+                put(c);
+                pieces.entry(World::chunk_of(c)).or_default().push((i, c));
+            }
+        });
+    }
+
     /// Takes in what changed in `world` since it was made or last brought
     /// up to date (its chunks written since): the blocks made anew, to go
     /// to the GPU. Nothing when nothing changed.
     pub fn update(&mut self, world: &World) -> Vec<Region> {
+        let chunks = world.chunks_unlike(&self.world);
+        let within = chunks_box(&chunks);
+        self.remake(world, chunks, within)
+    }
+
+    /// Takes in `world` as `update` does and the pieces drawn as `pieces`
+    /// (their key `pieces_key`): the chunks the pieces that moved (a
+    /// figure's part posed anew) left or came to made anew too, the blocks
+    /// to go to the GPU. None where they are not the same pieces moved
+    /// (another bank, more or fewer of them): the volume is made anew then.
+    /// The same volume as made anew either way.
+    pub fn repose(&mut self, world: &World, bank: &ModelBank, pieces: &[ModelDraw], pieces_key: u64) -> Option<Vec<Region>> {
+        if bank.made != self.made || pieces.len() != self.draws.len() {
+            return None;
+        }
+        let moved: Vec<u32> = (0..pieces.len()).filter(|&i| !same_cells(&self.draws[i], &pieces[i])).map(|i| i as u32).collect();
         let mut chunks = world.chunks_unlike(&self.world);
+        let mut within = chunks_box(&chunks);
+        let mut left = Vec::new();
+        for &i in &moved {
+            draw_cells(bank, &self.draws[i as usize], |c| {
+                once(&mut left, World::chunk_of(c));
+                within = grown(within, c, c + 1);
+            });
+        }
+        left.sort_unstable_by_key(|c| (c.z, c.y, c.x));
+        left.dedup();
+        for cc in &left {
+            if let Some(cells) = self.pieces.get_mut(cc) {
+                cells.retain(|(i, _)| moved.binary_search(i).is_err());
+                if cells.is_empty() {
+                    self.pieces.remove(cc);
+                }
+            }
+        }
+        chunks.extend(left);
+        for &i in &moved {
+            self.put_piece(bank, i, &pieces[i as usize], |c| {
+                once(&mut chunks, World::chunk_of(c));
+                within = grown(within, c, c + 1);
+            });
+            self.draws[i as usize] = pieces[i as usize].clone();
+        }
+        self.pieces_key = pieces_key;
+        Some(self.remake(world, chunks, within))
+    }
+
+    /// The chunks `chunks` (any order, each any number of times) of copy 0
+    /// made anew from `world` and the pieces, and the blocks they lie in of
+    /// every copy: those blocks, to go to the GPU. The world taken as the
+    /// one it is made from; what changed lies `within` (`moved`).
+    fn remake(&mut self, world: &World, mut chunks: Vec<IVec3>, within: (IVec3, IVec3)) -> Vec<Region> {
         self.world = world.clone();
+        chunks.sort_unstable_by_key(|c| (c.z, c.y, c.x));
+        chunks.dedup();
         chunks.retain(|cc| self.holds_chunk(*cc));
+        self.moved = (!chunks.is_empty()).then_some(within);
         if chunks.is_empty() {
             return Vec::new();
         }
@@ -285,7 +386,7 @@ impl Volume {
                 }
             }
             if let Some(cells) = self.pieces.get(&cc) {
-                for &c in cells {
+                for &(_, c) in cells {
                     let tc = reach.texel(c);
                     if reach.inside(tc) {
                         self.copies[0][(tc.x + t.x * (tc.y + t.y * tc.z)) as usize] |= 1 << ((c.x & 1) | (c.y & 1) << 1 | (c.z & 1) << 2);
@@ -431,6 +532,7 @@ mod tests {
         w.set(IVec3::new(71, 61, 31), 1);
         let changed = v.update(&w);
         assert_eq!(changed, vec![(IVec3::new(BLOCK, 0, 0), IVec3::splat(BLOCK))], "the block round the chunk written");
+        assert_eq!(v.moved, Some((IVec3::new(64, 32, 0), IVec3::new(96, 64, 32))), "what changed: the chunk written");
         assert!(!v.solid(IVec3::new(70, 60, 30), 0) && v.solid(IVec3::new(71, 61, 31), 0));
         assert!(v.solid(IVec3::new(3, 4, 5), 0), "the rest as it was");
         assert_eq!(v.copies, Volume::new(&w, reach, &bank, &[], 0).copies, "the same as made anew");
@@ -472,6 +574,52 @@ mod tests {
         let mut anew = ModelBank::default();
         anew.add(&mut piece);
         assert_ne!(pieces_key(&anew, &draws), key, "another bank");
+    }
+
+    /// Pieces that move (a figure's parts posed anew every picture, the
+    /// title's smoker lifting his hand) are taken in where they left and
+    /// came to, the rest of the volume as it was: the same volume as made
+    /// anew, its blocks of what changed only, a part turned freely too, and
+    /// the box of the cells it left and came to said (`moved`: the lamps'
+    /// answers whose ways pass far from it are kept); a piece moved back
+    /// gives the first volume again. Another bank or another number of
+    /// pieces is not taken in (made anew).
+    #[test]
+    fn pieces_that_move_are_taken_in_where_they_moved() {
+        let text = "format = \"voxcade voxel 1\"\nsize = [2, 6, 5]\n\n[palette]\na = \"#b04030\"\n\n[[frame]]\nlayers = \"\"\"\naa *6\n*5\n\"\"\"\n";
+        let mut piece = crate::vvx::read(text).unwrap();
+        let mut bank = ModelBank::default();
+        bank.add(&mut piece);
+        let draw = |at: Vec3, rot: glam::Quat| ModelDraw { voxels: piece.bank[0].clone(), origin: at, turn: 0, rot, shift: Vec3::ZERO, tint: None, nearer: 0.0, glow: None, shadow_only: false, outline: None, opacity: 1.0 };
+        let w = world_with(&[IVec3::new(3, 4, 5), IVec3::new(70, 60, 30)]);
+        let reach = Reach::of(&[(Vec3::new(50.0, 35.0, 20.0), 200.0)], w.size);
+        let still = draw(Vec3::new(80.0, 10.0, 2.0), glam::Quat::IDENTITY);
+        let first = [still.clone(), draw(Vec3::new(10.0, 10.0, 2.0), glam::Quat::IDENTITY)];
+        let mut v = Volume::new(&w, reach, &bank, &first, pieces_key(&bank, &first));
+        assert!(v.solid(IVec3::new(10, 10, 2), 0) && v.solid(IVec3::new(80, 10, 2), 0));
+        let made = v.copies.clone();
+        assert_eq!(v.repose(&w, &bank, &first, pieces_key(&bank, &first)), Some(Vec::new()), "nothing moved: nothing changed");
+        assert_eq!(v.moved, None);
+        for second in [draw(Vec3::new(12.0, 11.0, 3.0), glam::Quat::IDENTITY), draw(Vec3::new(12.0, 11.0, 3.0), glam::Quat::from_rotation_z(0.3) * glam::Quat::from_rotation_x(-0.4))] {
+            let moved = [still.clone(), second];
+            let changed = v.repose(&w, &bank, &moved, pieces_key(&bank, &moved)).expect("the same pieces moved");
+            assert_eq!(changed, vec![(IVec3::ZERO, IVec3::splat(BLOCK))], "the block of the chunks it left and came to");
+            assert_eq!(v.copies, Volume::new(&w, reach, &bank, &moved, 0).copies, "the same as made anew");
+            assert_eq!(v.pieces_key, pieces_key(&bank, &moved));
+            assert!(v.solid(IVec3::new(80, 10, 2), 0), "the piece that stood still as it was");
+            let (lo, hi) = v.moved.expect("what moved");
+            let (from, to) = (lo.cmple(IVec3::new(11, 8, 3)).all() && hi.cmpge(IVec3::new(13, 14, 8)).all(), (hi - lo).cmple(IVec3::splat(12)).all());
+            assert!(from && to, "the cells it left and came to, no more: {lo} to {hi}");
+            if moved[1].rot == glam::Quat::IDENTITY {
+                assert_eq!((lo, hi), (IVec3::new(9, 7, 2), IVec3::new(13, 14, 8)), "on the grid: the box of both (the pivot in the middle of its bottom)");
+            }
+        }
+        v.repose(&w, &bank, &first, pieces_key(&bank, &first)).expect("moved back");
+        assert_eq!(v.copies, made, "moved back: the volume it was");
+        assert_eq!(v.repose(&w, &bank, &first[..1], 0), None, "fewer pieces");
+        let mut anew = ModelBank::default();
+        anew.add(&mut piece);
+        assert_eq!(v.repose(&w, &anew, &first, 0), None, "another bank");
     }
 
     /// A lamp walks from where it is in the open; in solid voxels from the

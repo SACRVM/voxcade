@@ -374,6 +374,8 @@ mod tests {
             ("origin", offset_of!(LampGlobals, origin)),
             ("info", offset_of!(LampGlobals, info)),
             ("movers", offset_of!(LampGlobals, movers)),
+            ("moved_lo", offset_of!(LampGlobals, moved_lo)),
+            ("moved_hi", offset_of!(LampGlobals, moved_hi)),
         ];
         use crate::render::movers::Solid;
         let solid = [("to_grid", offset_of!(Solid, to_grid)), ("grid", offset_of!(Solid, grid)), ("owner", offset_of!(Solid, owner))];

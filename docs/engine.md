@@ -894,10 +894,23 @@ tests.
   walls stop (the station's 1280 by 1200 by 288 voxels in 92 ms on all
   cores, 60 MB; Voxkeep's 1 ms), brought up to date chunk by chunk where
   the world changes (a blast: the blocks round it, every copy, only those
-  sent), made anew when a lamp reaches past it, the pieces change or
-  another level comes (not when a model drawn the first time joins the
-  model bank: `ModelBank::made`); at most 128 MB, past it said once and the lamps
-  shine through. A face asks whether a lamp reaches it from the middle of
+  sent), and where a piece moved (a figure posed anew every picture:
+  `Volume::repose`, the chunks it left and came to, the thin things of
+  their blocks on all cores; made anew whole every picture, a title with
+  a smoker lifting his hand under two spots in fog fell to 12 pictures a
+  second on the RX 9070 XT; test
+  `a_piece_moving_every_picture_is_taken_into_the_walls_in_place`), made
+  anew when a lamp reaches past it, other pieces come or go or another
+  level comes (not when a model drawn the first time joins the model
+  bank: `ModelBank::made`); at most 128 MB, past it said once and the
+  lamps shine through. A change walks the faces' answers again only
+  where their way passes within `MOVED_MARGIN` (66 voxels: two of the
+  top copy's cells and a face's rim) of the voxels that changed
+  (`Volume::moved`, `lamps.wgsl`'s `clear_of_moved`): the cells a walk
+  reads farther off are as they were, and so is its answer; the smoker's
+  lifting costs that title 7.8 ms of GPU against 3.3 still (11 to 14 ms
+  walking every answer again), on the Radeon 610M 236 against 70 (370),
+  FOG LOW 96 against 36 (138). A face asks whether a lamp reaches it from the middle of
   the cell in front of it (lit or dark as a whole, as the sun's voxel
   shadows): a walk from the lamp past empty space by the coarse copies,
   begun at the copy as long as the way, down a copy into a cell holding

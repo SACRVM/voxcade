@@ -22,11 +22,17 @@ struct Lamps {
     // xyz: the volume's low corner in the level's voxels (render::volume::Reach)
     origin: vec4<i32>,
     // x: the volume's state (changes when it does), y: the picture's
-    // number
+    // number, z: the state before where the volume changed only within
+    // `moved_lo` to `moved_hi` since (0: none, every answer of it walked
+    // again; clear_of_moved)
     info: vec4<u32>,
     // The moving things (render::movers, for lamps whose shadows are
     // "all"): x how many boxes (0: none).
     movers: vec4<i32>,
+    // The box round what changed since the state before, in the level's
+    // voxels, grown by render::lamps::MOVED_MARGIN
+    moved_lo: vec4<f32>,
+    moved_hi: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> lamps: Lamps;
@@ -589,6 +595,25 @@ fn fresh(word: u32, now: u32) -> bool {
     return ((now - (word >> 10u)) & 0x3fu) <= STALE;
 }
 
+// Whether the way to the middle of `cell` from `start` (a lamp's LAMP_FROM)
+// passes no nearer what changed in the volume since the state before than
+// a walk reads (the box round it, grown by render::lamps::MOVED_MARGIN):
+// every cell the walk reads is as it was, so an answer of the state before
+// is the walk's. A lamp buried, or no state before kept: never.
+fn clear_of_moved(cell: vec3<i32>, start: vec4<f32>) -> bool {
+    if (lamps.info.z == 0u || start.w > 0.5) {
+        return false;
+    }
+    let d = vec3<f32>(cell) + vec3<f32>(0.5) - start.xyz;
+    // (Along an axis hardly: the way's place on it decides, as by a slab.)
+    let inv = 1.0 / select(d, vec3<f32>(1e-6), abs(d) < vec3<f32>(1e-6));
+    let t0 = (lamps.moved_lo.xyz - start.xyz) * inv;
+    let t1 = (lamps.moved_hi.xyz - start.xyz) * inv;
+    let near = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), max(min(t0.z, t1.z), 0.0));
+    let far = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), min(max(t0.z, t1.z), 1.0));
+    return near > far;
+}
+
 // Whether walls stop the lamp at `lamp` lighting the face in front of
 // `cell`: `ids` the cell's part of the key, `lamp_ids` the lamp's (a hash of
 // its exact place, render::shader::LightData::of), so a key costs a few
@@ -632,6 +657,12 @@ fn stopped(cell: vec3<i32>, off: u32, lamp: vec4<f32>, ids: vec2<u32>, lamp_ids:
                 if (((word >> 10u) & 0x3fu) != now) {
                     seen[k + 1u] = (word & 0xffff03ffu) | (now << 10u);
                 }
+                return (word & 1u) == 1u;
+            }
+            // asked in the state before, its way nowhere near what changed
+            // since (a figure posed anew): still the walk's, now this one's
+            if ((word & (LAMP_STATES << 1u)) == ((lamps.info.z & LAMP_STATES) << 1u) && fresh(word, now) && clear_of_moved(cell, lamp)) {
+                seen[k + 1u] = (word & 0xffff0001u) | (now << 10u) | state;
                 return (word & 1u) == 1u;
             }
             // asked before the level changed, or long ago: walked again

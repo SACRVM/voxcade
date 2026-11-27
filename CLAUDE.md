@@ -2359,7 +2359,13 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_lamp_new_to_the_faces_memory_is_asked_for_first`); the walls
   changing while drawn (a wall taken away, set again) light and stop as
   a fresh renderer draws them (test
-  `a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it`). The upgrade step "lamps stopped by walls"
+  `a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it`); a
+  piece that moves (a figure posed anew every picture) is taken into the
+  walls where it moved, never made anew whole (`Volume::repose`; a
+  title's smoker fell to 12 pictures a second so), and only the answers
+  whose way passes within `MOVED_MARGIN` of what changed are walked again
+  (`Volume::moved`, `lamps.wgsl`'s `clear_of_moved`; test
+  `a_piece_moving_every_picture_is_taken_into_the_walls_in_place`). The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
   changes nothing. Moving things stop no `"static"` lamp.
   The upgrade step "see-through colors on the HUD" (0.7.0,
