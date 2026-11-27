@@ -2247,6 +2247,12 @@ player position, gunship state) is the quick numeric check. `shots/` is git-igno
   `a_wall_taken_away_and_set_again_lets_a_lamp_through_and_stops_it`). The upgrade step "lamps stopped by walls"
   (0.7.0) says which lights of a game and how to keep the old look; it
   changes nothing. Moving things stop no `"static"` lamp.
+  The upgrade step "see-through colors on the HUD" (0.7.0,
+  `upgrade/see_through.rs`, notes only) names each literal color with a
+  fourth value below 255 given to `frame:text`, `box`, `bar` and `drop_in`
+  or a letter of `c.icons` (0.6 dropped it and drew the color solid; it is
+  see-through since a9194a2): file and line, and to drop the value to keep
+  the old look; colors in variables are not followed.
 - Fog (0.7, the owner's names, the classic smooth way; `docs/engine.md`
   "Fog and beams"): `c.light.fog_density` (0 none unless set),
   `fog_color`, `fog_anisotropy`, `fog_glow` (0 to 20, 1: what the fog

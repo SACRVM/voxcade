@@ -54,10 +54,11 @@ const STEPS: &[Step] = &[
     // purpose (the repo's games and templates were brought over by it as
     // it came).
     Step { since: "0.7.0", name: "the title's song named", plan: title_song::plan, apply: title_song::apply, left: None },
+    Step { since: "0.7.0", name: "see-through colors on the HUD", plan: see_through::plan, apply: see_through::plan, left: None },
 ];
 
 /// The steps that only say what the author should change and write nothing.
-const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls", "kinds facing their way"];
+const NOTES_ONLY: &[&str] = &["no recorded sounds", "lamps stopped by walls", "kinds facing their way", "see-through colors on the HUD"];
 
 impl Step {
     /// Whether a game stating version `made` (None: none) needs the step.
@@ -468,6 +469,12 @@ mod facing;
 /// Step 0.7.0: the engine's title is silent unless `c.title_screen.music`
 /// names its song: the song it played before written into `conf.lua`.
 mod title_song;
+/// Step 0.7.0: a fourth value of a color given to the HUD's calls
+/// (`frame:text`, `box`, `bar`, `drop_in`) and to `c.icons` is see-through
+/// now (0.6 dropped it and drew the color solid): the step names each
+/// literal one by file and line and how to keep the old look; it changes
+/// nothing.
+mod see_through;
 
 /// The texts between quotes on a line of Lua.
 fn quoted_texts(line: &str) -> Vec<String> {

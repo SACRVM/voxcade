@@ -145,6 +145,13 @@ fn old_games() -> Vec<(&'static str, crate::scratch::Scratch)> {
             }),
         ),
         (
+            "see-through colors on the HUD",
+            game("step-see-through", &|d| {
+                put(d, "conf.lua", &conf(""));
+                put(d, "main.lua", SEE_THROUGH);
+            }),
+        ),
+        (
             "worlds and prefabs as text",
             game("step-worlds", &|d| {
                 put(d, "conf.lua", &conf("  c.world.file = \"world.vox\"\n"));
@@ -235,7 +242,7 @@ fn a_game_of_this_version_listing_models_is_brought_over() {
         put(d, "main.lua", "function on_world_start() end\n");
     });
     let Standing::Older { made: Some(_), steps } = standing(&dir).unwrap() else { panic!("not older") };
-    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code", "kinds facing their way", "the title's song named"]);
+    assert_eq!(steps.iter().map(|s| s.name).collect::<Vec<_>>(), ["no list of models", "lamps stopped by walls", "colors from 0 to 255", "names of 0.7", "music from the code", "kinds facing their way", "the title's song named", "see-through colors on the HUD"]);
     assert!(steps[1].would.is_empty(), "no lamps to speak of");
     let e = opens(&dir).unwrap_err().to_string();
     assert!(e.contains("made for Voxcade 0.6.0"), "{e}");
@@ -356,4 +363,47 @@ fn the_titles_song_is_named_where_the_title_played_the_first() {
         assert_eq!(said, ["conf.lua: the engine's title is silent now unless c.title_screen.music names its song: add c.title_screen.music = \"music/storm.mml\" to conf(c), after c.audio.music, for the song it played before (nothing is changed here)"], "{name}");
         assert_eq!(std::fs::read(dir.join("conf.lua")).unwrap(), before, "{name}");
     }
+}
+
+/// A script drawing the HUD with colors of every kind: the first four
+/// literals are see-through now, the last two solid.
+const SEE_THROUGH: &str = "function on_draw(frame)
+  frame:box(1, 1, 2, 2, { 10, 20, 30, 40 })
+  frame:text(\"HI\", 1, 1, \"#10203040\")
+  frame:bar(1, 1, 8, 2, 0.5, { 200, 0, 0 }, { 0, 0, 0, 90, })
+  frame:drop_in(\"GO\", 4, 4, 10, { 255, 255, 255, 128 }, 6)
+  frame:box(1, 1, 2, 2, { 10, 20, 30 })
+  frame:box(1, 1, 2, 2, { 10, 20, 30, 255 })
+  frame:text(\"#\", 1, 1, \"#102030ff\")
+  -- frame:box(1, 1, 2, 2, { 1, 2, 3, 4 })
+  local s = \"frame:box(1, 1, 2, 2, { 1, 2, 3, 4 })\"
+  frame:box(2, 2, 2, 2, shade)
+end
+";
+
+/// The step names the literal colors with a fourth value below 255 by file
+/// and line (a table, a "#rrggbbaa", a bar's back, an icon's letter), not
+/// solid ones, comments or strings, says once that colors in variables are
+/// not looked at, and changes nothing; a game without such a color has
+/// nothing to change.
+#[test]
+fn see_through_colors_are_named_never_changed() {
+    let games = old_games();
+    let (_, dir) = games.iter().find(|(n, _)| *n == "see-through colors on the HUD").unwrap();
+    put(dir, "conf.lua", "function conf(c)\n  c.voxcade = \"0.5.0\"\n  c.icons.heart = { rows = { \"a.\" }, colors = { a = { 200, 0, 0, 100 }, [\"b\"] = { 1, 2, 3 } } }\nend\n");
+    let step = STEPS.iter().find(|s| s.name == "see-through colors on the HUD").unwrap();
+    let before = files(dir);
+    let planned = (step.plan)(dir).unwrap();
+    assert_eq!(planned, (step.apply)(dir).unwrap());
+    assert_eq!(files(dir), before);
+    let lines: Vec<&str> = planned.iter().map(String::as_str).collect();
+    let at = |prefix: &str| lines.iter().any(|l| l.starts_with(prefix) && l.contains("see-through now, was solid") && l.contains("drop its fourth value"));
+    assert!(at("main.lua:2: frame:box: { 10, 20, 30, 40 }") && at("main.lua:3: frame:text: \"#10203040\"") && at("main.lua:4: frame:bar: { 0, 0, 0, 90, }") && at("main.lua:5: frame:drop_in: { 255, 255, 255, 128 }"), "{planned:#?}");
+    assert!(at("conf.lua:3: c.icons.heart.colors a = { 200, 0, 0, 100 }"), "{planned:#?}");
+    assert_eq!(lines.iter().filter(|l| l.contains("see-through now, was solid")).count(), 5, "no solid color, comment or string named: {planned:#?}");
+    assert_eq!(lines.iter().filter(|l| l.contains("not looked at")).count(), 1, "{planned:#?}");
+    // Nothing to say without a literal one.
+    put(dir, "main.lua", "function on_draw(frame)\n  frame:box(1, 1, 2, 2, { 10, 20, 30 })\n  frame:box(1, 1, 2, 2, shade)\nend\n");
+    put(dir, "conf.lua", "function conf(c)\n  c.voxcade = \"0.5.0\"\nend\n");
+    assert!((step.plan)(dir).unwrap().is_empty());
 }
